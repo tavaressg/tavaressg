@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Yama">
+<meta name="theme-color" content="#f4f4f6">
+<link rel="apple-touch-icon" href="logo.png">
+<link rel="manifest" href="manifest.json?v=1">
+<title>Yama · Jiu-Jitsu</title>
+<link rel="stylesheet" href="fonts.css?v=1">
+<link rel="stylesheet" href="app.css?v=65">
+</head>
+<body>
+<!-- Splash screen -->
+<div id="splash">
+  <img class="sp-logo" src="yama-logo.png" alt="Yama Jiu-Jitsu">
+  <div class="sp-name">Yama Jiu-Jitsu</div>
+  <div class="sp-dots"><i></i><i></i><i></i></div>
+</div>
+
+<div class="phone" id="app">
+  <div id="root"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="app.js?v=87"></script>
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
+</body>
+</html>
