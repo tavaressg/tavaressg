@@ -8,6 +8,8 @@
 const $ = (s, el=document) => el.querySelector(s);
 const el = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstElementChild; };
 function safeTxt(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+// escape para uso dentro de atributos HTML ("..."): cobre aspas além de <>&
+function safeAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function openSheet(node){ const close=()=>{ node.classList.remove('open'); setTimeout(()=>node.remove(),260); }; node.onclick=(e)=>{ if(e.target===node) close(); }; document.body.appendChild(node); requestAnimationFrame(()=>node.classList.add('open')); return close; }
 const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const diasSem = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
@@ -60,7 +62,7 @@ const CBJJ = {
     {name:'Master 7',age_min:61,age_max:null},
   ],
   adult_belts: [
-    {belt:'branca', min_age:0,  min_months:0,  next:'azul',   stripes:4},
+    {belt:'branca', min_age:0,  min_months:12, next:'azul',   stripes:4},
     {belt:'azul',   min_age:16, min_months:24, next:'roxa',   stripes:4,
       reductions:[
         {cond:'Cadastro anterior em Cinza/Amarelo/Laranja', months:12},
@@ -351,7 +353,7 @@ const SCHEMA = 1;
 const _FB = [53,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
 // DEMO já definido no topo (vitrine ?demo=1)
 // chaves de DB que pertencem ao usuário (persistidas)
-const USER_KEYS = ['eu','treinos','graduacoes','checkinHoje','semana','notas','lesoes','notificacoes','retro','analytics'];
+const USER_KEYS = ['eu','treinos','graduacoes','checkinHoje','semana','notas','lesoes','notificacoes','retro','analytics','links'];
 // campos de progresso pessoal por técnica
 const TEC_PROG = ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev','nota','nivel'];
 
@@ -371,6 +373,10 @@ function save(){
 }
 let _saveT=null;
 function scheduleSave(){ if(!STORAGE_OK) return; clearTimeout(_saveT); _saveT=setTimeout(save,1200); }
+// flush imediato: garante que um save pendente não se perca ao fechar/minimizar o PWA
+function flushSave(){ if(!STORAGE_OK || DEMO) return; clearTimeout(_saveT); _saveT=null; save(); }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushSave(); });
+window.addEventListener('pagehide', flushSave);
 
 function load(){
   if(!STORAGE_OK) return false;
@@ -528,8 +534,8 @@ function rtLimpar(jp){ const t=DB.tecnicas.find(x=>x.jp===jp); if(t){ t.hojeA=0;
 // cartão Renshū de uma técnica (nome + tradução PT + Deu certo/Não deu)
 function renshuCardNode(t){
   const errou=(t.hojeT||0)-(t.hojeA||0);
-  const card=el(`<div class="rs-pcard" data-jp="${t.jp}">
-    <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${t.jp}</span><div class="rs-sub">${t.pt||''}</div></div>
+  const card=el(`<div class="rs-pcard" data-jp="${safeAttr(t.jp)}">
+    <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${safeTxt(t.jp)}</span><div class="rs-sub">${safeTxt(t.pt||'')}</div></div>
       <div class="rs-acts">${(t.hojeT||0)>0?`<button class="rs-reset" data-act="limpar">limpar</button>`:''}</div></div>
     <div class="rs-row ok"><span>Deu certo!</span>
       <div class="rs-stepper"><button data-act="a-">−</button><b>${t.hojeA||0}</b><button class="plus" data-act="a+">＋</button></div></div>
@@ -566,18 +572,21 @@ function registroBody(){
       const avg=Math.round(_media(focos.map(t=>totaisTec(t).p)));
       wrap.appendChild(el(`<div class="rz-card">
         <div class="rz-head"><span class="rz-lab">Em treino · ${focos.length}</span><span class="rz-avg">${avg}% acerto médio</span></div>
-        ${focos.map(t=>{const{p}=totaisTec(t);return `<div class="rz-item"><span class="rz-nm">${t.jp}</span><div class="rz-bar"><span style="width:${p}%;background:${corPct(p)}"></span></div><span class="rz-pct" style="color:${corPct(p)}">${p}%</span></div>`;}).join('')}
+        ${focos.map(t=>{const{p}=totaisTec(t);return `<div class="rz-item"><span class="rz-nm">${safeTxt(t.jp)}</span><div class="rz-bar"><span style="width:${p}%;background:${corPct(p)}"></span></div><span class="rz-pct" style="color:${corPct(p)}">${p}%</span></div>`;}).join('')}
       </div>`));
       wrap.appendChild(el(`<div class="fsec-title"><span class="ico">🎯</span> O que deu certo no rolê?</div>`));
       focos.forEach(t=> wrap.appendChild(renshuCardNode(t)));
     } else {
-      wrap.appendChild(el(`<div class="rs-empty-foco">Nenhuma técnica em foco. Escolha as técnicas que vai treinar na aba <b>Progresso</b>.</div>`));
+      wrap.appendChild(el(`<div class="rs-empty-foco">Você ainda não tem técnicas em foco.<br>Escolha as que vai treinar para acompanhar sua evolução.</div>`));
+      const efb=el(`<button class="rs-add" style="margin:2px 0 4px">＋ Escolher técnicas</button>`);
+      efb.onclick=()=>rsAddFoco();
+      wrap.appendChild(efb);
     }
   }
   // 3) nota rápida — sempre visível, opcional
   const notaSec=el(`<div class="fsec">
     <div class="fsec-title"><span class="ico">📝</span> Nota rápida <small>(opcional)</small></div>
-    <textarea class="ta" id="reg-nota" placeholder="Algo que queira lembrar do treino…">${reg.nota||''}</textarea>
+    <textarea class="ta" id="reg-nota" placeholder="Algo que queira lembrar do treino…">${safeTxt(reg.nota||'')}</textarea>
   </div>`);
   notaSec.querySelector('#reg-nota').oninput=(e)=>{ reg.nota=e.target.value; _autosaveDraft(); };
   wrap.appendChild(notaSec);
@@ -599,10 +608,11 @@ function registroBody(){
 // salvar — único, usado pela aba Renshū e pelo botão +
 let _salvarLock=false;
 function salvar(){
-  if(_salvarLock) return; _salvarLock=true; setTimeout(()=>{ _salvarLock=false; }, 1500);
+  if(_salvarLock) return;
   const reg = DB.registro;
   if(reg.randori===null){ toast('Você fez randori hoje?'); return; }
   if(!reg.mood){ toast('Avalie como foi o treino (1–5)'); return; }
+  _salvarLock=true; setTimeout(()=>{ _salvarLock=false; }, 1500);
   const today=_WD[hoje.getDay()];
   const reps = reg.randori ? focoTecnicas().filter(t=>(t.hojeT||0)>0) : [];
   const det = { randori:reg.randori, renshu:reps.map(t=>({jp:t.jp,a:t.hojeA||0,t:t.hojeT})), nota:(reg.nota||'').trim(), feel:reg.mood };
@@ -620,6 +630,7 @@ function salvar(){
   const novoId = Date.now();
   const tecLabel = reps.length ? ('Renshū · '+det.renshu.map(r=>r.jp).join(', ')) : (reg.randori?'Treino com randori':'Treino (sem randori)');
   DB.treinos.unshift({ id:novoId, tipo:aula.tipo, data:HOJE_ISO, titulo:aula.label, tecnica:tecLabel, mood:FEEL_LABEL[reg.mood], feel:reg.mood, det });
+  DB.justSaved = novoId;   // marca o treino recém-salvo p/ oferecer compartilhar na Home (efêmero, some no reload)
   track('treino_registrado', { randori:reg.randori, tecnicas:reps.length, feel:reg.mood, total:DB.treinos.length });
   DB.registro = { randori:null, nota:'', mood:null };
   _clearDraft();
@@ -634,7 +645,7 @@ function rsRemoverFoco(jp){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Tirar do foco?</div>
-    <div class="sheet-desc">Você para de praticar <b>"${t.jp}"</b>, mas ela fica guardada na <b>Biblioteca</b> pra voltar quando quiser. O histórico não é apagado.</div>
+    <div class="sheet-desc">Você para de praticar <b>"${safeTxt(t.jp)}"</b>, mas ela fica guardada na <b>Biblioteca</b> pra voltar quando quiser. O histórico não é apagado.</div>
     <button class="btn-save" id="rs-confirm">Tirar do foco</button>
     <button class="sheet-cancel" id="rs-cancel">Cancelar</button>
   </div></div>`);
@@ -660,7 +671,7 @@ function rsAddFoco(){
   </div></div>`);
   const list = sheet.querySelector('#rs-picklist');
   cands.forEach(({t})=>{
-    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${t.jp}</div><div class="ts">${t.pt||''} · ${plural(t.treinos||0,'treino','treinos')}</div></div><span class="rs-pk-go">＋</span></div>`);
+    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')} · ${plural(t.treinos||0,'treino','treinos')}</div></div><span class="rs-pk-go">＋</span></div>`);
     row.onclick=()=>{ t.estado='foco'; track('foco_add',{jp:t.jp}); sheet.remove(); render(); toast('No foco — bora praticar'); };
     list.appendChild(row);
   });
@@ -726,6 +737,37 @@ function renderAluno(){
   return v;
 }
 
+/* === GRADUAÇÃO · contagem de aulas (dedup por dia + reset por grau) ===
+   Fonte ÚNICA da verdade do progresso por aulas, usada na Home e na Jornada.
+   "Aula" = DIA distinto com treino registrado (2 registros no mesmo dia = 1).
+   O grau atual conta só dias DESDE a data em que o grau começou → ao receber
+   um novo grau/faixa a barra reinicia sozinha (sem acúmulo eterno). === */
+function maxGrausDe(faixa){ return faixa==='preta' ? 6 : 4; }
+function _treinoDays(){ return new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); }
+function _countSince(set, sinceISO){ if(!sinceISO) return set.size; let c=0; set.forEach(d=>{ if(d>=sinceISO) c++; }); return c; }
+// data em que o grau ATUAL começou (entrada de grau; cai p/ a faixa se grau 0 ou sem registro)
+function _refDataGrauAtual(){
+  const me=DB.eu, g=DB.graduacoes||[]; let e=null;
+  if(me.graus>0) e=g.find(x=>x.tipo==='grau' && x.faixa===me.faixa && x.graus===me.graus);
+  if(!e) e=g.find(x=>x.tipo==='faixa' && x.faixa===me.faixa);
+  return e ? e.data : null;
+}
+// data em que a FAIXA atual começou
+function _refDataFaixaAtual(){ const e=(DB.graduacoes||[]).find(x=>x.tipo==='faixa' && x.faixa===DB.eu.faixa); return e?e.data:null; }
+function aulasStats(){
+  const me=DB.eu;
+  const meta=(me.aulasGrau&&me.aulasGrau.meta)||40;
+  const base=(me.aulasGrau&&me.aulasGrau.base)||0;
+  if(DEMO){ const atual=me.aulasGrau.atual||0;
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:me.aulasGraduacao||0 }; }
+  const dias=_treinoDays();
+  const noGrau=base + _countSince(dias, _refDataGrauAtual());        // aulas no grau atual
+  const atual=Math.min(meta, noGrau);
+  const naFaixa=base + _countSince(dias, _refDataFaixaAtual());      // aulas na faixa atual (estimativa p/ próxima faixa)
+  const restantes=Math.max(0, (me.aulasGraduacao||160) - naFaixa);
+  return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
+}
+
 function alunoInicio(){
   const w = el('<div></div>');
   const me = DB.eu;
@@ -739,7 +781,7 @@ function alunoInicio(){
     </div>
     <div class="kh-divider"></div>
     <div class="profile-photo" style="width:${sz}px;height:${sz}px;margin-top:${-Math.round(sz/2)}px;font-size:${Math.round(sz*0.34)}px">
-      <span class="pp-ini">${me.iniciais}</span>
+      <span class="pp-ini">${safeTxt(me.iniciais)}</span>
       <img src="${me.foto||''}" onerror="this.remove()" alt="">
     </div>
     <div class="profile-name">${me.nomeCompleto && me.nomeCompleto!==me.apelido ? safeTxt(me.nomeCompleto)+' | ' : ''}${safeTxt(me.apelido)}</div>
@@ -748,17 +790,15 @@ function alunoInicio(){
   w.appendChild(head);
 
   // ---- Faixa / progresso compacto (ACIMA do registrar) — DINÂMICO ----
-  const metaG = me.aulasGrau.meta||40;
-  const atualG = DEMO ? me.aulasGrau.atual : Math.min(metaG, DB.treinos.length + (me.aulasGrau.base||0));
-  const pctGrau = Math.round(atualG / metaG * 100);
-  const faltam = Math.max(0, metaG - atualG);
+  const ag = aulasStats();
+  const noMaxGrau = me.graus >= maxGrausDe(me.faixa);
   const prog = el(`<div class="prog-mini">
     <div class="pm-top">
       <div class="pm-belt">${beltMini(me.faixa, me.graus)}</div>
-      <span class="pm-num">${atualG}/${metaG}</span>
+      <span class="pm-num">${ag.atual}/${ag.meta}</span>
     </div>
-    <div class="mini-bar"><span style="width:${pctGrau}%"></span></div>
-    <div class="pm-foot">${plural(faltam,'aula','aulas')} para o ${me.graus+1}º grau →</div>
+    <div class="mini-bar"><span style="width:${ag.pct}%"></span></div>
+    <div class="pm-foot">${plural(ag.faltam,'aula','aulas')} para ${noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau'} →</div>
   </div>`);
   prog.onclick = ()=>{ DB.jornadaTab='graduacao'; goAluno('jornada'); };
   w.appendChild(prog);
@@ -773,7 +813,7 @@ function alunoInicio(){
     const foco = el(`<div class="foco-card">
       <div class="foco-top"><span class="foco-ic">🎯</span>
         <span class="foco-lbl">Trabalhando em</span></div>
-      <div class="foco-chips">${focosHome.map(t=>`<span class="foco-chip">${t.jp}</span>`).join('')}</div>
+      <div class="foco-chips">${focosHome.map(t=>`<span class="foco-chip">${safeTxt(t.jp)}</span>`).join('')}</div>
     </div>`);
     foco.querySelectorAll('.foco-chip').forEach(c=> c.onclick = ()=>{ DB.navAluno='jogo'; DB.jogoTab='progresso'; render(); });
     w.appendChild(foco);
@@ -800,7 +840,14 @@ function alunoInicio(){
     const hist = el(`<div class="history"></div>`);
     DB.treinos.slice(0,3).forEach(tr=>{
       const item = histItem(tr, true); item.onclick = ()=> abrirTreino(tr.id);
-      hist.appendChild(item);
+      if(tr.id===DB.justSaved){
+        const box=el(`<div class="hist-just"></div>`);
+        box.appendChild(item);
+        const sb=el(`<button class="hist-share" aria-label="Compartilhar treino">📲 Compartilhar treino</button>`);
+        sb.onclick=(e)=>{ e.stopPropagation(); abrirShare(tr.id); };
+        box.appendChild(sb);
+        hist.appendChild(box);
+      } else hist.appendChild(item);
     });
     w.appendChild(hist);
   }
@@ -843,7 +890,7 @@ function histItem(t, dateMode){
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
   const e = el(`<div class="h-item h-${t.tipo}">
     <div class="h-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
-    <div class="h-tx"><div class="t">${t.titulo}</div><div class="d">${sub}</div></div>
+    <div class="h-tx"><div class="t">${safeTxt(t.titulo)}</div><div class="d">${safeTxt(sub)}</div></div>
     <div class="h-right">${right}</div></div>`);
   return e;
 }
@@ -1180,7 +1227,7 @@ function renderTreinoDetalhe(){
   const sensTxt = t.feel ? `Sensação · ${FEEL_LABEL[t.feel]}` : '';
   body.appendChild(el(`<div class="det-hero h-${t.tipo}">
     <div class="dh-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
-    <div class="dh-tx"><div class="dh-t">${t.tecnica}</div>
+    <div class="dh-tx"><div class="dh-t">${safeTxt(t.tecnica)}</div>
       <div class="dh-mood">${sensTxt}</div></div></div>`));
   const btnShare = el(`<button class="share-btn">📲 Compartilhar treino</button>`);
   btnShare.onclick = ()=> abrirShare(t.id);
@@ -1218,7 +1265,7 @@ function renderTreinoDetalhe(){
     if (det.fotos && det.fotos.length){
       body.appendChild(el(`<div class="fsec-title" style="margin-top:14px"><span class="ico">📸</span> Fotos</div>`));
       const fg = el(`<div class="foto-grid" style="padding:0 20px"></div>`);
-      det.fotos.forEach(src=> fg.appendChild(el(`<div class="foto-th"><img src="${src}" alt=""></div>`)));
+      det.fotos.forEach(src=> fg.appendChild(el(`<div class="foto-th"><img src="${safeAttr(src)}" alt=""></div>`)));
       body.appendChild(fg);
     }
   }
@@ -1410,7 +1457,7 @@ function renderShare(){
       navigator.clipboard.write([item]).then(()=>toast('Copiado ✔ cole no seu story 📲')).catch(()=>toast('Não rolou copiar; use Baixar PNG'));
     }catch(err){ toast('Não rolou copiar; use Baixar PNG'); }
   };
-  ctrl.querySelector('#share-dl').onclick=()=> cv.toBlob(b=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='yama-treino.png'; document.body.appendChild(a); a.click(); a.remove(); toast('PNG baixado ✔'); });
+  ctrl.querySelector('#share-dl').onclick=()=> cv.toBlob(b=>{ const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download='yama-treino.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); toast('PNG baixado ✔'); });
   body.appendChild(ctrl);
   v.appendChild(body);
   return v;
@@ -1486,7 +1533,7 @@ function evoluirAnalise(){
     const al = el(`<div class="arsenal-list"></div>`);
     arsenalArr.forEach(({t,p})=>{
       const row = el(`<div class="ars-row">
-        <div class="ars-tx"><div class="tn">${t.jp}</div><div class="ts">${t.pt||''}</div></div>
+        <div class="ars-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')}</div></div>
         <div class="ars-bar"><span style="width:${p}%"></span></div>
         <span class="ars-pct">${p}%</span></div>`);
       const i = DB.tecnicas.findIndex(x=>x.jp===t.jp);
@@ -1572,7 +1619,7 @@ function evoluirProgresso(){
   focos.forEach(t=>{
     const {T,A,p} = totaisTec(t);
     const card = el(`<div class="sc-card"></div>`);
-    const head = el(`<div class="sc-head"><span class="sc-name">${t.jp}</span><button class="sc-rm" title="tirar do foco">✕</button></div>`);
+    const head = el(`<div class="sc-head"><span class="sc-name">${safeTxt(t.jp)}</span><button class="sc-rm" title="tirar do foco">✕</button></div>`);
     head.querySelector('.sc-rm').onclick = ()=> rsRemoverFoco(t.jp);
     card.appendChild(head);
     if(T===0){
@@ -1620,13 +1667,13 @@ function bibConnectSub(de){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Conectar subtécnica</div>
-    <div class="sheet-desc">Pra onde a <b>"${de}"</b> costuma levar? A conexão monta seu mapa de jogo.</div>
+    <div class="sheet-desc">Pra onde a <b>"${safeTxt(de)}"</b> costuma levar? A conexão monta seu mapa de jogo.</div>
     <div class="rs-picklist" id="bc-list"></div>
     <button class="sheet-cancel" id="bc-cancel">Cancelar</button>
   </div></div>`);
   const list = sheet.querySelector('#bc-list');
   cands.forEach(t=>{
-    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${t.jp}</div><div class="ts">${t.pt||''}</div></div><span class="rs-pk-go">＋</span></div>`);
+    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')}</div></div><span class="rs-pk-go">＋</span></div>`);
     row.onclick=()=>{ DB.links.push({de, para:t.jp}); sheet.remove(); render(); toast('Subtécnica conectada'); };
     list.appendChild(row);
   });
@@ -1657,8 +1704,8 @@ function evoluirBiblioteca(){
     due.slice(0,4).forEach(({t,i,dias})=>{
       const row = el(`<div class="tec-row rev-row">
         <div class="tec-ic rev-ic">🔁</div>
-        <div class="tec-tx"><div class="tn">${t.jp}</div>
-          <div class="ts">${t.pt} · faz ${dias} dias</div></div>
+        <div class="tec-tx"><div class="tn">${safeTxt(t.jp)}</div>
+          <div class="ts">${safeTxt(t.pt)} · faz ${dias} dias</div></div>
         <button class="rev-ok" title="Revisei">✓</button></div>`);
       row.querySelector('.rev-ok').onclick = (e)=>{ e.stopPropagation(); marcarRevisado(i); };
       row.onclick = ()=> bibToggle(t.jp);
@@ -1706,21 +1753,21 @@ function bibCardNode(t, st){
   const tagTxt = `${t.oficial?'Kodokan':'Kosen'}`;
   const card = el(`<div class="rep-card">
     <div class="rep-row">
-      <div class="rep-tx"><div class="rep-nm">${t.jp}${r.due?' <span class="rev-dot" title="revisar"></span>':''}</div>
-        <div class="rep-st">${t.pt||''} · ${tagTxt} · ${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}</div></div>
+      <div class="rep-tx"><div class="rep-nm">${safeTxt(t.jp)}${r.due?' <span class="rev-dot" title="revisar"></span>':''}</div>
+        <div class="rep-st">${safeTxt(t.pt||'')} · ${tagTxt} · ${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}</div></div>
       <span class="rep-caret">${exp?'⌄':'›'}</span>
     </div>
     ${exp?`<div class="rep-sub">
       <div class="rs-lab">Estatísticas</div>
       ${bibStats(t)}
-      ${t.nota?`<div class="rs-lab">Sua anotação</div><div class="det-nota">${t.nota}</div>`:''}
+      ${t.nota?`<div class="rs-lab">Sua anotação</div><div class="det-nota">${safeTxt(t.nota)}</div>`:''}
       <div class="rs-lab">Revisão espaçada</div>
       <div class="bib-rev ${r.due?'due':''}">${r.due?`faz ${r.dias} dias — passou do intervalo de ${r.alvo}d`:`em dia · revisada faz ${r.dias}d (intervalo ${r.alvo}d)`}</div>
       ${st==='guardada'?`<button class="rs-add voltar" data-act="voltar">↩ voltar a praticar</button>`:(st==='aprendida'?`<button class="rs-add voltar" data-act="voltar">＋ colocar no foco</button>`:'')}
       <div class="rs-lab">Vem de (pré-técnicas)</div>
-      ${pres.length?pres.map(s=>`<div class="rs-item"><span>${s} →</span><button data-del-de="${s}" data-del-para="${t.jp}">✕</button></div>`).join(''):'<div class="rs-empty">nada apontando pra cá ainda</div>'}
+      ${pres.length?pres.map(s=>`<div class="rs-item"><span>${safeTxt(s)} →</span><button data-del-de="${safeAttr(s)}" data-del-para="${safeAttr(t.jp)}">✕</button></div>`).join(''):'<div class="rs-empty">nada apontando pra cá ainda</div>'}
       <div class="rs-lab">Leva pra (subtécnicas)</div>
-      ${subs.length?subs.map(s=>`<div class="rs-item"><span>→ ${s}</span><button data-del-de="${t.jp}" data-del-para="${s}">✕</button></div>`).join(''):'<div class="rs-empty">nenhuma ainda</div>'}
+      ${subs.length?subs.map(s=>`<div class="rs-item"><span>→ ${safeTxt(s)}</span><button data-del-de="${safeAttr(t.jp)}" data-del-para="${safeAttr(s)}">✕</button></div>`).join(''):'<div class="rs-empty">nenhuma ainda</div>'}
       <button class="rs-add" data-act="connect">＋ conectar subtécnica</button>
       <div class="bib-actions">
         <button class="bib-btn" data-act="revisar">Marcar revisado</button>
@@ -1766,7 +1813,7 @@ function evoluirGraduacao(){
     const allOk = eleg.checks.filter(c=>c.ok===true).length;
     const total = eleg.checks.filter(c=>c.ok!=null).length;
     const statusCls = eleg.eligible ? 'cbjj-ok' : 'cbjj-wait';
-    const statusTxt = eleg.eligible ? 'Elegivel para promocao' : `${allOk}/${total} requisitos atendidos`;
+    const statusTxt = eleg.eligible ? 'Elegivel para promocao' : (total>0 ? `${allOk}/${total} requisitos atendidos` : 'Complete seu perfil para ver os requisitos');
     w.appendChild(el(`<div class="cbjj-ready ${statusCls}">
       <div class="cbjj-head">
         ${beltMini(eleg.nextBelt, 0)}
@@ -1782,21 +1829,16 @@ function evoluirGraduacao(){
     });
   }
 
-  const metaG = me.aulasGrau.meta||40;
-  const atualG = DEMO ? me.aulasGrau.atual : Math.min(metaG, DB.treinos.length + (me.aulasGrau.base||0));
-  const pctGrau = Math.round(atualG / metaG * 100);
-  const faltam = Math.max(0, metaG - atualG);
-  const totalAulas = DB.treinos.length + (me.aulasGrau.base||0);
-  const restantes = DEMO ? me.aulasGraduacao : Math.max(0, (me.aulasGraduacao||160) - totalAulas);
+  const ag = aulasStats();
   const paceSem = DEMO ? 3 : Math.round(paceSemanal()*10)/10;
-  const pace = DEMO ? 13 : paceMensal();
+  const grauLbl = (me.graus >= maxGrausDe(me.faixa)) ? 'p/ proxima faixa' : 'p/ proximo grau';
   w.appendChild(el(`<div class="mod-card aulas-card">
     <div class="mod-title" style="font-size:13px">Progresso por aulas</div>
     <div class="mod-grid">
-      <div class="mc"><div class="big" style="font-size:18px">${atualG}/${metaG}</div>
-        <div class="lbl">${plural(faltam,'aula','aulas')} p/ proximo grau</div>
-        <div class="mini-bar"><span style="width:${pctGrau}%"></span></div></div>
-      <div class="mc bd"><div class="big" style="font-size:18px">~${restantes}</div>
+      <div class="mc"><div class="big" style="font-size:18px">${ag.atual}/${ag.meta}</div>
+        <div class="lbl">${plural(ag.faltam,'aula','aulas')} ${grauLbl}</div>
+        <div class="mini-bar"><span style="width:${ag.pct}%"></span></div></div>
+      <div class="mc bd"><div class="big" style="font-size:18px">~${ag.restantes}</div>
         <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem</div></div>
     </div>
   </div>`));
@@ -1814,7 +1856,14 @@ function evoluirGraduacao(){
   w.appendChild(tlHead);
   const tl = el(`<div class="timeline"></div>`);
   const grads = [...(DB.graduacoes||[])].sort((a,b)=>b.data.localeCompare(a.data));
-  if(!grads.length) tl.appendChild(el(`<div class="tl-empty">Nenhuma graduação registrada.<br>Importe seu histórico para visualizar.</div>`));
+  if(!grads.length){
+    tl.appendChild(el(`<div class="tl-empty">Nenhuma graduação registrada.<br>Importe seu histórico para ver sua linha do tempo e calcular a próxima faixa.</div>`));
+    if(!DB.eu.gradLocked){
+      const impB=el(`<button class="btn-ghost" style="margin-top:10px">📜 Importar histórico de graduação</button>`);
+      impB.onclick=()=>abrirImportGrad();
+      tl.appendChild(impB);
+    }
+  }
   grads.forEach(g=>{
     const x = BELTS[g.faixa];
     if(!x) return;
@@ -1822,14 +1871,24 @@ function evoluirGraduacao(){
     const [y,m,d] = g.data.split('-');
     const dataFmt = `${d}/${m}/${y}`;
     tl.appendChild(el(`<div class="tl-item">
-      <div class="tl-dot" style="background:${x.cor}22">${g.tipo==='faixa'?'🥋':'⭐'}</div>
-      <div class="tl-tx"><div class="t">${titulo}</div>
+      <div class="tl-rail"><span class="tl-dot" style="background:${x.cor}"></span><span class="tl-conn"></span></div>
+      <div class="tl-tx">
+        <div class="tl-belt">${beltMini(g.faixa, g.tipo==='grau'?g.graus:0)}</div>
+        <div class="t">${titulo}</div>
         <div class="dt">${dataFmt}</div></div></div>`));
   });
   w.appendChild(tl);
   return w;
 }
 
+// conversão de data: ISO (AAAA-MM-DD) ↔ BR (DD/MM/AAAA) para entrada manual no import
+function _isoToBr(iso){ if(!iso) return ''; const p=iso.split('-'); return (p.length===3) ? `${p[2]}/${p[1]}/${p[0]}` : ''; }
+function _brToIso(br){ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return ''; const d=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||d<1||d>31||y<1950||y>2100) return ''; return `${m[3]}-${m[2]}-${m[1]}`; }
+// normaliza entradas de graduação: descarta sem data, corrige graus por tipo (faixa=0, grau≥1), ordena por data. Retorna null se nenhuma válida.
+function _normalizeGrad(entries){
+  const valid=(entries||[]).filter(e=>e&&e.data).map(e=>{ const g={...e}; if(g.tipo==='faixa') g.graus=0; else if(!(g.graus>=1)) g.graus=1; return g; });
+  return valid.length ? valid.sort((a,b)=>a.data.localeCompare(b.data)) : null;
+}
 function abrirImportGrad(){
   const isCorrecao = !!DB.eu.gradLocked;
   const title = isCorrecao ? 'Corrigir histórico' : 'Importar histórico de graduação';
@@ -1853,29 +1912,50 @@ function abrirImportGrad(){
     const list = sheet.querySelector('#grad-list');
     entries.forEach((e,i)=>{
       const bOpts = ADULT_BELTS.map(b=>`<option value="${b}" ${e.faixa===b?'selected':''}>${BELTS[b].nome}</option>`).join('');
-      const row = el(`<div class="grad-entry" style="margin-bottom:14px;padding:14px;background:var(--field);border-radius:14px">
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      // input de graus SEMPRE presente (escondido qd faixa) → trocar o tipo não reconstrói a sheet (sem perda de dados)
+      const row = el(`<div class="grad-entry">
+        <div class="ge-prev"></div>
+        <div class="ge-line">
           <select class="inp" style="flex:1" data-field="faixa">${bOpts}</select>
-          <select class="inp" style="width:80px" data-field="tipo">
+          <select class="inp" style="width:88px" data-field="tipo">
             <option value="faixa" ${e.tipo==='faixa'?'selected':''}>Faixa</option>
             <option value="grau" ${e.tipo==='grau'?'selected':''}>Grau</option>
           </select>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
-          <input class="inp" type="date" data-field="data" value="${e.data}" style="flex:1">
-          ${e.tipo==='grau'?`<input class="inp" type="number" data-field="graus" value="${e.graus||0}" min="0" max="6" style="width:60px" placeholder="Grau">`:''}
+        <div class="ge-line">
+          <input class="inp" type="text" inputmode="numeric" maxlength="10" data-field="data" value="${_isoToBr(e.data)}" placeholder="DD/MM/AAAA" style="flex:1">
+          <input class="inp ge-graus" type="number" data-field="graus" value="${e.graus||1}" min="1" max="6" style="width:64px;${e.tipo==='grau'?'':'display:none'}" placeholder="Grau">
           <button class="sc-rm" data-del="${i}" title="Remover">✕</button>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+        <div class="ge-line">
           <input class="inp" type="number" data-field="aulas" value="${e.aulas||0}" min="0" style="flex:1" placeholder="Aulas neste grau">
-          <span style="font-size:13px;color:var(--muted);white-space:nowrap">aulas feitas</span>
+          <span class="ge-lbl">aulas feitas</span>
         </div>
       </div>`);
-      row.querySelectorAll('[data-field]').forEach(inp=>{
-        inp.onchange=()=>{ const f=inp.dataset.field; entries[i][f]=(f==='graus'||f==='aulas')?+inp.value:inp.value; };
-      });
-      const del=row.querySelector('[data-del]');
-      if(del) del.onclick=()=>{ entries.splice(i,1); sheet.remove(); renderSheet(); };
+      const prev = row.querySelector('.ge-prev');
+      const grausInp = row.querySelector('.ge-graus');
+      const drawPrev = ()=>{ prev.innerHTML = beltMini(entries[i].faixa, entries[i].tipo==='grau'?(entries[i].graus||0):0); };
+      drawPrev();
+      // commits em tempo real (input) → entries[] sempre atual; add/excluir não perdem nada
+      row.querySelector('[data-field="faixa"]').onchange=(ev)=>{ entries[i].faixa=ev.target.value; drawPrev(); };
+      const tipoSel = row.querySelector('[data-field="tipo"]');
+      tipoSel.onchange=()=>{
+        entries[i].tipo = tipoSel.value;
+        if(entries[i].tipo==='faixa'){ entries[i].graus=0; grausInp.style.display='none'; }
+        else { if(!(entries[i].graus>=1)) entries[i].graus=1; grausInp.value=entries[i].graus; grausInp.style.display=''; }
+        drawPrev();
+      };
+      row.querySelector('[data-field="data"]').oninput=(ev)=>{
+        let d=ev.target.value.replace(/\D/g,'').slice(0,8);
+        let out=d;
+        if(d.length>4) out=d.slice(0,2)+'/'+d.slice(2,4)+'/'+d.slice(4);
+        else if(d.length>2) out=d.slice(0,2)+'/'+d.slice(2);
+        ev.target.value=out;
+        entries[i].data=_brToIso(out);
+      };
+      row.querySelector('[data-field="aulas"]').oninput=(ev)=>{ entries[i].aulas=+ev.target.value||0; };
+      grausInp.oninput=(ev)=>{ entries[i].graus=+ev.target.value||0; drawPrev(); };
+      row.querySelector('[data-del]').onclick=()=>{ entries.splice(i,1); sheet.remove(); renderSheet(); };
       list.appendChild(row);
     });
 
@@ -1885,9 +1965,9 @@ function abrirImportGrad(){
     };
 
     sheet.querySelector('#grad-save').onclick=()=>{
-      const valid = entries.filter(e=>e.data);
-      if(!valid.length){ toast('Adicione pelo menos uma graduação com data'); return; }
-      DB.graduacoes = valid.sort((a,b)=>a.data.localeCompare(b.data));
+      const valid = _normalizeGrad(entries);
+      if(!valid){ toast('Adicione pelo menos uma graduação com data'); return; }
+      DB.graduacoes = valid;
       const last = DB.graduacoes[DB.graduacoes.length-1];
       DB.eu.aulasGrau = Object.assign(DB.eu.aulasGrau, { base: last.aulas||0 });
       if(isCorrecao) DB.eu.gradCorrecaoDone = true;
@@ -1952,13 +2032,13 @@ function abrirTecnica(i){
     <div class="sheet-grip"></div>
     <div class="tec-sheet-head">
       <div class="tec-ic" style="width:52px;height:52px;font-size:26px">${c.emoji}</div>
-      <div><div class="tec-sheet-name">${t.jp}</div>
-        <div class="ts">${t.pt}</div></div>
+      <div><div class="tec-sheet-name">${safeTxt(t.jp)}</div>
+        <div class="ts">${safeTxt(t.pt)}</div></div>
       <span class="niv-badge ${cor}" style="margin-left:auto">${nl}</span>
     </div>
     <div class="tec-sheet-meta">${tag}<span class="meta-dot">·</span><span>${c.nome}</span><span class="meta-dot">·</span><span>${plural(t.treinos||0,'treino','treinos')} · últ. ${t.ultima}</span></div>
     <div class="flbl" style="margin-top:16px">Sua anotação</div>
-    <div class="det-nota">${t.nota||'—'}</div>
+    <div class="det-nota">${safeTxt(t.nota||'—')}</div>
     <div class="revisao-card ${r.due?'due':''}">${revTxt}</div>
     <button class="btn-save" id="ts-rev">Marcar como revisado</button>
     <button class="sheet-cancel" id="ts-edit" style="color:var(--blue)">Editar técnica</button>
@@ -1983,15 +2063,15 @@ function abrirEditorTecnica(idx){
     <div class="sheet-grip"></div>
     <div class="sheet-title">${editing?'Editar técnica':'Nova técnica'}</div>
     <label class="flbl">Nome (japonês)</label>
-    <input class="inp" id="et-jp" placeholder="Ex: Juji-gatame" value="${t.jp}">
+    <input class="inp" id="et-jp" placeholder="Ex: Juji-gatame" value="${safeAttr(t.jp)}">
     <label class="flbl" style="margin-top:12px">Tradução (PT)</label>
-    <input class="inp" id="et-pt" placeholder="Ex: Chave de braço cruzada" value="${t.pt}">
+    <input class="inp" id="et-pt" placeholder="Ex: Chave de braço cruzada" value="${safeAttr(t.pt)}">
     <label class="flbl" style="margin-top:12px">Categoria</label>
     <div class="seg-wrap" id="et-cat"></div>
     <label class="flbl" style="margin-top:12px">Nível</label>
     <div class="seg" id="et-niv"></div>
     <label class="flbl" style="margin-top:12px">Anotação</label>
-    <textarea class="ta" id="et-nota" placeholder="O ponto-chave da técnica…">${t.nota||''}</textarea>
+    <textarea class="ta" id="et-nota" placeholder="O ponto-chave da técnica…">${safeTxt(t.nota||'')}</textarea>
     <button class="btn-save" id="et-save" style="margin-top:14px">${editing?'Salvar alterações':'Adicionar à biblioteca'}</button>
     <button class="sheet-cancel" id="et-cancel">Cancelar</button>
   </div></div>`);
@@ -2023,8 +2103,8 @@ function alunoPerfil(){
   const me = DB.eu;
   w.innerHTML = `<div class="profile-head">
     <button class="pf-edit">Editar</button>
-    <div class="pa">${me.foto?`<img src="${me.foto}" alt="">`:me.iniciais}</div>
-    <div class="pn">${me.nome}</div>
+    <div class="pa">${me.foto?`<img src="${safeAttr(me.foto)}" alt="">`:safeTxt(me.iniciais)}</div>
+    <div class="pn">${safeTxt(me.nome)}</div>
   </div>`;
   w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
 
@@ -2061,15 +2141,16 @@ function alunoPerfil(){
 
   w.appendChild(el(`<div class="sec-title">Conta</div>`));
   const conta = el(`<div class="info-list">
-    <div class="info-row" id="row-lesoes" style="cursor:pointer"><div class="ii">🤕</div><div class="it"><div class="t">Lesões</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-notif" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-tema" style="cursor:pointer"><div class="ii">🌙</div><div class="it"><div class="t">Tema escuro</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-config" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-lesoes" role="button" tabindex="0" aria-label="Lesões" style="cursor:pointer"><div class="ii">🤕</div><div class="it"><div class="t">Lesões</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-notif" role="button" tabindex="0" aria-label="Notificações" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="Tema escuro" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">Tema escuro</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
+    <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
-  conta.querySelector('#row-lesoes').onclick = ()=> abrirLesoes();
-  conta.querySelector('#row-notif').onclick = ()=> abrirNotificacoes();
-  conta.querySelector('#row-tema').onclick = ()=> toggleTheme();
-  conta.querySelector('#row-config').onclick = ()=> abrirConfiguracoes();
+  const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
+  _bindRow('#row-lesoes', ()=> abrirLesoes());
+  _bindRow('#row-notif', ()=> abrirNotificacoes());
+  _bindRow('#row-tema', ()=> toggleTheme());
+  _bindRow('#row-config', ()=> abrirConfiguracoes());
   w.appendChild(conta);
   return w;
 }
@@ -2106,7 +2187,7 @@ function tabbarAluno(){
    FLOW DE REGISTRO (Aula Técnica / Livre)
    ============================================================ */
 const DRAFT_KEY = 'yama.draft';
-function _loadDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return null; const d=JSON.parse(raw); return (d&&d.date===HOJE_ISO)?d:null; }catch(e){ return null; } }
+function _loadDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return null; const d=JSON.parse(raw); if(d&&d.date===HOJE_ISO) return d; _clearDraft(); return null; }catch(e){ return null; } }
 function _saveDraft(d){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); }catch(e){} }
 function _clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
 function _autosaveDraft(){ const d=_loadDraft(); if(d){ d.registro=DB.registro; _saveDraft(d); } }
@@ -2237,7 +2318,7 @@ function renderPresenca(){
   const kp = el(`<div class="keypad"></div>`);
   ['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{
     if (k===''){ kp.appendChild(el(`<div></div>`)); return; }
-    const b = el(`<button class="key">${k}</button>`);
+    const b = el(`<button class="key"${k==='⌫'?' aria-label="Apagar"':''}>${k}</button>`);
     b.onclick = ()=> k==='⌫' ? presencaBack() : presencaDigit(k);
     kp.appendChild(b);
   });
@@ -2349,7 +2430,7 @@ function abrirProduto(id){
     <div class="chips tam-chips"></div>
     <div class="qty-row">
       <span class="flbl" style="margin:0">Quantidade</span>
-      <div class="qty"><button class="qbtn" data-d="-1">−</button><span class="qv">1</span><button class="qbtn" data-d="1">+</button></div>
+      <div class="qty"><button class="qbtn" data-d="-1" aria-label="Diminuir quantidade">−</button><span class="qv">1</span><button class="qbtn" data-d="1" aria-label="Aumentar quantidade">+</button></div>
     </div>
     <button class="btn-save add-btn">Adicionar · ${moneyBR(p.preco)}</button>
   </div></div>`);
@@ -2589,7 +2670,7 @@ function profPainel(){
   const tt = el(`<div class="today-tech ${setHoje?'':'empty'}" style="margin:0 20px 22px;cursor:pointer">
     <div class="tt-pad">
       <span class="badge">🥋 Técnica de hoje</span>
-      <div class="tname">${setHoje?t.nome:'Toque para definir'}</div>
+      <div class="tname">${setHoje?safeTxt(t.nome):'Toque para definir'}</div>
       ${setHoje?`<div class="tmeta">${t.posicaoEmoji} ${t.posicao} · Código: <b>${t.codigo}</b></div>`:''}
     </div></div>`);
   tt.onclick=()=>goProf('tecnica');
@@ -2759,13 +2840,13 @@ function profTecnica(){
   const body = el(`<div class="flow-body"></div>`);
   body.appendChild(el(`<div class="fsec">
     <label class="flbl">Nome da técnica</label>
-    <input class="inp" id="tec-nome" value="${t.definida?t.nome:''}" placeholder="Ex: Raspagem da borboleta">
+    <input class="inp" id="tec-nome" value="${safeAttr(t.definida?t.nome:'')}" placeholder="Ex: Raspagem da borboleta">
   </div>`));
   const POS = [['Guarda','🛡️'],['Costas','🎯'],['Montada','⬆️'],['Passagem','➡️'],['Quedas','🤼'],['Finalização','🔒']];
   body.appendChild(el(`<div class="fsec"><label class="flbl">Posição</label>
     <div class="posic-grid" id="posic"></div></div>`));
   body.appendChild(el(`<div class="fsec"><label class="flbl">Observações para a turma</label>
-    <textarea class="ta" id="tec-obs" placeholder="Detalhes, pontos de atenção…">${t.definida?t.obs:''}</textarea></div>`));
+    <textarea class="ta" id="tec-obs" placeholder="Detalhes, pontos de atenção…">${safeTxt(t.definida?t.obs:'')}</textarea></div>`));
   body.appendChild(el(`<div style="padding-bottom:120px"></div>`));
   w.appendChild(body);
   w.appendChild(el(`<div class="save-bar"><button class="btn-save" onclick="salvarTecnica()">Publicar para a turma</button></div>`));
@@ -2880,11 +2961,13 @@ function tabbarProf(){
 function setRole(r){ DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
 function goAluno(id){ DB.navAluno=id; render(); window.scrollTo(0,0); }
 function goProf(id){ DB.navProf=id; render(); window.scrollTo(0,0); }
+function _isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
 function toggleTheme(){
   const dark = document.documentElement.getAttribute('data-theme')==='dark';
   const next = dark?'light':'dark';
   document.documentElement.setAttribute('data-theme', next);
   try{ localStorage.setItem('yama.theme', next); }catch(e){}
+  render();
 }
 try{ const _st=localStorage.getItem('yama.theme'); if(_st) document.documentElement.setAttribute('data-theme', _st); }catch(e){}
 
@@ -2914,7 +2997,7 @@ function renderOnboarding(){
   body.appendChild(el(`<div class="onb-t">Bem-vindo à Yama</div>`));
   body.appendChild(el(`<div class="onb-s">Seu diário de Jiu-Jitsu — do em pé ao chão. Vamos te conhecer rapidinho.</div>`));
   body.appendChild(el(`<label class="flbl onb-lbl">Como te chamam?</label>`));
-  const inp = el(`<input class="inp" id="onb-apelido" value="${me.apelido}" placeholder="Seu apelido">`);
+  const inp = el(`<input class="inp" id="onb-apelido" value="${safeAttr(me.apelido)}" placeholder="Seu apelido">`);
   body.appendChild(inp);
   body.appendChild(el(`<label class="flbl onb-lbl">Sua faixa</label>`));
   let bf = me.faixa;
@@ -2931,7 +3014,7 @@ function renderOnboarding(){
   body.appendChild(inpNasc);
 
   // privacidade + consentimento (LGPD · beta só maiores de 18 · dados ficam no aparelho)
-  body.appendChild(el(`<div class="onb-priv">🔒 Seus dados ficam salvos na <b>nuvem</b> e sincronizam entre seus aparelhos.</div>`));
+  body.appendChild(el(`<div class="onb-priv">🔒 Seus dados ficam salvos <b>só no seu aparelho</b>.</div>`));
   const consent = el(`<label class="onb-consent">
     <input type="checkbox" id="onb-ok">
     <span>Tenho <b>18 anos ou mais</b> e li a <a class="lk" id="onb-pol">Política de Privacidade e os Termos</a>.</span>
@@ -3029,13 +3112,13 @@ function abrirEditarPerfil(){
     <div class="sheet-grip"></div>
     <div class="sheet-title">Editar perfil</div>
     <div class="ep-foto">
-      <div class="ep-avatar">${foto?`<img src="${foto}" alt="">`:me.iniciais}</div>
+      <div class="ep-avatar">${foto?`<img src="${safeAttr(foto)}" alt="">`:safeTxt(me.iniciais)}</div>
       <label class="ep-foto-btn">Trocar foto<input type="file" accept="image/*" hidden id="ep-file"></label>
     </div>
     <label class="flbl" style="margin-top:14px">Apelido</label>
-    <input class="inp" id="ep-apelido" value="${me.apelido}">
+    <input class="inp" id="ep-apelido" value="${safeAttr(me.apelido)}">
     <label class="flbl" style="margin-top:12px">Nome completo</label>
-    <input class="inp" id="ep-nome" value="${me.nomeCompleto}">
+    <input class="inp" id="ep-nome" value="${safeAttr(me.nomeCompleto)}">
     <label class="flbl" style="margin-top:12px">Ano de nascimento</label>
     <input class="inp" id="ep-nasc" type="number" inputmode="numeric" placeholder="Ex: 1998" value="${nascimento||''}" min="1920" max="${hoje.getFullYear()}">
     <label class="flbl" style="margin-top:12px">Faixa</label>
@@ -3078,6 +3161,8 @@ function abrirEditarPerfil(){
     const faixaMudou = faixa !== me.faixa;
     const grausMudou = graus !== me.graus;
     me.faixa=faixa; me.graus=graus; me.foto=foto;
+    // promoção/correção de grau ou faixa → zera o head-start de aulas (base vale só p/ o grau importado)
+    if(faixaMudou || grausMudou) me.aulasGrau = Object.assign({}, me.aulasGrau, { base:0 });
     if(faixaMudou){
       if(!DB.graduacoes.some(g=>g.tipo==='faixa'&&g.faixa===faixa))
         DB.graduacoes.push({faixa, graus:0, tipo:'faixa', data:novaData, por:'—'});
@@ -3288,6 +3373,8 @@ function selfTest(){
     try{ const s=semanaStats(); ok('semana tem 7 dias', Array.isArray(s.dias)&&s.dias.length===7); ok('streak é número', typeof s.streakSemanas==='number'); }catch(e){ ok('semanaStats', false); }
     try{ const k=betaKPIs(); ok('kpis tem funil', !!(k&&k.funil&&typeof k.funil.abriu==='boolean')); }catch(e){ ok('betaKPIs', false); }
     ok('safeTxt escapa HTML', safeTxt('<b>x</b>')==='&lt;b&gt;x&lt;/b&gt;');
+    ok('safeAttr escapa aspas', safeAttr('a" onload="x')==='a&quot; onload=&quot;x');
+    ok('safeAttr escapa <>&', safeAttr('<a&b>')==='&lt;a&amp;b&gt;');
     ok('nivelDe aprendendo (3)', nivelDe({treinos:3})==='aprendendo');
     ok('nivelDe treinando (5)', nivelDe({treinos:5})==='treinando');
     try{
@@ -3307,6 +3394,156 @@ function selfTest(){
     ok('elegibilidade azul', (()=>{ const r=elegibilidadeCBJJ({faixa:'azul',nascimento:1998}); return r.nextBelt==='roxa'&&Array.isArray(r.checks); })());
     ok('elegibilidade preta', (()=>{ const r=elegibilidadeCBJJ({faixa:'preta',nascimento:1998}); return r.nextBelt===null; })());
     ok('tempoNaFaixaMeses', tempoNaFaixaMeses(HOJE_ISO)===0);
+    // regressões: persistência e flush
+    ok('USER_KEYS persiste links', USER_KEYS.includes('links'));
+    ok('flushSave é função', typeof flushSave==='function');
+    // draft: data antiga é limpa (snapshot/restore para não tocar no draft real)
+    try{
+      const snapD=localStorage.getItem(DRAFT_KEY);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({date:'2000-01-01', registro:{}}));
+      const stale=_loadDraft();
+      ok('draft antigo retorna null', stale===null);
+      ok('draft antigo é removido', localStorage.getItem(DRAFT_KEY)===null);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({date:HOJE_ISO, registro:{x:1}}));
+      ok('draft de hoje é mantido', _loadDraft()!==null);
+      if(snapD!=null) localStorage.setItem(DRAFT_KEY, snapD); else localStorage.removeItem(DRAFT_KEY);
+    }catch(e){ ok('draft lifecycle', false); }
+    // save()/load() reais round-trip com tecProg (snapshot/restore do store real)
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      const jp0=DB.tecnicas[0].jp, prev=DB.tecnicas[0].hojeA;
+      DB.tecnicas[0].hojeA=99; save();
+      const raw=JSON.parse(localStorage.getItem(STORE_KEY));
+      ok('save grava tecProg', raw.tecProg && raw.tecProg[jp0] && raw.tecProg[jp0].hojeA===99);
+      ok('save grava links', Array.isArray(raw.links));
+      DB.tecnicas[0].hojeA=prev;
+      if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
+    }catch(e){ ok('save/load tecProg', false); }
+    // toggleTheme alterna e _isDark reflete
+    try{
+      const snapT=document.documentElement.getAttribute('data-theme');
+      const d0=_isDark(); toggleTheme(); const d1=_isDark(); toggleTheme(); const d2=_isDark();
+      ok('toggleTheme alterna', d1!==d0 && d2===d0);
+      if(snapT) document.documentElement.setAttribute('data-theme', snapT); else document.documentElement.removeAttribute('data-theme');
+    }catch(e){ ok('toggleTheme', false); }
+    // === caminho de escrita + integridade (snapshot/restore seguro) ===
+    // salvar(): unshift + agregação de contadores + limpeza de rascunho
+    try{
+      const snapS=localStorage.getItem(STORE_KEY), snapD=localStorage.getItem(DRAFT_KEY);
+      const snapTr=DB.treinos, snapReg=DB.registro, snapFlow=DB.flow, snapNav=DB.navAluno, snapAn=DB.analytics, snapCk=DB.checkinHoje;
+      const snapTec=DB.tecnicas.map(t=>({t,estado:t.estado,dias:t.dias,treinos:t.treinos,hojeA:t.hojeA,hojeT:t.hojeT,ultima:t.ultima,ultimaRev:t.ultimaRev}));
+      DB.treinos=[]; DB.tecnicas.forEach(t=>{t.estado='guardada';t.dias=[];t.hojeA=0;t.hojeT=0;t.treinos=0;});
+      const foco=DB.tecnicas[0]; foco.estado='foco'; foco.hojeA=2; foco.hojeT=3;
+      DB.registro={ randori:true, nota:' nota ', mood:4 }; _salvarLock=false; salvar();
+      ok('salvar faz unshift', DB.treinos.length===1 && DB.treinos[0].data===HOJE_ISO);
+      ok('salvar agrega dia no foco', foco.dias.length===1 && foco.dias[0].a===2 && foco.dias[0].t===3);
+      ok('salvar incrementa treinos e zera dia', foco.treinos===1 && foco.hojeA===0 && foco.hojeT===0);
+      ok('salvar grava renshu', DB.treinos[0].det.renshu.length===1 && DB.treinos[0].det.renshu[0].jp===foco.jp);
+      ok('salvar limpa registro e draft', DB.registro.randori===null && localStorage.getItem(DRAFT_KEY)===null);
+      snapTec.forEach(s=>{s.t.estado=s.estado;s.t.dias=s.dias;s.t.treinos=s.treinos;s.t.hojeA=s.hojeA;s.t.hojeT=s.hojeT;s.t.ultima=s.ultima;s.t.ultimaRev=s.ultimaRev;});
+      DB.treinos=snapTr; DB.registro=snapReg; DB.flow=snapFlow; DB.navAluno=snapNav; DB.analytics=snapAn; DB.checkinHoje=snapCk;
+      if(snapS!=null)localStorage.setItem(STORE_KEY,snapS);else localStorage.removeItem(STORE_KEY);
+      if(snapD!=null)localStorage.setItem(DRAFT_KEY,snapD);else localStorage.removeItem(DRAFT_KEY);
+    }catch(e){ ok('salvar() caminho completo', false); }
+    // salvar(): valida randori antes de gravar (não muta)
+    try{ const sr=DB.registro, ntr=DB.treinos.length; DB.registro={randori:null,nota:'',mood:null}; _salvarLock=false; salvar();
+      ok('salvar exige randori', DB.treinos.length===ntr); DB.registro=sr;
+    }catch(e){ ok('salvar guard randori', false); }
+    // salvar(): soma no bucket do mesmo dia (branch last.hoje)
+    try{
+      const snapTec=DB.tecnicas.map(t=>({t,e:t.estado,d:t.dias,tr:t.treinos,a:t.hojeA,h:t.hojeT,u:t.ultima,ur:t.ultimaRev}));
+      const snapTr=DB.treinos, snapReg=DB.registro, snapFlow=DB.flow, snapNav=DB.navAluno, snapAn=DB.analytics, snapCk=DB.checkinHoje, snapS=localStorage.getItem(STORE_KEY), snapD=localStorage.getItem(DRAFT_KEY);
+      const f=DB.tecnicas[0]; f.estado='foco'; f.dias=[{a:1,t:1,dia:'x',hoje:true}]; f.hojeA=2; f.hojeT=4; f.treinos=5;
+      DB.treinos=[]; DB.registro={randori:true,nota:'',mood:3}; _salvarLock=false; salvar();
+      ok('salvar soma no bucket de hoje', f.dias.length===1 && f.dias[0].a===3 && f.dias[0].t===5);
+      snapTec.forEach(s=>{s.t.estado=s.e;s.t.dias=s.d;s.t.treinos=s.tr;s.t.hojeA=s.a;s.t.hojeT=s.h;s.t.ultima=s.u;s.t.ultimaRev=s.ur;});
+      DB.treinos=snapTr; DB.registro=snapReg; DB.flow=snapFlow; DB.navAluno=snapNav; DB.analytics=snapAn; DB.checkinHoje=snapCk;
+      if(snapS!=null)localStorage.setItem(STORE_KEY,snapS);else localStorage.removeItem(STORE_KEY);
+      if(snapD!=null)localStorage.setItem(DRAFT_KEY,snapD);else localStorage.removeItem(DRAFT_KEY);
+    }catch(e){ ok('salvar merge bucket', false); }
+    // _resetDiario(): zera contadores do dia na virada
+    try{
+      const snapAll=DB.tecnicas.map(t=>({t,a:t.hojeA,h:t.hojeT})); const ck=DB.checkinHoje;
+      const t0=DB.tecnicas[0]; t0.hojeA=9; t0.hojeT=9; DB.checkinHoje={feito:true,hora:'10:00'};
+      _resetDiario('2000-01-01');
+      ok('_resetDiario zera contadores', t0.hojeA===0 && t0.hojeT===0 && DB.checkinHoje.feito===false);
+      t0.hojeA=5; _resetDiario(HOJE_ISO);
+      ok('_resetDiario no-op mesmo dia', t0.hojeA===5);
+      snapAll.forEach(s=>{s.t.hojeA=s.a;s.t.hojeT=s.h;}); DB.checkinHoje=ck;
+    }catch(e){ ok('_resetDiario', false); }
+    // load(): rejeita dados malformados (guards retornam false sem mutar)
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      localStorage.setItem(STORE_KEY, JSON.stringify({__schema:SCHEMA, treinos:'x'}));
+      ok('load rejeita treinos não-array', load()===false);
+      localStorage.setItem(STORE_KEY, JSON.stringify({__schema:SCHEMA+1, treinos:[]}));
+      ok('load rejeita schema futuro', load()===false);
+      localStorage.setItem(STORE_KEY, '{json quebrado');
+      ok('load rejeita JSON inválido', load()===false);
+      if(snapS!=null)localStorage.setItem(STORE_KEY,snapS);else localStorage.removeItem(STORE_KEY);
+    }catch(e){ ok('load malformed', false); }
+    // elegibilidadeCBJJ: edge cases (branca sem tempo mínimo, idade, dados ausentes)
+    ok('elegib branca jovem não-elegível', (()=>{ const r=elegibilidadeCBJJ({faixa:'branca',nascimento:hoje.getFullYear()-11}); return r.nextBelt==='azul' && r.eligible===false; })());
+    try{ const snapG=DB.graduacoes;
+      DB.graduacoes=[];
+      const r1=elegibilidadeCBJJ({faixa:'branca',nascimento:1998});
+      ok('elegib branca sem data → não-elegível (exige 1 ano)', r1.eligible===false && r1.checks.some(c=>/Tempo/.test(c.label)));
+      DB.graduacoes=[{faixa:'branca',graus:0,tipo:'faixa',data:'2020-01-01',por:'—'}];
+      ok('elegib branca com 1+ ano → elegível', elegibilidadeCBJJ({faixa:'branca',nascimento:1998}).eligible===true);
+      DB.graduacoes=snapG;
+    }catch(e){ ok('elegib branca tempo mínimo', false); }
+    ok('elegib azul sem dados → não-elegível', (()=>{ const r=elegibilidadeCBJJ({faixa:'azul',nascimento:null}); return r.checks.some(c=>c.ok===null) && r.eligible===false; })());
+    // aplicarCleanSlate(): zera diário, preserva catálogo (contrato protegido)
+    try{
+      const sEu=DB.eu, sTr=DB.treinos, sGr=DB.graduacoes, sSem=DB.semana, sAn=DB.analytics, sNo=DB.notas, sLe=DB.lesoes, sNt=DB.notificacoes, sCk=DB.checkinHoje;
+      const sTec=DB.tecnicas.map(t=>({t,estado:t.estado,dias:t.dias,treinos:t.treinos,hojeA:t.hojeA,hojeT:t.hojeT,ultima:t.ultima,ultimaRev:t.ultimaRev})); const nTec=DB.tecnicas.length;
+      aplicarCleanSlate();
+      ok('cleanSlate zera treinos/graduações', DB.treinos.length===0 && DB.graduacoes.length===0);
+      ok('cleanSlate faixa branca 0º', DB.eu.faixa==='branca' && DB.eu.graus===0);
+      ok('cleanSlate preserva catálogo', DB.tecnicas.length===nTec && DB.tecnicas.every(t=>t.estado==='aprendida' && t.treinos===0));
+      ok('cleanSlate streak 0', DB.semana.streakSemanas===0);
+      DB.eu=sEu; DB.treinos=sTr; DB.graduacoes=sGr; DB.semana=sSem; DB.analytics=sAn; DB.notas=sNo; DB.lesoes=sLe; DB.notificacoes=sNt; DB.checkinHoje=sCk;
+      sTec.forEach(s=>{s.t.estado=s.estado;s.t.dias=s.dias;s.t.treinos=s.treinos;s.t.hojeA=s.hojeA;s.t.hojeT=s.hojeT;s.t.ultima=s.ultima;s.t.ultimaRev=s.ultimaRev;});
+    }catch(e){ ok('aplicarCleanSlate', false); }
+    // streak: semana em curso não quebra; zero sem treinos
+    try{
+      const sTr=DB.treinos, sSig=_attSig, sSet=_attSet, sCk=DB.checkinHoje;
+      const dnum=(off)=>{ const d=new Date(hoje); d.setDate(hoje.getDate()-off); return isoOf(d); };
+      DB.checkinHoje={feito:false,hora:null};
+      DB.treinos=[{id:1,data:dnum(7)}]; _attSig=null;
+      ok('streak não quebra na semana em curso', semanaStats().streakSemanas>=1);
+      DB.treinos=[]; _attSig=null;
+      ok('streak 0 sem treinos', semanaStats().streakSemanas===0);
+      DB.treinos=sTr; _attSig=sSig; _attSet=sSet; DB.checkinHoje=sCk;
+    }catch(e){ ok('streak edge', false); }
+    // foco: exatamente 3 em foco (suporte à regra max-3)
+    try{ const sTec=DB.tecnicas.map(t=>t.estado);
+      DB.tecnicas.forEach(t=>t.estado='aprendida'); DB.tecnicas.slice(0,3).forEach(t=>t.estado='foco');
+      ok('focoTecnicas conta 3 em foco', focoTecnicas().length===3);
+      DB.tecnicas.forEach((t,i)=>t.estado=sTec[i]);
+    }catch(e){ ok('foco max3', false); }
+    // _normalizeGrad: filtra sem data e ordena (código real do import)
+    ok('_normalizeGrad filtra e ordena', (()=>{ const r=_normalizeGrad([{faixa:'azul',data:'2024-01-01',aulas:50},{faixa:'branca',data:'',aulas:0},{faixa:'branca',data:'2021-01-01',aulas:10}]); return r&&r.length===2&&r[0].faixa==='branca'&&r[1].aulas===50; })());
+    ok('_normalizeGrad sem data → null', _normalizeGrad([{faixa:'x',data:''}])===null);
+    ok('_isoToBr converte', _isoToBr('2024-09-10')==='10/09/2024');
+    ok('_brToIso converte', _brToIso('10/09/2024')==='2024-09-10');
+    ok('_brToIso inválido → vazio', _brToIso('99/99/2024')==='' && _brToIso('10/09')==='');
+    // C1: aulas = DIA distinto, contadas só no grau atual, reset na promoção, + baseline importada
+    ok('maxGrausDe preta=6 · demais=4', maxGrausDe('preta')===6 && maxGrausDe('azul')===4);
+    if(!DEMO){ const sTr=DB.treinos, sGr=DB.graduacoes, sEu=DB.eu; try{
+      DB.eu = Object.assign({}, sEu, { faixa:'azul', graus:1, aulasGrau:{meta:40, base:0}, aulasGraduacao:160 });
+      DB.graduacoes = [
+        { faixa:'azul', graus:0, tipo:'faixa', data:'2025-01-01', por:'—' },
+        { faixa:'azul', graus:1, tipo:'grau',  data:'2025-06-01', por:'—' },
+      ];
+      DB.treinos = [ {id:1,data:'2025-07-10'}, {id:2,data:'2025-07-10'}, {id:3,data:'2025-03-01'} ];
+      ok('C1 aulas dedup mesmo dia no grau', aulasStats().atual===1);   // 2x 10/07 = 1; 01/03 é pré-grau
+      ok('C1 estimativa da faixa dedup', aulasStats().restantes===158); // 160 - 2 dias na faixa
+      DB.eu.graus=2; DB.graduacoes.push({faixa:'azul',graus:2,tipo:'grau',data:HOJE_ISO,por:'—'}); DB.eu.aulasGrau.base=0;
+      ok('C1 reset de aulas no novo grau', aulasStats().atual===0);
+      DB.eu.graus=1; DB.graduacoes.pop(); DB.eu.aulasGrau.base=5;
+      ok('C1 baseline importada entra no grau', aulasStats().atual===6); // 5 base + 1 dia
+    }catch(e){ ok('C1 aulasStats', false); } finally { DB.treinos=sTr; DB.graduacoes=sGr; DB.eu=sEu; } }
   }catch(e){ ok('pure-functions', false); }
   // render de todas as abas (snapshot + restore)
   const snap={ nav:DB.navAluno, jt:DB.jogoTab, jo:DB.jornadaTab };
