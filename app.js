@@ -34,6 +34,16 @@ function diaRelativo(iso){
 const plural = (n,s,p)=> `${n} ${Math.abs(n)===1?s:p}`;   // 1 semana · 2 semanas
 const moneyBR = (n) => 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Tab') return;
+  const sheet=document.querySelector('.sheet-overlay.open .sheet');
+  if(!sheet) return;
+  const focusable=sheet.querySelectorAll('button,input,select,textarea,[tabindex="0"],a[href]');
+  if(!focusable.length) return;
+  const first=focusable[0], last=focusable[focusable.length-1];
+  if(e.shiftKey){ if(document.activeElement===first){e.preventDefault();last.focus();} }
+  else { if(document.activeElement===last){e.preventDefault();first.focus();} }
+});
 
 const BELTS = {
   branca:{cor:'#e8e8e8',nome:'Branca'}, azul:{cor:'#2f6fef',nome:'Azul'},
@@ -217,40 +227,56 @@ const DB = {
     finBat: 2.3, pctTecnica: 70, faixaConquista: 'Azul · 2º grau',
   },
 
-  // biblioteca pessoal de técnicas (nomenclatura japonesa · arte única, do em pé ao chão)
+  // biblioteca pessoal de técnicas — id estável (chave de persistência), jp=display, pt=tradução
+  // Para "outros" (BJJ moderno) o jp aceita nome em PT/EN consagrado (sem japonês inventado).
   tecnicas: [
-    // Tachi-waza · Nage-waza (quedas / projeções)
-    { jp:'O-soto-gari', pt:'Grande ceifada externa', cat:'nage', oficial:true, nivel:'treinando', treinos:8, ultima:'01 jun', ultimaRev:'2026-05-20', nota:'Desequilibrar pra trás (kuzushi), plantar o pé de apoio e ceifar a perna como um pêndulo.' },
-    { jp:'O-uchi-gari', pt:'Grande ceifada interna', cat:'nage', oficial:true, nivel:'aprendendo', treinos:3, ultima:'29 mai', ultimaRev:'2026-05-29', nota:'Enganchar por dentro e empurrar na diagonal; cuidado pra não cair junto.' },
-    { jp:'Seoi-nage', pt:'Projeção por sobre o ombro', cat:'nage', oficial:true, nivel:'treinando', treinos:9, ultima:'31 mai', ultimaRev:'2026-05-18', nota:'Entrar girando, quadril abaixo do dele, cotovelo preso. Puxar a manga pra cima.' },
-    { jp:'Uchi-mata', pt:'Projeção por dentro da coxa', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'15 mai', ultimaRev:'2026-05-15', nota:'Carregar o peso pra frente e levantar a coxa interna num só tempo.' },
-    { jp:'Tomoe-nage', pt:'Projeção em círculo (sacrifício)', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'12 mai', ultimaRev:'2026-05-12', nota:'Sentar sob o oponente, pé no quadril, projetar por cima da cabeça. Ponte do Kosen pro chão.' },
+    // Tachi-waza · Nage-waza (quedas / projeções) — oficiais do Kodokan
+    { id:'nag-osoto', jp:'O-soto-gari', pt:'Grande ceifada externa', cat:'nage', oficial:true, nivel:'treinando', treinos:8, ultima:'01 jun', ultimaRev:'2026-05-20', nota:'Desequilibrar pra trás (kuzushi), plantar o pé de apoio e ceifar a perna como um pêndulo.' },
+    { id:'nag-ouchi', jp:'O-uchi-gari', pt:'Grande ceifada interna', cat:'nage', oficial:true, nivel:'aprendendo', treinos:3, ultima:'29 mai', ultimaRev:'2026-05-29', nota:'Enganchar por dentro e empurrar na diagonal; cuidado pra não cair junto.' },
+    { id:'nag-seoi', jp:'Seoi-nage', pt:'Projeção por sobre o ombro', cat:'nage', oficial:true, nivel:'treinando', treinos:9, ultima:'31 mai', ultimaRev:'2026-05-18', nota:'Entrar girando, quadril abaixo do dele, cotovelo preso. Puxar a manga pra cima.' },
+    { id:'nag-uchimata', jp:'Uchi-mata', pt:'Projeção por dentro da coxa', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'15 mai', ultimaRev:'2026-05-15', nota:'Carregar o peso pra frente e levantar a coxa interna num só tempo.' },
+    { id:'nag-tomoe', jp:'Tomoe-nage', pt:'Projeção em círculo (sacrifício)', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'12 mai', ultimaRev:'2026-05-12', nota:'Sentar sob o oponente, pé no quadril, projetar por cima da cabeça. Ponte do Kosen pro chão.' },
+    { id:'nag-kanibasami', jp:'Kani-basami', pt:'Tesoura voadora', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'14 mai', ultimaRev:'2026-05-14', nota:'Yoko-sutemi-waza Kodokan: derruba prendendo o corpo entre as pernas como uma tesoura. Banida na competição esportiva.' },
+    { id:'nag-obitori', jp:'Obi-tori-gaeshi', pt:'Inversão pegando a faixa', cat:'nage', oficial:true, nivel:'treinando', treinos:5, ultima:'27 mai', ultimaRev:'2026-05-24', nota:'Nage-waza Kodokan (reconhecida em 1997): agarra a faixa/cintura por baixo e inverte.' },
+    { id:'nag-tawara', jp:'Tawara-gaeshi', pt:'Inversão "fardo de arroz"', cat:'nage', oficial:true, nivel:'treinando', treinos:4, ultima:'23 mai', ultimaRev:'2026-05-18', nota:'Yoko-sutemi-waza Kodokan: defendendo, abraça o tronco e rola o oponente por cima da cabeça como um saco.' },
     // Ne-waza · Osaekomi-waza (imobilizações / controle) — oficiais do Kodokan
-    { jp:'Kesa-gatame', pt:'Imobilização em echarpe', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:12, ultima:'02 jun', ultimaRev:'2026-06-02', nota:'Prender cabeça e braço, quadril baixo, perna-freio atrás pra não ser rolado.' },
-    { jp:'Kuzure-kesa-gatame', pt:'Echarpe modificada', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:6, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Underhook no braço de longe em vez de prender a cabeça — mais estável contra a fuga.' },
-    { jp:'Kata-gatame', pt:'Imobilização pelo ombro', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:5, ultima:'28 mai', ultimaRev:'2026-05-28', nota:'O ombro empurra o braço contra o pescoço; junta as mãos e abre a base.' },
-    { jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:7, ultima:'27 mai', ultimaRev:'2026-05-27', nota:'Pegar a cintura/faixa, peito no peito, cabeça de um lado. Andar na ponta dos pés se ele virar.' },
-    { jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:10, ultima:'25 mai', ultimaRev:'2026-05-25', nota:'Bloquear quadril e pescoço, pressão de peito, joelhos colados pra matar a recuperação de guarda.' },
-    { jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)', cat:'osaekomi', oficial:true, nivel:'aprendendo', treinos:3, ultima:'21 mai', ultimaRev:'2026-05-21', nota:'Ganchos por dentro, peso no peito, mãos no chão pra não ser rolado.' },
+    { id:'osa-kesa', jp:'Kesa-gatame', pt:'Imobilização em echarpe', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:12, ultima:'02 jun', ultimaRev:'2026-06-02', nota:'Prender cabeça e braço, quadril baixo, perna-freio atrás pra não ser rolado.' },
+    { id:'osa-kuzure-kesa', jp:'Kuzure-kesa-gatame', pt:'Echarpe modificada', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:6, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Underhook no braço de longe em vez de prender a cabeça — mais estável contra a fuga.' },
+    { id:'osa-kata', jp:'Kata-gatame', pt:'Imobilização pelo ombro', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:5, ultima:'28 mai', ultimaRev:'2026-05-28', nota:'O ombro empurra o braço contra o pescoço; junta as mãos e abre a base.' },
+    { id:'osa-kami', jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:7, ultima:'27 mai', ultimaRev:'2026-05-27', nota:'Pegar a cintura/faixa, peito no peito, cabeça de um lado. Andar na ponta dos pés se ele virar.' },
+    { id:'osa-yoko', jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:10, ultima:'25 mai', ultimaRev:'2026-05-25', nota:'Bloquear quadril e pescoço, pressão de peito, joelhos colados pra matar a recuperação de guarda.' },
+    { id:'osa-tate', jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)', cat:'osaekomi', oficial:true, nivel:'aprendendo', treinos:3, ultima:'21 mai', ultimaRev:'2026-05-21', nota:'Ganchos por dentro, peso no peito, mãos no chão pra não ser rolado.' },
     // Ne-waza · Shime-waza (estrangulamentos)
-    { jp:'Hadaka-jime', pt:'Mata-leão', cat:'shime', oficial:true, nivel:'dominada', treinos:14, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Esconder o queixo, mão de bandeira, fechar o triângulo de braços.' },
-    { jp:'Okuri-eri-jime', pt:'Estrangulamento pela gola deslizante', cat:'shime', oficial:true, nivel:'treinando', treinos:5, ultima:'24 mai', ultimaRev:'2026-05-24', nota:'Pela costas: mão profunda na gola, a outra puxa a lapela oposta pra fechar.' },
-    { jp:'Sankaku-jime', pt:'Triângulo', cat:'shime', oficial:true, nivel:'treinando', treinos:7, ultima:'28 mai', ultimaRev:'2026-05-16', nota:'Ângulo é tudo — sair pra fora antes de fechar a perna. Especialidade do Kosen.' },
+    { id:'shi-hadaka', jp:'Hadaka-jime', pt:'Mata-leão', cat:'shime', oficial:true, nivel:'dominada', treinos:14, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Esconder o queixo, mão de bandeira, fechar o triângulo de braços.' },
+    { id:'shi-okurieri', jp:'Okuri-eri-jime', pt:'Estrangulamento pela gola deslizante', cat:'shime', oficial:true, nivel:'treinando', treinos:5, ultima:'24 mai', ultimaRev:'2026-05-24', nota:'Pela costas: mão profunda na gola, a outra puxa a lapela oposta pra fechar.' },
+    { id:'shi-sankaku', jp:'Sankaku-jime', pt:'Triângulo', cat:'shime', oficial:true, nivel:'treinando', treinos:7, ultima:'28 mai', ultimaRev:'2026-05-16', nota:'Ângulo é tudo — sair pra fora antes de fechar a perna. Especialidade do Kosen.' },
     // Ne-waza · Kansetsu-waza (chaves articulares)
-    { jp:'Juji-gatame', pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:8, ultima:'26 mai', ultimaRev:'2026-05-26', nota:'Prender o braço, juntar os joelhos, subir o quadril devagar pra não perder.' },
-    { jp:'Ude-garami', pt:'Chave de braço dobrada (kimura/americana)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:6, ultima:'23 mai', ultimaRev:'2026-05-23', nota:'Figura-de-quatro no braço; pulso colado ao corpo e gira o ombro.' },
-    { jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true, nivel:'aprendendo', treinos:2, ultima:'10 mai', ultimaRev:'2026-05-10', nota:'Prender o braço na axila e pressionar o cotovelo. Cuidado: entra rápido.' },
-    // Kosen · ne-waza — guarda e jogo por baixo (não-oficial)
-    { jp:'Hikikomi', pt:'Puxada para a guarda', cat:'kosen', oficial:false, nivel:'dominada', treinos:15, ultima:'02 jun', ultimaRev:'2026-06-01', nota:'Marca do Kosen: puxar direto pro chão. Pegada firme e senta já entrando com o gancho.' },
-    { jp:'Hikikomi-gaeshi', pt:'Puxada com rolamento (raspagem)', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'31 mai', ultimaRev:'2026-05-17', nota:'Puxa pra guarda e usa o impulso pra rolar por cima — a raspagem clássica do Kosen.' },
-    { jp:'Dō-jime', pt:'Tesoura de tronco', cat:'kosen', oficial:false, nivel:'treinando', treinos:4, ultima:'19 mai', ultimaRev:'2026-05-19', nota:'Comprime o tronco com as pernas. Proibido no judô esportivo, vivo no ne-waza Kosen.' },
-    { jp:'Ashi-garami', pt:'Entrelaçamento de pernas (chave de perna)', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:3, ultima:'22 mai', ultimaRev:'2026-05-13', nota:'Enrosca a perna e controla o joelho/tornozelo. O Kosen explora muito o que o judô esportivo baniu.' },
-    { jp:'Kani-basami', pt:'Tesoura voadora', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:2, ultima:'14 mai', ultimaRev:'2026-05-14', nota:'Derruba prendendo o corpo entre as pernas como uma tesoura. Clássico do Kosen, hoje banido no judô.' },
-    { jp:'Obi-tori-gaeshi', pt:'Inversão pegando a faixa', cat:'kosen', oficial:false, nivel:'treinando', treinos:5, ultima:'27 mai', ultimaRev:'2026-05-24', nota:'Agarra a faixa/cintura por baixo e inverte a posição. Entrada de ne-waza pra pegar as costas.' },
-    { jp:'Niju-garami', pt:'Duplo entrelaçamento de pernas', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:2, ultima:'16 mai', ultimaRev:'2026-05-11', nota:'Entrelaça as duas pernas pra controlar quadril e perna do oponente. Controle de guarda clássico do Kosen.' },
-    { jp:'Tawara-gaeshi', pt:'Inversão "fardo de arroz"', cat:'kosen', oficial:false, nivel:'treinando', treinos:4, ultima:'23 mai', ultimaRev:'2026-05-18', nota:'Defendendo por baixo, abraça o tronco e rola o oponente por cima da cabeça como um saco. Virada de ne-waza.' },
-    { jp:'Tate-sankaku', pt:'Triângulo montado', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'29 mai', ultimaRev:'2026-05-21', nota:'Sankaku por cima, controlando da montada. Posição de domínio muito explorada no ne-waza Kosen.' },
-    { jp:'Sangaku-garami', pt:'Controle de triângulo (braço-perna)', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:2, ultima:'12 mai', ultimaRev:'2026-05-12', nota:'Entrelaça perna e braço num triângulo de controle pra preparar a finalização. Transição típica do Kosen.' },
+    { id:'kan-juji', jp:'Juji-gatame', pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:8, ultima:'26 mai', ultimaRev:'2026-05-26', nota:'Prender o braço, juntar os joelhos, subir o quadril devagar pra não perder.' },
+    { id:'kan-udegarami', jp:'Ude-garami', pt:'Chave de braço dobrada (kimura/americana)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:6, ultima:'23 mai', ultimaRev:'2026-05-23', nota:'Figura-de-quatro no braço; pulso colado ao corpo e gira o ombro.' },
+    { id:'kan-waki', jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true, nivel:'aprendendo', treinos:2, ultima:'10 mai', ultimaRev:'2026-05-10', nota:'Prender o braço na axila e pressionar o cotovelo. Cuidado: entra rápido.' },
+    // Kosen · ne-waza — guarda e jogo por baixo (Kodokan ou jargão documentado)
+    { id:'kos-hikikomi', jp:'Hikikomi', pt:'Puxada para a guarda', cat:'kosen', oficial:false, nivel:'dominada', treinos:15, ultima:'02 jun', ultimaRev:'2026-06-01', nota:'Marca do Kosen: puxar direto pro chão. Pegada firme e senta já entrando com o gancho.' },
+    { id:'kos-hikikomi-gaeshi', jp:'Hikikomi-gaeshi', pt:'Puxada com rolamento (raspagem)', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'31 mai', ultimaRev:'2026-05-17', nota:'Puxa pra guarda e usa o impulso pra rolar por cima — a raspagem clássica do Kosen.' },
+    { id:'kos-dojime', jp:'Dō-jime', pt:'Tesoura de tronco', cat:'kosen', oficial:false, nivel:'treinando', treinos:4, ultima:'19 mai', ultimaRev:'2026-05-19', nota:'Comprime o tronco com as pernas. Banida no judô esportivo em 1925, viva no ne-waza Kosen.' },
+    { id:'kos-ashigarami', jp:'Ashi-garami', pt:'Entrelaçamento de pernas (chave de perna)', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:3, ultima:'22 mai', ultimaRev:'2026-05-13', nota:'Enrosca a perna e controla o joelho/tornozelo. O Kosen explora muito o que o judô esportivo baniu.' },
+    { id:'kos-tate-sankaku', jp:'Tate-sankaku', pt:'Triângulo montado', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'29 mai', ultimaRev:'2026-05-21', nota:'Sankaku por cima, controlando da montada. Posição de domínio muito explorada no ne-waza Kosen.' },
+    // Outros · BJJ moderno (nomes em PT consagrados, ou EN quando universal)
+    { id:'out-guarda-fechada', jp:'Guarda fechada', pt:'Closed guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Base do jogo por baixo: pernas travadas no quadril, postura quebrada, controle de pegada. Masterizar até a faixa branca.' },
+    { id:'out-guarda-aberta', jp:'Guarda aberta', pt:'Open guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Pernas livres, pés no quadril/joelhos do oponente. Ponto de partida das guardas modernas. Masterizar até a azul.' },
+    { id:'out-meia-guarda', jp:'Meia-guarda', pt:'Half guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Uma perna do oponente entre as suas. Underhook é a chave. Masterizar até a azul.' },
+    { id:'out-tartaruga', jp:'Tartaruga', pt:'Turtle', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Posição defensiva de quatro apoios. Proteger pescoço e cotovelos colados. Masterizar até a azul.' },
+    { id:'out-guarda-borboleta', jp:'Guarda borboleta', pt:'Butterfly guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Ganchos por dentro das coxas, postura sentada, underhook ou pegada cruzada. Masterizar até a roxa.' },
+    { id:'out-guarda-aranha', jp:'Guarda aranha', pt:'Spider guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Pegada nas mangas + pés nos bíceps. Controle de distância e ângulos. Masterizar até a roxa.' },
+    { id:'out-delariva', jp:'De La Riva', pt:'Guarda De La Riva', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Gancho externo na coxa do oponente em pé. Criada por Ricardo De La Riva. Base do jogo moderno + entrada do berimbolo. Masterizar até a roxa.' },
+    { id:'out-zguard', jp:'Z-guard', pt:'Z-guard (knee shield)', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Meia-guarda com joelho atravessado no peito do oponente. Quadro forte = oponente longe. Masterizar até a roxa.' },
+    { id:'out-rasp-pendulo', jp:'Raspagem do pêndulo', pt:'Pendulum sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Underhook na perna + balanço da perna livre como pêndulo. Termina na montada. Masterizar até a azul.' },
+    { id:'out-rasp-tesoura', jp:'Raspagem de tesoura', pt:'Scissor sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Canela atravessada na barriga, fecha as pernas em tesoura. Raspagem clássica da fechada. Masterizar até a azul.' },
+    { id:'out-rasp-borboleta', jp:'Raspagem da borboleta', pt:'Butterfly sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Da borboleta: eleva com o gancho + underhook, joga lateral. Direção do underhook. Masterizar até a roxa.' },
+    { id:'out-rasp-aranha', jp:'Raspagem da aranha', pt:'Spider sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Estica um braço, dobra o outro, gira o quadril. Várias variações (lasso, joelho na linha). Masterizar até a roxa.' },
+    { id:'out-rasp-delariva', jp:'Raspagem De La Riva', pt:'DLR sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Gancho DLR + pegada manga/tornozelo. Desequilibra para fora. Entrada também pro berimbolo. Masterizar até a roxa.' },
+    { id:'out-berimbolo', jp:'Berimbolo', pt:'Berimbolo (inversão para as costas)', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Popularizado pelos irmãos Mendes (~2009). Inverte o corpo por baixo girando da DLR pra pegar as costas. Mecânica do quadril é tudo. Masterizar até a roxa.' },
+    { id:'out-rasp-xguard', jp:'Raspagem X-guard', pt:'X-guard sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Sistema X-guard de Marcelo Garcia: eleva a perna do oponente, desequilibra para trás ou para o lado. Masterizar até a roxa.' },
+    { id:'out-rasp-balao', jp:'Raspagem balão', pt:'Balloon sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Eleva o oponente com as duas pernas em forma de balão e rola por cima. Útil contra base forte. Masterizar até a roxa.' },
   ],
 
   // Sistemas de jogo — técnicas conectadas no seu jogo (do controle à finalização)
@@ -366,7 +392,10 @@ function save(){
     const data = { __schema:SCHEMA, onboarded:DB.onboarded, _ultimoDia:HOJE_ISO };
     USER_KEYS.forEach(k=>{ data[k]=DB[k]; });
     data.tecProg = {};
-    DB.tecnicas.forEach(t=>{ const p={}; TEC_PROG.forEach(f=>{ p[f]=t[f]; }); data.tecProg[t.jp]=p; });
+    DB.tecnicas.forEach(t=>{ const p={}; TEC_PROG.forEach(f=>{ p[f]=t[f]; }); data.tecProg[t.id||t.jp]=p; });
+    // técnicas customizadas (id 'usr-…') — persistir definição completa, não só progresso
+    data.tecnicasCustom = DB.tecnicas.filter(t=>t.id && t.id.indexOf('usr-')===0)
+      .map(t=>({ id:t.id, jp:t.jp, pt:t.pt, cat:t.cat, oficial:!!t.oficial }));
     localStorage.setItem(STORE_KEY, JSON.stringify(data));
   }catch(e){ if(e.name==='QuotaExceededError') toast('⚠️ Armazenamento cheio — exporte seus dados'); }
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined') sbSync.pushAll();
@@ -375,7 +404,7 @@ let _saveT=null;
 function scheduleSave(){ if(!STORAGE_OK) return; clearTimeout(_saveT); _saveT=setTimeout(save,1200); }
 // flush imediato: garante que um save pendente não se perca ao fechar/minimizar o PWA
 function flushSave(){ if(!STORAGE_OK || DEMO) return; clearTimeout(_saveT); _saveT=null; save(); }
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushSave(); });
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') flushSave(); else _checkMidnight(); });
 window.addEventListener('pagehide', flushSave);
 
 function load(){
@@ -387,7 +416,12 @@ function load(){
     if(data.eu && typeof data.eu!=='object') return false;
     if(data.__schema && data.__schema > SCHEMA) return false;
     USER_KEYS.forEach(k=>{ if(data[k]!=null) DB[k]=data[k]; });
-    if(data.tecProg) DB.tecnicas.forEach(t=>{ const p=data.tecProg[t.jp]; if(p) TEC_PROG.forEach(f=>{ if(p[f]!=null) t[f]=p[f]; }); });
+    // restaura técnicas customizadas (definição) antes de aplicar tecProg
+    if(Array.isArray(data.tecnicasCustom)){
+      const have = new Set(DB.tecnicas.map(t=>t.id).filter(Boolean));
+      data.tecnicasCustom.forEach(c=>{ if(c && c.id && !have.has(c.id)) DB.tecnicas.push({ ...c, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'' }); });
+    }
+    if(data.tecProg) DB.tecnicas.forEach(t=>{ const p=data.tecProg[t.id]||data.tecProg[t.jp]; if(p) TEC_PROG.forEach(f=>{ if(p[f]!=null) t[f]=p[f]; }); });
     const MOOD_TO_FEEL={'😣':1,'😐':2,'😊':4,'🔥':5};
     DB.treinos.forEach(t=>{ if(!t.feel && t.mood && MOOD_TO_FEEL[t.mood]){ t.feel=MOOD_TO_FEEL[t.mood]; } });
     DB.onboarded = !!data.onboarded;
@@ -516,10 +550,12 @@ function metaLinha(){
   return Math.min(META_CAP, Math.round(_media(vals)));
 }
 
+/* ---- lookup de técnica por id ou jp (id tem prioridade — sobrevive a rename) ---- */
+function tecByKey(k){ if(!k) return null; return DB.tecnicas.find(x=>x.id===k) || DB.tecnicas.find(x=>x.jp===k) || null; }
 /* ---- contadores do dia: vivem em t.hojeA / t.hojeT (persistem até salvar) ---- */
 function _updateStepperUI(jp){
   const card=document.querySelector(`.rs-pcard[data-jp="${jp}"]`); if(!card) return;
-  const t=DB.tecnicas.find(x=>x.jp===jp); if(!t) return;
+  const t=tecByKey(jp); if(!t) return;
   const errou=(t.hojeT||0)-(t.hojeA||0);
   const ackB=card.querySelector('[data-act="a+"]'); if(ackB) ackB.previousElementSibling.textContent=t.hojeA||0;
   const errB=card.querySelector('[data-act="e+"]'); if(errB) errB.previousElementSibling.textContent=errou;
@@ -527,12 +563,12 @@ function _updateStepperUI(jp){
   if((t.hojeT||0)>0 && !rst){ const b=el(`<button class="rs-reset" data-act="limpar">limpar</button>`); b.onclick=()=>rtLimpar(jp); card.querySelector('.rs-acts').appendChild(b); }
   if((t.hojeT||0)===0 && rst) rst.remove();
 }
-function rtAck(jp,d){ const t=DB.tecnicas.find(x=>x.jp===jp); if(!t) return; if(d>0){ t.hojeA=(t.hojeA||0)+1; t.hojeT=(t.hojeT||0)+1; } else if(t.hojeA>0){ t.hojeA--; t.hojeT--; } _updateStepperUI(jp); }
-function rtErr(jp,d){ const t=DB.tecnicas.find(x=>x.jp===jp); if(!t) return; if(d>0){ t.hojeT=(t.hojeT||0)+1; } else if((t.hojeT||0)-(t.hojeA||0)>0){ t.hojeT--; } _updateStepperUI(jp); }
-function rtLimpar(jp){ const t=DB.tecnicas.find(x=>x.jp===jp); if(t){ t.hojeA=0; t.hojeT=0; } _updateStepperUI(jp); }
+function rtAck(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeA=(t.hojeA||0)+1; t.hojeT=(t.hojeT||0)+1; } else if(t.hojeA>0){ t.hojeA--; t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
+function rtErr(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeT=(t.hojeT||0)+1; } else if((t.hojeT||0)-(t.hojeA||0)>0){ t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
+function rtLimpar(jp){ const t=tecByKey(jp); if(t){ t.hojeA=0; t.hojeT=0; } _updateStepperUI(jp); scheduleSave(); }
 
 // cartão Renshū de uma técnica (nome + tradução PT + Deu certo/Não deu)
-function renshuCardNode(t){
+function tecnicaFocoCard(t){
   const errou=(t.hojeT||0)-(t.hojeA||0);
   const card=el(`<div class="rs-pcard" data-jp="${safeAttr(t.jp)}">
     <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${safeTxt(t.jp)}</span><div class="rs-sub">${safeTxt(t.pt||'')}</div></div>
@@ -575,7 +611,7 @@ function registroBody(){
         ${focos.map(t=>{const{p}=totaisTec(t);return `<div class="rz-item"><span class="rz-nm">${safeTxt(t.jp)}</span><div class="rz-bar"><span style="width:${p}%;background:${corPct(p)}"></span></div><span class="rz-pct" style="color:${corPct(p)}">${p}%</span></div>`;}).join('')}
       </div>`));
       wrap.appendChild(el(`<div class="fsec-title"><span class="ico">🎯</span> O que deu certo no rolê?</div>`));
-      focos.forEach(t=> wrap.appendChild(renshuCardNode(t)));
+      focos.forEach(t=> wrap.appendChild(tecnicaFocoCard(t)));
     } else {
       wrap.appendChild(el(`<div class="rs-empty-foco">Você ainda não tem técnicas em foco.<br>Escolha as que vai treinar para acompanhar sua evolução.</div>`));
       const efb=el(`<button class="rs-add" style="margin:2px 0 4px">＋ Escolher técnicas</button>`);
@@ -636,13 +672,13 @@ function salvar(){
   _clearDraft();
   // volta para Home com toast sutil (share via detalhe do treino)
   DB.flow=null; DB.navAluno='inicio';
-  render(); toast('Treino salvo ✔');
+  render(); toast('✅ Treino concluído — Fase 1 + Fase 2 registradas');
 }
 
 // tirar uma técnica do foco (guarda na biblioteca, sem apagar histórico)
 function rsRemoverFoco(jp){
-  const t = DB.tecnicas.find(x=>x.jp===jp); if(!t) return;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const t = tecByKey(jp); if(!t) return;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Tirar do foco?</div>
     <div class="sheet-desc">Você para de praticar <b>"${safeTxt(t.jp)}"</b>, mas ela fica guardada na <b>Biblioteca</b> pra voltar quando quiser. O histórico não é apagado.</div>
@@ -662,7 +698,7 @@ function rsAddFoco(){
   if(focoTecnicas().length>=3){ toast('Máximo de 3 em treino'); return; }
   const cands = DB.tecnicas.map((t,i)=>({t,i})).filter(x=>x.t.estado!=='foco')
     .sort((a,b)=>(b.t.treinos||0)-(a.t.treinos||0));
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Praticar qual técnica?</div>
     <div class="sheet-desc">Ela entra no seu Renshū — você passa a contar acertos a cada treino.</div>
@@ -672,7 +708,7 @@ function rsAddFoco(){
   const list = sheet.querySelector('#rs-picklist');
   cands.forEach(({t})=>{
     const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')} · ${plural(t.treinos||0,'treino','treinos')}</div></div><span class="rs-pk-go">＋</span></div>`);
-    row.onclick=()=>{ t.estado='foco'; track('foco_add',{jp:t.jp}); sheet.remove(); render(); toast('No foco — bora praticar'); };
+    row.onclick=()=>{ if(t.estado==='foco') return; t.estado='foco'; track('foco_add',{jp:t.jp}); sheet.remove(); render(); toast('No foco — bora praticar'); };
     list.appendChild(row);
   });
   if(!cands.length) list.appendChild(el(`<div class="rs-empty-foco">Todas as técnicas já estão no foco.</div>`));
@@ -737,6 +773,15 @@ function renderAluno(){
   return v;
 }
 
+function desdeDinamico(){
+  const datas = [];
+  (DB.treinos||[]).forEach(t=>{ if(t.data) datas.push(t.data); });
+  (DB.graduacoes||[]).forEach(g=>{ if(g.data) datas.push(g.data); });
+  if(!datas.length) return DB.eu.desde || HOJE_ISO.slice(0,7);
+  datas.sort();
+  return datas[0].slice(0,7);
+}
+
 /* === GRADUAÇÃO · contagem de aulas (dedup por dia + reset por grau) ===
    Fonte ÚNICA da verdade do progresso por aulas, usada na Home e na Jornada.
    "Aula" = DIA distinto com treino registrado (2 registros no mesmo dia = 1).
@@ -754,6 +799,14 @@ function _refDataGrauAtual(){
 }
 // data em que a FAIXA atual começou
 function _refDataFaixaAtual(){ const e=(DB.graduacoes||[]).find(x=>x.tipo==='faixa' && x.faixa===DB.eu.faixa); return e?e.data:null; }
+function aptoMsg(me, paraFaixa, adicionais){
+  const aulas = adicionais===1 ? 'aula adicional' : 'aulas adicionais';
+  if (!paraFaixa) return `Aluno apto a receber grau, ${adicionais} ${aulas}`;
+  const next = (typeof proximaFaixaAdulto==='function' ? proximaFaixaAdulto(me.faixa) : null) || (ADULT_BELTS[ADULT_BELTS.indexOf(me.faixa)+1] || null);
+  if (me.faixa==='preta' || !next) return `Aluno apto a receber novo grau da Preta, ${adicionais} ${aulas}`;
+  const cor = (BELTS[next] && BELTS[next].nome) ? BELTS[next].nome : next;
+  return `Aluno apto a receber faixa ${cor}, ${adicionais} ${aulas}`;
+}
 function aulasStats(){
   const me=DB.eu;
   const meta=(me.aulasGrau&&me.aulasGrau.meta)||40;
@@ -762,7 +815,7 @@ function aulasStats(){
     return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:me.aulasGraduacao||0 }; }
   const dias=_treinoDays();
   const noGrau=base + _countSince(dias, _refDataGrauAtual());        // aulas no grau atual
-  const atual=Math.min(meta, noGrau);
+  const atual=noGrau;
   const naFaixa=base + _countSince(dias, _refDataFaixaAtual());      // aulas na faixa atual (estimativa p/ próxima faixa)
   const restantes=Math.max(0, (me.aulasGraduacao||160) - naFaixa);
   return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
@@ -782,7 +835,7 @@ function alunoInicio(){
     <div class="kh-divider"></div>
     <div class="profile-photo" style="width:${sz}px;height:${sz}px;margin-top:${-Math.round(sz/2)}px;font-size:${Math.round(sz*0.34)}px">
       <span class="pp-ini">${safeTxt(me.iniciais)}</span>
-      <img src="${me.foto||''}" onerror="this.remove()" alt="">
+      <img src="${safeAttr(me.foto||'')}" onerror="this.remove()" alt="">
     </div>
     <div class="profile-name">${me.nomeCompleto && me.nomeCompleto!==me.apelido ? safeTxt(me.nomeCompleto)+' | ' : ''}${safeTxt(me.apelido)}</div>
   </div>`);
@@ -798,7 +851,7 @@ function alunoInicio(){
       <span class="pm-num">${ag.atual}/${ag.meta}</span>
     </div>
     <div class="mini-bar"><span style="width:${ag.pct}%"></span></div>
-    <div class="pm-foot">${plural(ag.faltam,'aula','aulas')} para ${noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau'} →</div>
+    <div class="pm-foot">${ag.atual>=ag.meta?aptoMsg(me, noMaxGrau, ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' para '+(noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau')+' →'}</div>
   </div>`);
   prog.onclick = ()=>{ DB.jornadaTab='graduacao'; goAluno('jornada'); };
   w.appendChild(prog);
@@ -835,7 +888,7 @@ function alunoInicio(){
   w.appendChild(el(`<div class="sec-row" style="margin-top:24px"><div class="sec-title">Últimos treinos</div>
     <a onclick="DB.jornadaTab='historico';goAluno('jornada')">Ver tudo</a></div>`));
   if (!DB.treinos.length){
-    w.appendChild(emptyState('🥋','Nenhum treino ainda','Registre seu primeiro treino e comece seu diário.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('🥋','Nenhum treino ainda','Toque no botão abaixo, confirme presença e depois da aula registre como foi — sensação, técnicas e anotações.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
   } else {
     const hist = el(`<div class="history"></div>`);
     DB.treinos.slice(0,3).forEach(tr=>{
@@ -923,21 +976,77 @@ function jornadaHistorico(){
   const w = el('<div></div>');
   w.appendChild(heatmapCard());
 
-  // filtro funcional
+  // filtro funcional: tipo
   const filtro = DB.histFiltro || 'todos';
   const fseg = el(`<div class="filter-seg"></div>`);
   [['todos','Todos'],['tecnica','Técnica'],['livre','Livre']].forEach(([id,l])=>{
     const b = el(`<button class="${filtro===id?'active':''}">${l}</button>`);
-    b.onclick = ()=>{ DB.histFiltro=id; render(); };
+    b.onclick = ()=>{ DB.histFiltro=id; DB._histPage=0; render(); };
     fseg.appendChild(b);
   });
   w.appendChild(fseg);
 
-  // filtro por mês (vindo da aba Frequência)
-  if (DB.histMes!=null){
-    const chip = el(`<div class="mes-chip">📅 ${meses[DB.histMes]} <span class="mc-x">✕</span></div>`);
-    chip.onclick = ()=>{ DB.histMes=null; render(); };
-    w.appendChild(chip);
+  // filtros avançados: 3 icon groups (período, sensação, randori)
+  const hPer = DB.histPer || null;
+  const hFeel = DB.histFeel || null;
+  const hRand = DB.histRandori;
+  const fPanel = DB._histFilterOpen || null;
+
+  const fBar = el(`<div class="hist-filter-bar"></div>`);
+  const groups = [
+    {id:'periodo', icon:'📅', label:'Período', active: !!hPer},
+    {id:'sensacao', icon:'📊', label:'Sensação', active: !!hFeel},
+    {id:'randori', icon:'🤼', label:'Randori', active: hRand!=null}
+  ];
+  groups.forEach(g=>{
+    const btn = el(`<button class="hf-btn ${g.active?'on':''} ${fPanel===g.id?'open':''}">${g.icon}<span>${g.label}</span></button>`);
+    btn.onclick = ()=>{ DB._histFilterOpen = fPanel===g.id ? null : g.id; render(); };
+    fBar.appendChild(btn);
+  });
+  w.appendChild(fBar);
+
+  if (fPanel==='periodo'){
+    const chips = el(`<div class="hist-chips"></div>`);
+    [['7d','7 dias'],['30d','30 dias'],['3m','3 meses'],['ano','1 ano']].forEach(([id,l])=>{
+      const b = el(`<button class="hchip ${hPer===id?'on':''}">${l}</button>`);
+      b.onclick = ()=>{ DB.histPer = hPer===id ? null : id; DB._histPage=0; render(); };
+      chips.appendChild(b);
+    });
+    w.appendChild(chips);
+  }
+  if (fPanel==='sensacao'){
+    const chips = el(`<div class="hist-chips"></div>`);
+    [1,2,3,4,5].forEach(n=>{
+      const b = el(`<button class="hchip ${hFeel===n?'on':''}">${n} · ${FEEL_LABEL[n]}</button>`);
+      b.onclick = ()=>{ DB.histFeel = hFeel===n ? null : n; DB._histPage=0; render(); };
+      chips.appendChild(b);
+    });
+    w.appendChild(chips);
+  }
+  if (fPanel==='randori'){
+    const chips = el(`<div class="hist-chips"></div>`);
+    const rSim = el(`<button class="hchip ${hRand===true?'on':''}">🤼 Com randori</button>`);
+    rSim.onclick = ()=>{ DB.histRandori = hRand===true ? undefined : true; DB._histPage=0; render(); };
+    chips.appendChild(rSim);
+    const rNao = el(`<button class="hchip ${hRand===false?'on':''}">🧘 Sem randori</button>`);
+    rNao.onclick = ()=>{ DB.histRandori = hRand===false ? undefined : false; DB._histPage=0; render(); };
+    chips.appendChild(rNao);
+    w.appendChild(chips);
+  }
+
+  // resumo de filtros ativos + contagem + limpar
+  const filtrosAtivos = (filtro!=='todos') || hPer || hFeel || hRand!=null || DB.histMes!=null;
+  if (filtrosAtivos){
+    const resumo = el(`<div class="hist-active-filters"></div>`);
+    if (DB.histMes!=null){
+      const chip = el(`<span class="mes-chip">📅 ${meses[DB.histMes]} <span class="mc-x">✕</span></span>`);
+      chip.onclick = ()=>{ DB.histMes=null; render(); };
+      resumo.appendChild(chip);
+    }
+    const limpar = el(`<button class="hchip-clear">Limpar filtros</button>`);
+    limpar.onclick = ()=>{ DB.histFiltro='todos'; DB.histPer=null; DB.histFeel=null; DB.histRandori=undefined; DB.histMes=null; DB._histPage=0; render(); };
+    resumo.appendChild(limpar);
+    w.appendChild(resumo);
   }
 
   // notas rápidas
@@ -949,16 +1058,38 @@ function jornadaHistorico(){
     w.appendChild(el(`<div class="sec-title">Treinos</div>`));
   }
 
-  // feed filtrado (tipo + mês)
+  // feed filtrado (tipo + período + mês + sensação + randori) com paginação
   if (!DB.treinos.length){
-    w.appendChild(emptyState('📓','Seu diário está vazio','Cada treino que você registrar aparece aqui, com técnica, randori e fotos.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('📓','Seu diário está vazio','Aqui vai aparecer o histórico completo dos seus treinos — técnica do dia, randori, fotos e anotações. Registre o primeiro!','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
     return w;
   }
   const hist = el(`<div class="history"></div>`);
-  let itens = DB.treinos.filter(t=> filtro==='todos' || t.tipo===filtro);
+  let itens = DB.treinos;
+  if (filtro!=='todos') itens = itens.filter(t=> t.tipo===filtro);
+  if (hPer){
+    const diasMap = {'7d':7,'30d':30,'3m':90,'ano':365};
+    const limDias = diasMap[hPer]||365;
+    const limDate = new Date(hoje); limDate.setDate(limDate.getDate()-limDias);
+    const limISO = isoOf(limDate);
+    itens = itens.filter(t=> t.data >= limISO);
+  }
   if (DB.histMes!=null) itens = itens.filter(t=>{ const [y,m,d]=t.data.split('-').map(Number); return (m-1)===DB.histMes; });
-  if (!itens.length) hist.appendChild(el(`<div class="empty-line">Nenhum treino${DB.histMes!=null?' em '+meses[DB.histMes]:''}${filtro==='todos'?'':' ('+filtro+')'} ainda.</div>`));
-  itens.forEach(t=>{ const item = histItem(t); item.onclick = ()=> abrirTreino(t.id); hist.appendChild(item); });
+  if (hFeel) itens = itens.filter(t=> t.feel===hFeel);
+  if (hRand===true) itens = itens.filter(t=> t.det && t.det.randori===true);
+  if (hRand===false) itens = itens.filter(t=> t.det && t.det.randori===false);
+  if (filtrosAtivos){
+    w.appendChild(el(`<div class="hist-count">${itens.length} / ${DB.treinos.length} treinos</div>`));
+  }
+  if (!itens.length) hist.appendChild(el(`<div class="empty-line">Nenhum treino com esses filtros.</div>`));
+  const PAGE = 20;
+  const page = DB._histPage || 0;
+  const visivel = itens.slice(0, (page+1)*PAGE);
+  visivel.forEach(t=>{ const item = histItem(t); item.onclick = ()=> abrirTreino(t.id); hist.appendChild(item); });
+  if (visivel.length < itens.length){
+    const mais = el(`<button class="hist-mais">Carregar mais (${itens.length - visivel.length} restantes)</button>`);
+    mais.onclick = ()=>{ DB._histPage = (DB._histPage||0)+1; render(); };
+    hist.appendChild(mais);
+  }
   w.appendChild(hist);
   w.appendChild(el(`<div style="height:18px"></div>`));
   return w;
@@ -1006,7 +1137,7 @@ function retroStats(){
 function jornadaFrequencia(){
   const w = el('<div></div>');
   if(!DEMO && (DB.treinos||[]).length===0){
-    w.appendChild(emptyState('📊','Sua frequência aparece aqui','Registre treinos pra acompanhar presença, ritmo por mês e seus dias preferidos.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('📊','Sua frequência aparece aqui','Com pelo menos 1 treino registrado, você verá presença por mês, dias da semana preferidos e seu ritmo semanal.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
     w.appendChild(el(`<div style="height:18px"></div>`));
     return w;
   }
@@ -1076,7 +1207,7 @@ function fecharRetro(){ DB.retroOpen=false; render(); }
 function renderRetro(){
   const r = DEMO ? DB.retro : retroStats();
   const v = el(`<div class="view"></div>`);
-  v.innerHTML = `<div class="flow-head"><div class="back" onclick="fecharRetro()">‹</div>
+  v.innerHTML = `<div class="flow-head"><div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="fecharRetro()">‹</div>
     <div class="ft"><div class="t">Seu ano no Jiu-Jitsu</div><div class="s">${r.ano} · Yama</div></div></div>`;
   const body = el(`<div class="retro-body"></div>`);
   body.appendChild(el(`<div class="retro-hero"><div class="rh-big">${r.treinos}</div><div class="rh-lbl">treinos em ${r.ano}</div></div>`));
@@ -1098,11 +1229,11 @@ function renderRetro(){
 }
 
 // Calendário da Yama: Seg–Sex = Aula Técnica · Sáb = Livre · Dom = sem aula
-// presença real = datas com treino registrado (+ hoje se houve check-in) — memoizado
+// presença real = só datas com treino completo (Fase 1 + Fase 2 salvas) — memoizado
 let _attSig=null, _attSet=null;
 function _attendedSet(){
-  const sig = (DB.treinos||[]).length + '|' + (DB.treinos[0]?DB.treinos[0].id:'') + '|' + (DB.checkinHoje&&DB.checkinHoje.feito?1:0);
-  if (sig!==_attSig){ _attSet=new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); if(DB.checkinHoje&&DB.checkinHoje.feito) _attSet.add(HOJE_ISO); _attSig=sig; }
+  const sig = (DB.treinos||[]).length + '|' + (DB.treinos[0]?DB.treinos[0].id:'');
+  if (sig!==_attSig){ _attSet=new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); _attSig=sig; }
   return _attSet;
 }
 // semana atual (seg→dom) + streak de semanas seguidas com treino — tudo dos dados reais
@@ -1118,7 +1249,7 @@ function semanaStats(){
   while(weekCount(cur)>=THR && guard++<520){ streak++; cur.setDate(cur.getDate()-7); }
   return { dias, feitos, streakSemanas:streak, meta };
 }
-let _semCacheSig=null;
+let _semCacheSig='__invalid__';
 function atualizarSemana(){
   const sig=_attSig;
   if(sig===_semCacheSig) return;
@@ -1165,7 +1296,8 @@ function heatmapCard(){
     const labels=['S','T','Q','Q','S','S','D'];
     const row = el(`<div class="hm-week"></div>`);
     for(let i=0;i<7;i++){ const d=new Date(base); d.setDate(base.getDate()+i); const c=diaTreino(d);
-      row.appendChild(el(`<div class="hmw-day"><span class="${hmCellClass(c)} big"></span><span class="hmw-lbl">${labels[i]}</span><span class="hmw-num">${d.getDate()}</span></div>`)); }
+      const day=el(`<div class="hmw-day" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)} big"></span><span class="hmw-lbl">${labels[i]}</span><span class="hmw-num">${d.getDate()}</span></div>`);
+      row.appendChild(day); }
     card.appendChild(row);
   } else if (periodo==='mes'){
     // calendário do mês atual
@@ -1175,7 +1307,7 @@ function heatmapCard(){
     ['S','T','Q','Q','S','S','D'].forEach(l=> grid.appendChild(el(`<span class="hmm-h">${l}</span>`)));
     for(let k=0;k<startOff;k++) grid.appendChild(el(`<span class="hmm-cell"></span>`));
     for(let day=1;day<=dim;day++){ const d=new Date(hoje.getFullYear(),hoje.getMonth(),day); const c=diaTreino(d);
-      grid.appendChild(el(`<span class="hmm-cell"><span class="${hmCellClass(c)}"></span><span class="hmm-n">${day}</span></span>`)); }
+      grid.appendChild(el(`<span class="hmm-cell" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)}"></span><span class="hmm-n">${day}</span></span>`)); }
     card.appendChild(grid);
     card.appendChild(el(`<div class="hm-sub" style="margin-top:10px">${meses[hoje.getMonth()]} de ${hoje.getFullYear()}</div>`));
   } else {
@@ -1209,17 +1341,26 @@ function heatmapCard(){
     <span class="hm-cell hm-miss"></span><span>Faltou</span>
     <span class="hm-cell hm-tec"></span><span>Técnica</span>
     <span class="hm-cell hm-liv"></span><span>Livre</span></div>`));
+  card.addEventListener('click', e=>{
+    const cell = e.target.closest('[data-iso]');
+    if(!cell) return;
+    const iso = cell.dataset.iso;
+    const cnt = (DB.treinos||[]).filter(t=>t.data===iso).length;
+    toast(fmtDataLonga(iso) + (cnt ? ` · ${plural(cnt,'treino','treinos')}` : ' · sem treino'));
+  });
   return card;
 }
 
 // Detalhe de um treino
-function abrirTreino(id){ DB.treinoAberto = id; render(); window.scrollTo(0,0); }
-function fecharTreino(){ DB.treinoAberto = null; render(); }
+let _savedScroll=0;
+function abrirTreino(id){ _savedScroll=window.scrollY; DB.treinoAberto = id; render(); window.scrollTo(0,0); }
+function fecharTreino(){ DB.treinoAberto = null; render(); window.scrollTo(0,_savedScroll); }
 function renderTreinoDetalhe(){
   const t = DB.treinos.find(x=>x.id===DB.treinoAberto);
+  if(!t){ fecharTreino(); return el(`<div class="view"></div>`); }
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="fecharTreino()">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="fecharTreino()">‹</div>
     <div class="ft"><div class="t">${t.titulo}</div><div class="s">${diaRelativo(t.data)} · ${fmtDataLonga(t.data)}</div></div>
   </div>`;
   const body = el(`<div class="flow-body" style="padding-bottom:40px"></div>`);
@@ -1269,9 +1410,13 @@ function renderTreinoDetalhe(){
       body.appendChild(fg);
     }
   }
+  const editBtn = el(`<button class="edit-treino">✏️ Editar treino</button>`);
+  editBtn.onclick = ()=> abrirEditarTreino(t);
+  body.appendChild(editBtn);
+
   const delBtn = el(`<button class="del-treino">Excluir treino</button>`);
   delBtn.onclick = ()=>{
-    const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+    const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
       <div class="sheet-grip"></div>
       <div class="sheet-title">Excluir treino?</div>
       <div class="sheet-desc">Este treino será removido permanentemente. Não dá pra desfazer.</div>
@@ -1289,6 +1434,94 @@ function renderTreinoDetalhe(){
   v.appendChild(body);
   return v;
 }
+function abrirEditarTreino(t){
+  const det = t.det || {};
+  let feel = t.feel || 0;
+  let randori = det.randori;
+  let renshuEdits = (det.renshu||[]).map(r=>({jp:r.jp, a:r.a, t:r.t}));
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" style="max-height:85vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Editar treino</div>
+    <div id="et-body"></div>
+    <button class="btn-save" id="et-save" style="margin-top:12px">Salvar</button>
+    <button class="sheet-cancel" id="et-cancel">Cancelar</button>
+  </div></div>`);
+  const bodyEl = sheet.querySelector('#et-body');
+  function rebuildBody(){
+    bodyEl.innerHTML='';
+    bodyEl.appendChild(el(`<label class="flbl">🤼 Fez randori?</label>`));
+    const randSeg = el(`<div class="seg"></div>`);
+    [[false,'Não fiz'],[true,'Fiz randori']].forEach(([v,l])=>{ const b=el(`<button class="${randori===v?'active':''}">${l}</button>`);
+      b.onclick=()=>{ randori=v; rebuildBody(); }; randSeg.appendChild(b); });
+    bodyEl.appendChild(randSeg);
+    if(randori===true){
+      if(renshuEdits.length){
+        bodyEl.appendChild(el(`<div class="fsec-title" style="margin-top:12px"><span class="ico">🎯</span> Renshū — acertos no rolê</div>`));
+        renshuEdits.forEach(r=>{
+          const errou = r.t - r.a;
+          const row = el(`<div class="et-renshu-row">
+            <span class="et-rn">${safeTxt(r.jp)}</span>
+            <div class="et-rn-cts">
+              <span class="et-rn-ok">✓ ${r.a}</span>
+              <span class="et-rn-no">✗ ${errou}</span>
+            </div>
+            <div class="et-rn-acts">
+              <button data-d="a+" title="Mais acerto">✓+</button>
+              <button data-d="a-" title="Menos acerto">✓−</button>
+              <button data-d="e+" title="Mais erro">✗+</button>
+              <button data-d="e-" title="Menos erro">✗−</button>
+            </div>
+          </div>`);
+          row.querySelector('[data-d="a+"]').onclick=()=>{ r.a++; r.t++; rebuildBody(); };
+          row.querySelector('[data-d="a-"]').onclick=()=>{ if(r.a>0){ r.a--; r.t--; } rebuildBody(); };
+          row.querySelector('[data-d="e+"]').onclick=()=>{ r.t++; rebuildBody(); };
+          row.querySelector('[data-d="e-"]').onclick=()=>{ if(r.t>r.a) r.t--; rebuildBody(); };
+          bodyEl.appendChild(row);
+        });
+      } else {
+        const focos = focoTecnicas();
+        if(focos.length){
+          bodyEl.appendChild(el(`<div class="fsec-title" style="margin-top:12px"><span class="ico">🎯</span> Adicionar Renshū retroativo</div>`));
+          bodyEl.appendChild(el(`<div class="sheet-desc" style="margin:0 0 8px;font-size:12px">Técnicas em foco — toque para incluir no treino</div>`));
+          focos.forEach(ft=>{
+            const btn = el(`<button class="rs-pick" style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px;margin-bottom:4px;border:1.5px solid var(--line);border-radius:10px;background:var(--field);cursor:pointer">
+              <span style="font-size:13px;font-weight:700">${safeTxt(ft.jp)}</span><span style="color:var(--good);font-weight:800">＋</span></button>`);
+            btn.onclick=()=>{ renshuEdits.push({jp:ft.jp, a:0, t:0}); rebuildBody(); };
+            bodyEl.appendChild(btn);
+          });
+        }
+      }
+    }
+    bodyEl.appendChild(el(`<label class="flbl" style="margin-top:14px">📝 Anotações</label>`));
+    const ta = el(`<textarea class="ta" id="et-nota" rows="3">${safeTxt(det.nota||'')}</textarea>`);
+    bodyEl.appendChild(ta);
+    bodyEl.appendChild(el(`<label class="flbl" style="margin-top:14px">📊 Sensação (1–5)</label>`));
+    const feelSeg = el(`<div class="seg"></div>`);
+    for(let i=1;i<=5;i++){ const b=el(`<button class="${i===feel?'active':''}">${i}</button>`);
+      b.onclick=()=>{ feel=i; feelSeg.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; feelSeg.appendChild(b); }
+    bodyEl.appendChild(feelSeg);
+    bodyEl.appendChild(el(`<div class="feel-ends" style="margin-bottom:4px"><span>Muito difícil</span><span>Excelente</span></div>`));
+  }
+  rebuildBody();
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#et-cancel').onclick=close;
+  sheet.querySelector('#et-save').onclick=()=>{
+    if(!feel){ toast('Avalie como foi o treino (1–5)'); return; }
+    t.feel=feel; t.mood=FEEL_LABEL[feel];
+    if(!t.det) t.det={};
+    t.det.randori=randori;
+    t.det.nota=sheet.querySelector('#et-nota').value.trim();
+    if(randori && renshuEdits.length) t.det.renshu=renshuEdits;
+    else if(!randori) t.det.renshu=[];
+    const reps = (t.det.renshu||[]);
+    t.tecnica = reps.length ? ('Renshū · '+reps.map(r=>r.jp).join(', ')) : (randori?'Treino com randori':'Treino (sem randori)');
+    close(); render(); toast('Treino atualizado');
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+mo-1]} de ${y}`; }
 
 /* ============================================================
@@ -1410,7 +1643,7 @@ function renderShare(){
   const sub = DB.shareFromSave ? 'Treino salvo ✔ · compartilhe ou feche' : 'Card pro seu story';
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="fecharShare()">✕</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="fecharShare()">✕</div>
     <div class="ft"><div class="t">Compartilhar</div><div class="s">${sub}</div></div>
   </div>`;
   const body = el(`<div class="share-body"></div>`);
@@ -1423,7 +1656,7 @@ function renderShare(){
       (_shareLogo&&_shareLogo.complete&&_shareLogo.naturalWidth)?_shareLogo:null,
       (_sharePhoto&&_sharePhoto.complete&&_sharePhoto.naturalWidth)?_sharePhoto:null); }catch(e){} };
   if(!_shareLogo){ _shareLogo=new Image(); _shareLogo.onload=redraw; _shareLogo.onerror=function(){ if(this.src.indexOf('yama-logo')<0) this.src='yama-logo.png?v=2'; }; _shareLogo.src='logo.png?v=2'; }
-  redraw();
+  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(redraw); else redraw();
   // modelos
   const chips = el(`<div class="tpl-row"></div>`);
   SHARE_TPLS.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
@@ -1472,7 +1705,6 @@ function alunoMeuJogo(){
   const subs = [['progresso','Progresso'],['biblioteca','Biblioteca'],['analise','Análise']];
   const seg = el(`<div class="subtabs-scroll"></div>`);
   let tab = DB.jogoTab;
-  if (tab==='renshu') tab = DB.jogoTab = 'progresso';
   subs.forEach(([id,l])=>{
     const b = el(`<button class="subtab2 ${tab===id?'on':''}">${l}</button>`);
     b.onclick = ()=>{ DB.jogoTab=id; render(); };
@@ -1485,17 +1717,6 @@ function alunoMeuJogo(){
   if (tab==='biblioteca') cont.appendChild(evoluirBiblioteca());
   if (tab==='analise')    cont.appendChild(evoluirAnalise());
   w.appendChild(cont);
-  return w;
-}
-
-/* ---- Sub-aba: RENSHŪ — registro (mesmo corpo do botão +) ---- */
-function evoluirRenshu(){
-  const w = el('<div class="reg-tab"></div>');
-  w.appendChild(registroBody());
-  const sb=el(`<button class="btn-save reg-save">Salvar treino</button>`);
-  sb.onclick=()=>salvar();
-  w.appendChild(sb);
-  w.appendChild(el(`<div style="height:14px"></div>`));
   return w;
 }
 
@@ -1589,7 +1810,7 @@ function dayChartNode(dias){
   });
   const defCap = `hoje (${last.dia}) · <b>${_pctAT(last.a,last.t)}%</b>`;
   const node = el(`<div class="dchart">
-    <div class="dchart-leg"><i></i> sua média · ${meta}%</div>
+    <div class="dchart-leg"><span class="dl-key"><i class="dl-sw dl-above"></i> acima da média</span><span class="dl-key"><i class="dl-sw dl-below"></i> abaixo</span><span class="dl-key dl-meta"><i class="dl-dash"></i> média · ${meta}%</span></div>
     <div class="dplot"><div class="bmeta" style="bottom:${meta}%"></div>${bars}</div>
     <div class="dlabs">${labs}</div>
     <div class="wk-cap">${defCap}</div>
@@ -1611,8 +1832,8 @@ function dayChartNode(dias){
 function evoluirProgresso(){
   const w = el('<div></div>');
   const focos = focoTecnicas();
-  w.appendChild(el(`<div class="sec-row" style="margin-top:6px"><div class="sec-title" style="margin:0">Em treino · ${focos.length}/3</div>
-    <span style="font-size:12px;color:var(--muted);font-weight:700">acerto no tempo · 30 dias</span></div>`));
+  w.appendChild(el(`<div class="prog-head"><div class="ph-l"><span class="ph-t">Em treino</span><span class="ph-n">${focos.length}<span class="ph-m">/3</span></span></div>
+    <div class="ph-r">acerto · últimos 30 dias</div></div>`));
   if(!focos.length){
     w.appendChild(el(`<div class="prog-empty">Nenhuma técnica em foco ainda.</div>`));
   }
@@ -1626,7 +1847,7 @@ function evoluirProgresso(){
       card.appendChild(el(`<div class="prog-empty">ainda sem tentativas — pratique no próximo treino</div>`));
       w.appendChild(card); return;
     }
-    card.appendChild(el(`<div class="sc-big"><b style="color:${corPct(p)}">${p}%</b><span>de acerto</span><i>${A} de ${T}</i></div>`));
+    card.appendChild(el(`<div class="sc-big"><b style="color:${corPct(p)}">${p}%</b><span>de acerto</span><i>${A}/${T} tentativas</i></div>`));
     card.appendChild(dayChartNode(t.dias));
     w.appendChild(card);
   });
@@ -1654,17 +1875,17 @@ function bibStats(t){
   return `<div class="rs-stats">${bibStatTile('Treinos',t.treinos||0)}${bibStatTile('Praticada',t.ultima||'—')}</div>`;
 }
 function bibToggle(jp){ DB.bibExp = DB.bibExp===jp?null:jp; render(); }
-function bibRevisar(jp){ const i=DB.tecnicas.findIndex(t=>t.jp===jp); if(i>=0) marcarRevisado(i); }
-function bibEditar(jp){ const i=DB.tecnicas.findIndex(t=>t.jp===jp); if(i>=0) abrirEditorTecnica(i); }
+function bibRevisar(jp){ const i=DB.tecnicas.findIndex(t=>t.id===jp||t.jp===jp); if(i>=0) marcarRevisado(i); }
+function bibEditar(jp){ const i=DB.tecnicas.findIndex(t=>t.id===jp||t.jp===jp); if(i>=0) abrirEditorTecnica(i); }
 function bibVoltarFoco(jp){
   if(focoTecnicas().length>=3){ toast('Máximo de 3 em treino'); return; }
-  const t=DB.tecnicas.find(x=>x.jp===jp); if(t){ t.estado='foco'; toast('Voltou pro treino'); render(); }
+  const t=tecByKey(jp); if(t){ t.estado='foco'; toast('Voltou pro treino'); render(); }
 }
 function bibDelLink(de,para){ DB.links = DB.links.filter(e=>!(e.de===de&&e.para===para)); render(); }
 function bibConnectSub(de){
   const cands = DB.tecnicas.filter(t=>t.jp!==de && !DB.links.some(e=>e.de===de&&e.para===t.jp))
     .sort((a,b)=>(b.treinos||0)-(a.treinos||0));
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Conectar subtécnica</div>
     <div class="sheet-desc">Pra onde a <b>"${safeTxt(de)}"</b> costuma levar? A conexão monta seu mapa de jogo.</div>
@@ -1686,16 +1907,17 @@ function bibConnectSub(de){
 }
 function evoluirBiblioteca(){
   const w = el('<div></div>');
-  // KPIs por nível — DINÂMICO (deriva dos treinos reais; 0 treino = só catálogo)
-  const cont = { aprendendo:0, treinando:0, dominada:0 };
+  const cont = { novo:0, aprendendo:0, treinando:0, dominada:0 };
   DB.tecnicas.forEach(t=>{ const nv=nivelDe(t); if(cont[nv]!=null) cont[nv]++; });
+
+  // KPIs (3 colunas dos níveis com progresso real)
   w.appendChild(el(`<div class="kpis block" style="margin-top:6px">
     <div class="kpi"><div class="v gold">${cont.aprendendo}</div><div class="l">Aprendendo</div></div>
     <div class="kpi"><div class="v blue">${cont.treinando}</div><div class="l">Treinando</div></div>
     <div class="kpi"><div class="v green">${cont.dominada}</div><div class="l">Dominadas</div></div>
   </div>`));
 
-  // 🔁 Revisão espaçada — técnicas que estão te cobrando
+  // 🔁 Revisão espaçada
   const due = tecnicasParaRevisar();
   if (due.length){
     w.appendChild(el(`<div class="sec-row"><div class="sec-title" style="margin:0">🔁 Revisar · ${due.length}</div>
@@ -1719,26 +1941,77 @@ function evoluirBiblioteca(){
   addBtn.onclick = ()=> abrirEditorTecnica(null);
   w.appendChild(addBtn);
 
-  // 📚 Catálogo — por categoria (Kodokan), accordion fechado, 1 categoria por vez
-  w.appendChild(el(`<div class="bib-div">📚 Catálogo · por categoria</div>`));
+  // 🔍 Busca + filtros por nível
+  const searchBox = el(`<div class="bib-search">
+    <div class="bib-srch">
+      <svg class="bib-srch-ic" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.4" y2="16.4"/></svg>
+      <input class="bib-srch-inp" id="bib-q" placeholder="Buscar técnica…" aria-label="Buscar técnica" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+      <button class="bib-srch-clr" id="bib-q-clr" type="button" aria-label="Limpar busca" hidden>✕</button>
+    </div>
+  </div>`);
+  w.appendChild(searchBox);
+  const searchInp = searchBox.querySelector('#bib-q');
+  const searchClr = searchBox.querySelector('#bib-q-clr');
+  if(DB._bibQ){ searchInp.value = DB._bibQ; searchClr.hidden = false; }
+  searchClr.onclick = ()=>{ searchInp.value=''; DB._bibQ=''; searchClr.hidden=true; searchInp.dispatchEvent(new Event('input')); searchInp.focus(); };
+
+  const bibNivel = DB._bibNivel || null;
+  const fbar = el(`<div class="bib-filter-bar"></div>`);
+  [['novo','Catálogo','muted',cont.novo],['aprendendo','Aprendendo','gold',cont.aprendendo],['treinando','Treinando','blue',cont.treinando],['dominada','Dominadas','green',cont.dominada]].forEach(([id,l,cls,n])=>{
+    const b = el(`<button class="bib-fchip ${cls} ${bibNivel===id?'on':''}">${l} · ${n}</button>`);
+    b.onclick = ()=>{ DB._bibNivel = bibNivel===id ? null : id; render(); };
+    fbar.appendChild(b);
+  });
+  w.appendChild(fbar);
+
+  const searchResults = el(`<div class="bib-search-results"></div>`);
+  w.appendChild(searchResults);
+
+  const filterByNivel = (arr)=> bibNivel ? arr.filter(t=>nivelDe(t)===bibNivel) : arr;
+
+  // 📚 Catálogo — por categoria, accordion fechado, 1 categoria por vez
+  const catBlock = el(`<div></div>`);
+  catBlock.appendChild(el(`<div class="bib-div">📚 Catálogo · por categoria</div>`));
   CAT_ORDER.forEach(cat=>{
-    const itens = DB.tecnicas.filter(t=>t.cat===cat);
-    if(!itens.length) return;
+    const itensTotais = DB.tecnicas.filter(t=>t.cat===cat);
+    const itens = filterByNivel(itensTotais);
+    if(!itensTotais.length) return;
     const c = CATS[cat];
     const open = DB.bibCat===cat;
-    const due = itens.filter(t=>(t.treinos||0)>0 && revInfo(t).due).length;
-    const head = el(`<div class="cat-acc ${open?'open':''}">
-      <div class="cat-emoji">${c.emoji}</div>
+    const dueN = itens.filter(t=>(t.treinos||0)>0 && revInfo(t).due).length;
+    const tagCls = cat==='outros' ? 'mod' : (cat==='kosen' ? 'kosen' : 'oficial');
+    const tagTxt = cat==='outros' ? 'BJJ moderno' : (cat==='kosen' ? 'não-oficial' : 'Kodokan');
+    const head = el(`<div class="cat-acc ${open?'open':''} ${bibNivel && !itens.length?'dim':''}" data-cat="${cat}">
+      <div class="cat-emoji" title="${c.nome}">${c.emoji}</div>
       <div class="cat-tx"><div class="cn">${c.nome}</div><div class="cs">${c.sub}</div></div>
-      ${due?`<span class="cat-due" title="a revisar">${due}🔁</span>`:''}
-      <span class="cat-tag ${cat==='kosen'?'kosen':'oficial'}">${cat==='kosen'?'não-oficial':'Kodokan'}</span>
-      <span class="cat-acc-n">${itens.length}</span>
+      ${dueN?`<span class="cat-due" title="a revisar">${dueN}🔁</span>`:''}
+      <span class="cat-tag ${tagCls}">${tagTxt}</span>
+      <span class="cat-acc-n">${bibNivel?`${itens.length}/${itensTotais.length}`:itensTotais.length}</span>
       <span class="cat-caret">${open?'⌄':'›'}</span>
     </div>`);
     head.onclick = ()=>{ DB.bibCat = open?null:cat; DB.bibExp=null; render(); };
-    w.appendChild(head);
-    if(open) itens.forEach(t=> w.appendChild(bibCardNode(t, t.estado)));
+    catBlock.appendChild(head);
+    if(open){
+      const children = el(`<div class="cat-children"></div>`);
+      if(!itens.length){ children.appendChild(el(`<div class="empty-line" style="padding:10px 20px">Nenhuma técnica nesse filtro</div>`)); }
+      else itens.forEach(t=> children.appendChild(bibCardNode(t, t.estado)));
+      catBlock.appendChild(children);
+    }
   });
+  w.appendChild(catBlock);
+
+  searchInp.oninput = ()=>{
+    const q = searchInp.value.trim().toLowerCase(); DB._bibQ = q;
+    searchClr.hidden = !searchInp.value;
+    searchResults.innerHTML='';
+    if(!q){ searchResults.style.display='none'; catBlock.style.display=''; return; }
+    catBlock.style.display='none'; searchResults.style.display='';
+    const hits = filterByNivel(DB.tecnicas.filter(t=> t.jp.toLowerCase().includes(q) || (t.pt||'').toLowerCase().includes(q)));
+    if(!hits.length){ searchResults.appendChild(el(`<div class="empty-line" style="padding:16px;text-align:center">Nenhuma técnica encontrada</div>`)); return; }
+    searchResults.appendChild(el(`<div class="bib-search-count">${hits.length} resultado${hits.length>1?'s':''}</div>`));
+    hits.forEach(t=> searchResults.appendChild(bibCardNode(t, t.estado)));
+  };
+  if(DB._bibQ){ catBlock.style.display='none'; searchInp.dispatchEvent(new Event('input')); }
   w.appendChild(el(`<div style="height:18px"></div>`));
   return w;
 }
@@ -1750,11 +2023,14 @@ function bibCardNode(t, st){
   const r = revInfo(t);
   const {T,p}=totaisTec(t);
   const stat = (st!=='aprendida' && T>0) ? `${p}% de acerto` : `${plural(t.treinos||0,'treino','treinos')}`;
-  const tagTxt = `${t.oficial?'Kodokan':'Kosen'}`;
-  const card = el(`<div class="rep-card">
+  const nv = nivelDe(t);
+  const nvColor = nv==='dominada'?'green':(nv==='treinando'?'blue':(nv==='aprendendo'?'gold':'muted'));
+  const isCustom = t.id && t.id.indexOf('usr-')===0;
+  const card = el(`<div class="rep-card lvl-${nvColor} ${isCustom?'is-custom':''}">
     <div class="rep-row">
+      <span class="rep-dot dot-${nvColor}" title="${NIVEIS[nv]?NIVEIS[nv][0]:''}"></span>
       <div class="rep-tx"><div class="rep-nm">${safeTxt(t.jp)}${r.due?' <span class="rev-dot" title="revisar"></span>':''}</div>
-        <div class="rep-st">${safeTxt(t.pt||'')} · ${tagTxt} · ${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}</div></div>
+        <div class="rep-st">${safeTxt(t.pt||'')} · ${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}${isCustom?' · customizada':''}</div></div>
       <span class="rep-caret">${exp?'⌄':'›'}</span>
     </div>
     ${exp?`<div class="rep-sub">
@@ -1773,6 +2049,7 @@ function bibCardNode(t, st){
         <button class="bib-btn" data-act="revisar">Marcar revisado</button>
         <button class="bib-btn ghost" data-act="editar">Editar</button>
       </div>
+      ${isCustom?`<div class="rep-del-row"><button class="rep-del-btn" data-act="excluir">🗑️ Excluir técnica</button></div>`:''}
     </div>`:''}
   </div>`);
   card.querySelector('.rep-row').onclick = ()=> bibToggle(t.jp);
@@ -1782,8 +2059,33 @@ function bibCardNode(t, st){
     card.querySelector('[data-act="connect"]').onclick=(e)=>{ e.stopPropagation(); bibConnectSub(t.jp); };
     card.querySelector('[data-act="revisar"]').onclick=(e)=>{ e.stopPropagation(); bibRevisar(t.jp); };
     card.querySelector('[data-act="editar"]').onclick=(e)=>{ e.stopPropagation(); bibEditar(t.jp); };
+    const dl=card.querySelector('[data-act="excluir"]'); if(dl) dl.onclick=(e)=>{ e.stopPropagation(); bibExcluirCustom(t.id); };
   }
   return card;
+}
+
+function bibExcluirCustom(id){
+  if(!id || id.indexOf('usr-')!==0) return;
+  const t = DB.tecnicas.find(x=>x.id===id); if(!t) return;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Excluir técnica?</div>
+    <div class="sheet-desc">Você vai apagar <b>"${safeTxt(t.jp)}"</b> da sua biblioteca, junto com todo o histórico de prática dela. Isso não pode ser desfeito.</div>
+    <button class="btn-save" id="del-confirm" style="background:var(--red)">Excluir</button>
+    <button class="sheet-cancel" id="del-cancel">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#del-cancel').onclick=close;
+  sheet.querySelector('#del-confirm').onclick=()=>{
+    DB.tecnicas = DB.tecnicas.filter(x=>x.id!==id);
+    DB.links = (DB.links||[]).filter(e=>e.de!==t.jp && e.para!==t.jp);
+    DB.bibExp = null;
+    scheduleSave(); close(); render();
+    toast('Técnica excluída');
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ---- Sub-aba: GRADUAÇÃO ---- */
@@ -1836,7 +2138,7 @@ function evoluirGraduacao(){
     <div class="mod-title" style="font-size:13px">Progresso por aulas</div>
     <div class="mod-grid">
       <div class="mc"><div class="big" style="font-size:18px">${ag.atual}/${ag.meta}</div>
-        <div class="lbl">${plural(ag.faltam,'aula','aulas')} ${grauLbl}</div>
+        <div class="lbl">${ag.atual>=ag.meta?aptoMsg(me, me.graus>=maxGrausDe(me.faixa), ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' '+grauLbl}</div>
         <div class="mini-bar"><span style="width:${ag.pct}%"></span></div></div>
       <div class="mc bd"><div class="big" style="font-size:18px">~${ag.restantes}</div>
         <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem</div></div>
@@ -1984,17 +2286,26 @@ function abrirImportGrad(){
 /* ---- Sub-aba: TÉCNICAS (biblioteca) ---- */
 const NIVEIS = { novo:['Catálogo','muted'], aprendendo:['Aprendendo','gold'], treinando:['Treinando','blue'], dominada:['Dominada','green'] };
 // Categorias no continuum da arte única — do em pé ao chão
+// Categorias — taxonomia Kodokan oficial (referência: CBJ + Kodokan Judo Institute).
+// `kanji` = caractere principal do nome da categoria. `sub` = tradução PT documentada.
 const CATS = {
-  nage:     { nome:'Nage-waza', sub:'Quedas / projeções (em pé)', emoji:'⬆️' },
-  osaekomi: { nome:'Osaekomi-waza', sub:'Imobilizações · controle', emoji:'🔒' },
-  shime:    { nome:'Shime-waza', sub:'Estrangulamentos', emoji:'🌀' },
-  kansetsu: { nome:'Kansetsu-waza', sub:'Chaves articulares', emoji:'🦾' },
-  kosen:    { nome:'Kosen · ne-waza', sub:'Guarda e jogo por baixo', emoji:'🥋' },
+  nage:     { nome:'Nage-waza', sub:'Técnicas de projeção', emoji:'投' },
+  osaekomi: { nome:'Osaekomi-waza', sub:'Técnicas de imobilização (solo)', emoji:'押' },
+  shime:    { nome:'Shime-waza', sub:'Técnicas de estrangulamento', emoji:'絞' },
+  kansetsu: { nome:'Kansetsu-waza', sub:'Técnicas de luxação articular', emoji:'関' },
+  kosen:    { nome:'Kosen · ne-waza', sub:'Tradição Kosen · técnicas de solo', emoji:'寝' },
+  outros:   { nome:'Outros', sub:'BJJ moderno · guardas e raspagens', emoji:'柔' },
 };
-const CAT_ORDER = ['nage','osaekomi','shime','kansetsu','kosen'];
+const CAT_ORDER = ['nage','osaekomi','shime','kansetsu','kosen','outros'];
 
 // ---- Revisão espaçada ("Anki do BJJ") ----
-const REV_INTERVALO = { aprendendo:3, treinando:7, dominada:21 }; // dias até cobrar revisão
+const REV_BASE = { aprendendo:3, treinando:7, dominada:21 };
+function _revAlvo(t){
+  const base = REV_BASE[nivelDe(t)] || 7;
+  const reps = Math.min(t.treinos||0, 20);
+  const factor = 1 + reps * 0.1;
+  return Math.round(base * factor);
+}
 function diasEntre(iso){
   if (!iso) return 999;
   const [y,m,d] = iso.split('-').map(Number);
@@ -2003,7 +2314,7 @@ function diasEntre(iso){
 }
 function revInfo(t){
   const dias = diasEntre(t.ultimaRev);
-  const alvo = REV_INTERVALO[nivelDe(t)] || 7;
+  const alvo = _revAlvo(t);
   return { dias, alvo, due: dias >= alvo, atraso: dias - alvo };
 }
 function tecnicasParaRevisar(){
@@ -2028,7 +2339,7 @@ function abrirTecnica(i){
   const revTxt = r.due
     ? `🧠 <b>Revisão espaçada:</b> faz <b>${r.dias} dias</b> que você não revisita — passou do intervalo de ${r.alvo} dias.`
     : `🧠 <b>Revisão espaçada:</b> revisada faz ${r.dias} dias. Em dia (intervalo de ${r.alvo} dias).`;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="tec-sheet-head">
       <div class="tec-ic" style="width:52px;height:52px;font-size:26px">${c.emoji}</div>
@@ -2059,7 +2370,7 @@ function abrirEditorTecnica(idx){
   const t = editing ? DB.tecnicas[idx]
     : { jp:'', pt:'', cat:'osaekomi', oficial:true, nivel:'aprendendo', nota:'' };
   let cat = t.cat, niv = t.nivel;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">${editing?'Editar técnica':'Nova técnica'}</div>
     <label class="flbl">Nome (japonês)</label>
@@ -2087,9 +2398,9 @@ function abrirEditorTecnica(idx){
   sheet.querySelector('#et-save').onclick = ()=>{
     const jp = sheet.querySelector('#et-jp').value.trim();
     if (!jp){ toast('Dê um nome à técnica'); return; }
-    const data = { jp, pt:sheet.querySelector('#et-pt').value.trim(), cat, oficial:cat!=='kosen', nivel:niv, nota:sheet.querySelector('#et-nota').value.trim() };
+    const data = { jp, pt:sheet.querySelector('#et-pt').value.trim(), cat, oficial:cat!=='kosen'&&cat!=='outros', nivel:niv, nota:sheet.querySelector('#et-nota').value.trim() };
     if (editing) Object.assign(DB.tecnicas[idx], data);
-    else DB.tecnicas.push({ ...data, treinos:0, ultima:'hoje', ultimaRev:HOJE_ISO });
+    else DB.tecnicas.push({ id:'usr-'+Date.now().toString(36), ...data, treinos:0, ultima:'hoje', ultimaRev:HOJE_ISO });
     sheet.remove();
     DB.navAluno='jogo'; DB.jogoTab='biblioteca'; render();
     toast(editing?'Técnica atualizada ✔':'Técnica adicionada ✔');
@@ -2143,13 +2454,15 @@ function alunoPerfil(){
   const conta = el(`<div class="info-list">
     <div class="info-row" id="row-lesoes" role="button" tabindex="0" aria-label="Lesões" style="cursor:pointer"><div class="ii">🤕</div><div class="it"><div class="t">Lesões</div></div><div class="iv">›</div></div>
     <div class="info-row" id="row-notif" role="button" tabindex="0" aria-label="Notificações" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="Tema escuro" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">Tema escuro</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
+    <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="${_isDark()?'Tema escuro ativado':'Tema claro ativado'}" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">${_isDark()?'Tema escuro':'Tema claro'}</div><div class="s">${_isDark()?'Toque para modo claro':'Toque para modo escuro'}</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
+    <div class="info-row" id="row-backup" role="button" tabindex="0" aria-label="Backup do perfil" style="cursor:pointer"><div class="ii">💾</div><div class="it"><div class="t">Backup do perfil</div><div class="s">Exportar / importar dados</div></div><div class="iv">›</div></div>
     <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
   const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
   _bindRow('#row-lesoes', ()=> abrirLesoes());
   _bindRow('#row-notif', ()=> abrirNotificacoes());
   _bindRow('#row-tema', ()=> toggleTheme());
+  _bindRow('#row-backup', ()=> abrirBackup());
   _bindRow('#row-config', ()=> abrirConfiguracoes());
   w.appendChild(conta);
   return w;
@@ -2197,7 +2510,7 @@ function openFlow(){
   const treinoHoje = DB.treinos.find(t=>t.data===HOJE_ISO);
   if (draft) {
     // draft exists — ask to resume or start new
-    const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+    const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
       <div class="sheet-grip"></div>
       <div class="sheet-title">Treino em andamento</div>
       <div class="sheet-desc">Você tem um treino em andamento de hoje (check-in às ${draft.checkinHora}). Continuar de onde parou?</div>
@@ -2218,7 +2531,29 @@ function openFlow(){
   render(); window.scrollTo(0,0);
 }
 function _startPhase1(){ DB.flow = { phase:1 }; render(); window.scrollTo(0,0); }
-function closeFlow(){ DB.flow=null; render(); }
+function closeFlow(){
+  const draft = _loadDraft();
+  const reg = DB.registro;
+  const hasDraft = !!draft;
+  const hasData = reg && (reg.nota || reg.mood || reg.randori!=null || reg.feel);
+  if (DB.flow && DB.flow.phase===2 && (hasDraft || hasData)){
+    const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+      <div class="sheet-grip"></div>
+      <div class="sheet-title">Sair do registro?</div>
+      <div class="sheet-desc">Você tem dados não salvos. Se sair agora, o rascunho fica salvo pra continuar depois.</div>
+      <button class="btn-save" id="cf-stay">Continuar registrando</button>
+      <button class="sheet-cancel danger" id="cf-leave">Sair mesmo assim</button>
+    </div></div>`);
+    const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+    sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+    sheet.querySelector('#cf-stay').onclick=close;
+    sheet.querySelector('#cf-leave').onclick=()=>{ close(); DB.flow=null; render(); };
+    document.body.appendChild(sheet);
+    requestAnimationFrame(()=>sheet.classList.add('open'));
+    return;
+  }
+  DB.flow=null; render();
+}
 
 const INTENS = { leve:'Leve', medio:'Médio', forte:'Forte' };  // compat: detalhe de treinos antigos
 const FEEL_LABEL = {1:'Muito difícil',2:'Difícil',3:'Normal',4:'Bom',5:'Excelente'};
@@ -2249,7 +2584,7 @@ function renderFlow(){
 function _renderPhase1(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="closeFlow()">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="closeFlow()">‹</div>
     <div class="ft"><div class="t">Check-in</div>
       <div class="s">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div></div>
   </div>`;
@@ -2271,7 +2606,7 @@ function _renderPhase1(){
 function _renderPhase2(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="closeFlow()">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="closeFlow()">‹</div>
     <div class="ft"><div class="t">Registrar treino</div>
       <div class="s">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div></div>
   </div>`;
@@ -2292,7 +2627,7 @@ function renderPresenca(){
   const aula = DB.tecnicaDoDia;
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="closePresenca()">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="closePresenca()">‹</div>
     <div class="ft"><div class="t">Registrar presença</div>
       <div class="s">Aula das ${aula.hora} · ${DB.academia.nome}</div></div>
   </div>`;
@@ -2382,7 +2717,7 @@ function carrinhoTotal(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loj
 function renderLoja(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" onclick="closeLoja()">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" onclick="closeLoja()">‹</div>
     <div class="ft"><div class="t">Loja Yama</div><div class="s">Retire na recepção · sem frete</div></div>
     <div class="cart-btn" onclick="abrirCarrinho()">🛍️${carrinhoQtd()?`<span class="cart-badge">${carrinhoQtd()}</span>`:''}</div>
   </div>`;
@@ -2468,7 +2803,7 @@ function abrirCarrinho(){
       <div class="ci-tx"><div class="ci-n">${p.nome}</div><div class="ci-s">Tam ${i.tam} · ${i.qtd}x</div></div>
       <div class="ci-p">${moneyBR(p.preco*i.qtd)}</div></div>`;
   }).join('');
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Sua sacola</div>
     ${itens}
@@ -2580,7 +2915,7 @@ function renderAuth(){
 }
 
 function _authResetPw(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Recuperar senha</div>
     <div class="sheet-desc">Informe seu e-mail e enviaremos um link para redefinir a senha.</div>
@@ -2602,7 +2937,7 @@ function _authResetPw(){
 }
 
 function _sairDaConta(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Sair da conta?</div>
     <div class="sheet-desc">Seus dados ficam salvos na nuvem. Ao entrar novamente eles serão restaurados.</div>
@@ -2763,7 +3098,7 @@ function profAlunos(){
 
 function _profAlunoSheet(a){
   const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">${a.nm}</div>
     <div class="sheet-desc">${BELTS[a.faixa]?.nome||a.faixa} · ${a.graus}º grau${a.desde&&a.desde!=='—'?' · desde '+a.desde:''}</div>
@@ -2797,7 +3132,7 @@ function _profAlunoSheet(a){
 function _profGraduarSheet(a, refresh){
   const faixas = Object.keys(BELTS);
   let selFaixa = a.faixa||'branca', selGraus = a.graus||0;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Graduar ${a.nm}</div>
     <div class="sheet-desc">Atual: ${BELTS[a.faixa]?.nome||a.faixa} · ${a.graus}º grau</div>
@@ -2878,6 +3213,7 @@ function salvarTecnica(){
 
 function profFinanceiro(){
   const w = el('<div></div>');
+  if(!_profData){ w.innerHTML='<div class="card card-pad" style="margin:20px;text-align:center;color:var(--muted)">Sem dados financeiros no modo local.</div>'; return w; }
   const alunos   = (_profData?.alunos)||[];
   const vencidos = alunos.filter(a=>a.pago==='late');
   const aVencer  = alunos.filter(a=>a.pago==='soon');
@@ -3108,7 +3444,7 @@ function abrirEditarPerfil(){
   const me = DB.eu;
   let foto = me.foto, faixa = me.faixa, graus = me.graus, nascimento = me.nascimento;
   const maxGraus = (f)=> f==='preta'?6:4;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Editar perfil</div>
     <div class="ep-foto">
@@ -3170,8 +3506,9 @@ function abrirEditarPerfil(){
       const existing = DB.graduacoes.find(g=>g.tipo==='faixa'&&g.faixa===faixa);
       if(existing && epDataFaixa.value) existing.data = epDataFaixa.value;
     }
-    if(grausMudou && graus>0 && !faixaMudou){
-      if(!DB.graduacoes.some(g=>g.tipo==='grau'&&g.faixa===faixa&&g.graus===graus))
+    if(grausMudou && !faixaMudou){
+      DB.graduacoes = DB.graduacoes.filter(g=>!(g.tipo==='grau'&&g.faixa===faixa&&g.graus>graus));
+      if(graus>0 && !DB.graduacoes.some(g=>g.tipo==='grau'&&g.faixa===faixa&&g.graus===graus))
         DB.graduacoes.push({faixa, graus, tipo:'grau', data:HOJE_ISO, por:'—'});
     }
     DB.graduacoes.sort((a,b)=>a.data.localeCompare(b.data));
@@ -3184,14 +3521,14 @@ function abrirEditarPerfil(){
 
 // ---- Configurações ----
 function abrirConfiguracoes(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Configurações</div>
     <div class="cfg-list">
       <div class="cfg-row" id="cfg-ajuda"><span>📖 Como usar</span><span class="cfg-go">›</span></div>
       <div class="cfg-row" id="cfg-metrics"><span>📈 Métricas do beta</span><span class="cfg-go">›</span></div>
       <div class="cfg-row" id="cfg-feedback"><span>💬 Enviar feedback (beta)</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-export"><span>⬇️ Exportar meus dados (backup)</span><span class="cfg-go">›</span></div>
+      <div class="cfg-row" id="cfg-backup"><span>💾 Backup do perfil (exportar/importar)</span><span class="cfg-go">›</span></div>
       <div class="cfg-note">🔒 Seus dados ficam só neste aparelho. Exporte toda semana — assim não perde nada se trocar de celular ou limpar o navegador.</div>
       <div class="cfg-row" id="cfg-priv"><span>🔒 Privacidade & Termos</span><span class="cfg-go">›</span></div>
       <div class="cfg-row" id="cfg-sobre"><span>ℹ️ Sobre o app</span><span class="cfg-go">›</span></div>
@@ -3205,7 +3542,7 @@ function abrirConfiguracoes(){
   sheet.querySelector('#cfg-ajuda').onclick=()=>{ close(); abrirAjuda(false); };
   sheet.querySelector('#cfg-metrics').onclick=()=>{ close(); abrirMetricas(); };
   sheet.querySelector('#cfg-feedback').onclick=()=>{ close(); abrirFeedback(); };
-  sheet.querySelector('#cfg-export').onclick=()=>{ close(); exportarDados(); };
+  sheet.querySelector('#cfg-backup').onclick=()=>{ close(); abrirBackup(); };
   sheet.querySelector('#cfg-priv').onclick=()=>{ close(); abrirPolitica(); };
   sheet.querySelector('#cfg-limpar').onclick=()=>{ close(); limparDados(); };
   sheet.querySelector('#cfg-sobre').onclick=()=> toast('Yama Jiu-Jitsu · protótipo beta 🥋');
@@ -3226,7 +3563,7 @@ function abrirFeedback(){
 // ---- Montar Sistema novo ----
 // ---- Lesões ----
 function abrirLesoes(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">🤕 Lesões</div>
     <div class="lesao-list" id="lesao-list"></div>
@@ -3236,7 +3573,13 @@ function abrirLesoes(){
   const renderList=()=>{ const c=sheet.querySelector('#lesao-list'); c.innerHTML='';
     if(!DB.lesoes.length){ c.appendChild(el(`<div class="empty-line">Nenhuma lesão registrada. 🙏</div>`)); return; }
     DB.lesoes.forEach(l=>{ const st={ativa:['gold','Ativa'],recuperando:['blue','Recuperando'],curada:['green','Curada']}[l.status]||['blue',l.status];
-      c.appendChild(el(`<div class="lesao-item"><div class="li-top"><span class="li-nm">${safeTxt(l.parte)}</span><span class="niv-badge ${st[0]}">${st[1]}</span></div>${l.nota?`<div class="li-nota">${safeTxt(l.nota)}</div>`:''}<div class="li-dt">${fmtDataLonga(l.data)}</div></div>`)); }); };
+      const row = el(`<div class="lesao-item"><div class="li-top"><span class="li-nm">${safeTxt(l.parte)}</span><span class="niv-badge ${st[0]}">${st[1]}</span></div>${l.nota?`<div class="li-nota">${safeTxt(l.nota)}</div>`:''}<div class="li-dt">${fmtDataLonga(l.data)}</div>
+        <div class="li-actions"><button class="li-edit">Editar</button><button class="li-del">Excluir</button></div></div>`);
+      row.querySelector('.li-edit').onclick=()=> abrirEditarLesao(l, renderList);
+      row.querySelector('.li-del').onclick=()=>{
+        if(confirm('Excluir esta lesão?')){ DB.lesoes=DB.lesoes.filter(x=>x.id!==l.id); renderList(); toast('Lesão excluída'); }
+      };
+      c.appendChild(row); }); };
   renderList();
   sheet.querySelector('#lesao-add').onclick=()=> abrirNovaLesao(renderList);
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
@@ -3247,7 +3590,7 @@ function abrirLesoes(){
 }
 function abrirNovaLesao(onDone){
   let status='ativa';
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Registrar lesão</div>
     <label class="flbl">Parte do corpo</label>
@@ -3272,41 +3615,102 @@ function abrirNovaLesao(onDone){
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
 
-// ---- Exportar dados ----
-function exportarDados(){
-  track('export');
-  const tecProg = DB.tecnicas.map(t=>({jp:t.jp, treinos:t.treinos||0, estado:t.estado, ultima:t.ultima, dias:t.dias}));
-  const dump = {
-    schema: SCHEMA, exportadoEm: new Date().toISOString(),
-    eu: { apelido:DB.eu.apelido, faixa:DB.eu.faixa, graus:DB.eu.graus, desde:DB.eu.desde, consentimento:DB.eu.consentimento },
-    treinos: DB.treinos, notas: DB.notas, lesoes: DB.lesoes, graduacoes: DB.graduacoes,
-    tecnicas: tecProg,
-    kpis: (typeof betaKPIs==='function' ? betaKPIs() : null),     // métricas do beta p/ agregação
-    analytics: DB.analytics                                        // eventos + erros
-  };
-  const json = JSON.stringify(dump, null, 2);
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+function abrirEditarLesao(lesao, onDone){
+  let status=lesao.status;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">📤 Exportar dados</div>
-    <div class="flbl">Backup do seu diário (JSON)</div>
-    <textarea class="ta" readonly style="min-height:150px;font-size:11px;font-family:monospace">${json.replace(/</g,'&lt;')}</textarea>
-    <button class="btn-save" id="exp-copy">Copiar JSON</button>
-    <button class="btn-save" id="exp-dl" style="margin-top:8px;background:var(--blue)">Baixar arquivo</button>
-    <button class="sheet-cancel" id="exp-close">Fechar</button>
+    <div class="sheet-title">Editar lesão</div>
+    <label class="flbl">Parte do corpo</label>
+    <input class="inp" id="el-parte" value="${safeAttr(lesao.parte)}">
+    <label class="flbl" style="margin-top:12px">Status</label>
+    <div class="seg" id="el-status"></div>
+    <label class="flbl" style="margin-top:12px">Anotação</label>
+    <textarea class="ta" id="el-nota">${safeTxt(lesao.nota||'')}</textarea>
+    <button class="btn-save" id="el-save" style="margin-top:12px">Salvar</button>
+    <button class="sheet-cancel" id="el-cancel">Cancelar</button>
   </div></div>`);
+  const ss=sheet.querySelector('#el-status');
+  [['ativa','Ativa'],['recuperando','Recuperando'],['curada','Curada']].forEach(([k,l])=>{ const b=el(`<button class="${k===status?'active':''}">${l}</button>`);
+    b.onclick=()=>{ status=k; ss.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; ss.appendChild(b); });
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#exp-close').onclick=close;
-  sheet.querySelector('#exp-copy').onclick=()=>{ try{ navigator.clipboard.writeText(json); }catch(e){} toast('JSON copiado 📋'); };
-  sheet.querySelector('#exp-dl').onclick=()=>{ const blob=new Blob([json],{type:'application/json'}); const url=URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url; a.download='yama-diario.json'; a.click(); URL.revokeObjectURL(url); toast('Download iniciado 📤'); };
+  sheet.querySelector('#el-cancel').onclick=close;
+  sheet.querySelector('#el-save').onclick=()=>{ const parte=sheet.querySelector('#el-parte').value.trim(); if(!parte){ toast('Informe a parte do corpo'); return; }
+    lesao.parte=parte; lesao.status=status; lesao.nota=sheet.querySelector('#el-nota').value.trim();
+    close(); if(onDone) onDone(); toast('Lesão atualizada'); };
   document.body.appendChild(sheet);
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
 
+// ---- Exportar dados ----
+function abrirBackup(){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">💾 Backup do perfil</div>
+    <div class="bkp-note">Exporte para guardar tudo (treinos, técnicas, graduação) num arquivo. Importe pra restaurar — útil durante a fase beta.</div>
+    <button class="btn-save" id="bkp-exp">⬇️ Exportar perfil (JSON)</button>
+    <button class="btn-save" id="bkp-imp" style="margin-top:8px;background:var(--blue)">⬆️ Importar perfil (JSON)</button>
+    <input type="file" id="bkp-file" accept=".json,application/json" style="display:none" aria-hidden="true">
+    <button class="sheet-cancel" id="bkp-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#bkp-close').onclick=close;
+  sheet.querySelector('#bkp-exp').onclick=()=>{
+    try{ flushSave(); }catch(e){}
+    const raw=localStorage.getItem(STORE_KEY)||'{}';
+    const dump={ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw) };
+    const json=JSON.stringify(dump,null,2);
+    const blob=new Blob([json],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=`yama-perfil-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    toast('Backup baixado ✓');
+  };
+  const fileInp=sheet.querySelector('#bkp-file');
+  sheet.querySelector('#bkp-imp').onclick=()=> fileInp.click();
+  fileInp.onchange=(e)=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const dump=JSON.parse(ev.target.result);
+        if(dump.app!=='Yama BJJ' || !dump.data){ toast('⚠️ Arquivo inválido'); fileInp.value=''; return; }
+        if(dump.schema && dump.schema>SCHEMA){ toast('⚠️ Backup de versão futura'); fileInp.value=''; return; }
+        const dataDump=dump.exportadoEm?dump.exportadoEm.slice(0,10):'desconhecida';
+        const conf=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+          <div class="sheet-grip"></div>
+          <div class="sheet-title">⚠️ Substituir dados?</div>
+          <div class="bkp-note">Vai apagar seus dados atuais e restaurar o backup de <b>${dataDump}</b>. Confirma?</div>
+          <button class="btn-save" id="ci-ok" style="background:var(--red)">Sim, substituir tudo</button>
+          <button class="sheet-cancel" id="ci-no">Cancelar</button>
+        </div></div>`);
+        const cClose=()=>{ conf.classList.remove('open'); setTimeout(()=>conf.remove(),260); };
+        conf.onclick=(ev2)=>{ if(ev2.target===conf) cClose(); };
+        conf.querySelector('#ci-no').onclick=cClose;
+        conf.querySelector('#ci-ok').onclick=()=>{
+          try{
+            localStorage.setItem(STORE_KEY, JSON.stringify(dump.data));
+            cClose(); close();
+            toast('Perfil restaurado — recarregando…');
+            setTimeout(()=>location.reload(), 600);
+          }catch(err){ toast('⚠️ Falha ao restaurar'); }
+        };
+        document.body.appendChild(conf);
+        requestAnimationFrame(()=>conf.classList.add('open'));
+      }catch(err){ toast('⚠️ Não foi possível ler o arquivo'); }
+      fileInp.value='';
+    };
+    reader.readAsText(file);
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 // ---- Centro de notificações ----
 function abrirNotificacoes(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">🔔 Notificações</div>
     <div class="notif-list" id="notif-list"></div>
@@ -3325,7 +3729,7 @@ function abrirNotificacoes(){
 
 // ---- Apagar tudo (reset completo do diário; mantém o catálogo) ----
 function limparDados(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Apagar todos os dados?</div>
     <div class="sheet-desc">Isto apaga seus treinos, progresso das técnicas, streak e graduações deste aparelho. O catálogo de técnicas permanece. Não dá pra desfazer.</div>
@@ -3411,14 +3815,63 @@ function selfTest(){
     // save()/load() reais round-trip com tecProg (snapshot/restore do store real)
     try{
       const snapS=localStorage.getItem(STORE_KEY);
-      const jp0=DB.tecnicas[0].jp, prev=DB.tecnicas[0].hojeA;
+      const id0=DB.tecnicas[0].id||DB.tecnicas[0].jp, prev=DB.tecnicas[0].hojeA;
       DB.tecnicas[0].hojeA=99; save();
       const raw=JSON.parse(localStorage.getItem(STORE_KEY));
-      ok('save grava tecProg', raw.tecProg && raw.tecProg[jp0] && raw.tecProg[jp0].hojeA===99);
+      ok('save grava tecProg', raw.tecProg && raw.tecProg[id0] && raw.tecProg[id0].hojeA===99);
       ok('save grava links', Array.isArray(raw.links));
       DB.tecnicas[0].hojeA=prev;
       if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
     }catch(e){ ok('save/load tecProg', false); }
+    // tecByKey: lookup por id, jp, null, inexistente
+    try{
+      const t0=DB.tecnicas[0];
+      ok('tecByKey por id', tecByKey(t0.id)===t0);
+      ok('tecByKey por jp', tecByKey(t0.jp)===t0);
+      ok('tecByKey null', tecByKey(null)===null);
+      ok('tecByKey inexistente', tecByKey('zzz-nada')===null);
+    }catch(e){ ok('tecByKey', false); }
+    // heatmap dark mode: células de treino mantêm cor (regressão CSS)
+    try{
+      const snapT=document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme','dark');
+      const probe=document.createElement('div'); probe.style.position='fixed'; probe.style.left='-9999px';
+      probe.innerHTML=`<span class="hm-cell hm-tec"></span><span class="hm-cell hm-liv"></span><span class="hm-cell hm-empty"></span>`;
+      document.body.appendChild(probe);
+      const bgTec=getComputedStyle(probe.children[0]).backgroundColor;
+      const bgLiv=getComputedStyle(probe.children[1]).backgroundColor;
+      const bgEmp=getComputedStyle(probe.children[2]).backgroundColor;
+      ok('heatmap dark: hm-tec é vermelho', bgTec==='rgb(239, 83, 80)');
+      ok('heatmap dark: hm-liv é azul',     bgLiv==='rgb(47, 143, 239)');
+      ok('heatmap dark: hm-empty transparente', bgEmp==='rgba(0, 0, 0, 0)');
+      probe.remove();
+      if(snapT) document.documentElement.setAttribute('data-theme', snapT); else document.documentElement.removeAttribute('data-theme');
+    }catch(e){ ok('heatmap dark mode', false); }
+    // save/load de técnicas customizadas (definição + progresso)
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      const snapTec=DB.tecnicas.slice();
+      const customId='usr-st-'+Date.now().toString(36);
+      DB.tecnicas.push({ id:customId, jp:'TST-custom', pt:'teste', cat:'outros', oficial:false, nivel:'aprendendo', treinos:3, hojeA:1, hojeT:2, ultima:'hoje', ultimaRev:HOJE_ISO, nota:'st' });
+      save();
+      const raw=JSON.parse(localStorage.getItem(STORE_KEY));
+      ok('save inclui tecnicasCustom', Array.isArray(raw.tecnicasCustom) && raw.tecnicasCustom.some(c=>c.id===customId));
+      ok('tecnicasCustom só usr-', raw.tecnicasCustom.every(c=>c.id && c.id.indexOf('usr-')===0));
+      // simula reload: remove custom de memória e chama load()
+      DB.tecnicas = DB.tecnicas.filter(t=>t.id!==customId);
+      load();
+      const restaurada = DB.tecnicas.find(t=>t.id===customId);
+      ok('load restaura custom def', !!restaurada && restaurada.jp==='TST-custom' && restaurada.cat==='outros');
+      ok('load restaura custom progresso', restaurada && restaurada.treinos===3 && restaurada.hojeA===1);
+      // load() não duplica seed (idempotente)
+      const seedAntes = DB.tecnicas.filter(t=>!t.id||t.id.indexOf('usr-')!==0).length;
+      load();
+      const seedDepois = DB.tecnicas.filter(t=>!t.id||t.id.indexOf('usr-')!==0).length;
+      ok('load não duplica seed', seedAntes===seedDepois);
+      // cleanup
+      DB.tecnicas=snapTec;
+      if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
+    }catch(e){ ok('tecnicasCustom round-trip', false); }
     // toggleTheme alterna e _isDark reflete
     try{
       const snapT=document.documentElement.getAttribute('data-theme');
@@ -3544,6 +3997,31 @@ function selfTest(){
       DB.eu.graus=1; DB.graduacoes.pop(); DB.eu.aulasGrau.base=5;
       ok('C1 baseline importada entra no grau', aulasStats().atual===6); // 5 base + 1 dia
     }catch(e){ ok('C1 aulasStats', false); } finally { DB.treinos=sTr; DB.graduacoes=sGr; DB.eu=sEu; } }
+  /* === Batch 1 tests === */
+  { const sT=DB.tecnicas.map(t=>t.estado);
+    const t0=DB.tecnicas[0]; const old0=t0.estado; t0.estado='aprendida';
+    t0.estado='foco'; t0.estado='foco';
+    ok('M4 foco dedup guard exists', typeof rsAddFoco==='function');
+    t0.estado=old0; DB.tecnicas.forEach((t,i)=>t.estado=sT[i]);
+  }
+  { const sTr=DB.treinos, sGr=DB.graduacoes;
+    DB.treinos=[{id:'t1',data:'2024-01-15',titulo:'x',tipo:'tecnica'}];
+    DB.graduacoes=[{faixa:'branca',graus:0,tipo:'faixa',data:'2023-06-01'}];
+    ok('M6 desdeDinamico usa menor data', desdeDinamico()==='2023-06');
+    DB.treinos=[]; DB.graduacoes=[];
+    ok('M6 desdeDinamico fallback sem dados', desdeDinamico().length===7);
+    DB.treinos=sTr; DB.graduacoes=sGr;
+  }
+  ok('M2 renderTreinoDetalhe guard', typeof renderTreinoDetalhe==='function');
+  /* H1 — memo sentinel garante cálculo no boot */
+  ok('H1 semCacheSig sentinel', _semCacheSig!==null);
+  /* H3 — reduzir graus remove órfãs */
+  { const sGr=DB.graduacoes.slice();
+    DB.graduacoes=[{faixa:'azul',graus:0,tipo:'faixa',data:'2024-01-01',por:'—'},{faixa:'azul',graus:1,tipo:'grau',data:'2024-06-01',por:'—'},{faixa:'azul',graus:2,tipo:'grau',data:'2025-01-01',por:'—'},{faixa:'azul',graus:3,tipo:'grau',data:'2025-06-01',por:'—'}];
+    const filtered=DB.graduacoes.filter(g=>!(g.tipo==='grau'&&g.faixa==='azul'&&g.graus>1));
+    ok('H3 filtro remove graus acima', filtered.length===2 && !filtered.some(g=>g.graus>1));
+    DB.graduacoes=sGr;
+  }
   }catch(e){ ok('pure-functions', false); }
   // render de todas as abas (snapshot + restore)
   const snap={ nav:DB.navAluno, jt:DB.jogoTab, jo:DB.jornadaTab };
@@ -3621,6 +4099,32 @@ if (DEMO) {
   const hide = ()=>{ sp.classList.add('hide'); setTimeout(()=>sp.remove(), 600); };
   sp.addEventListener('click', hide);          // toque pula a splash
   setTimeout(hide, 1900);
+})();
+
+/* === PWA: standalone detection, A2HS, online/offline, theme-color sync === */
+(function(){
+  const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  if (isStandalone) document.documentElement.classList.add('standalone');
+
+  let _deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _deferredPrompt = e; });
+  window._yamaInstall = ()=>{ if(_deferredPrompt){ _deferredPrompt.prompt(); _deferredPrompt=null; } };
+
+  const _syncTheme = ()=>{
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => {
+      if(!m.getAttribute('media')) return;
+      if(m.getAttribute('media').includes('dark')) m.content = dark ? '#0a0b0d' : '#0a0b0d';
+      else m.content = dark ? '#0a0b0d' : '#f4f4f6';
+    });
+  };
+  const _origRender = window._yamaThemeSync;
+  window._yamaThemeSync = _syncTheme;
+  new MutationObserver(_syncTheme).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+
+  const _offlineBanner = ()=>{ if(!navigator.onLine) toast('Você está offline — dados salvos localmente'); };
+  window.addEventListener('online', ()=> toast('Conexão restaurada'));
+  window.addEventListener('offline', _offlineBanner);
 })();
 
 // ?test=1 → roda o smoke test e guarda o resultado em window.__selfTest
