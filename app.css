@@ -16,7 +16,12 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 button,input,textarea,select,.tab,[role="button"]{touch-action:manipulation}
-html{overscroll-behavior:none}
+html{-webkit-overflow-scrolling:touch}
+body{-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+/* manter texto de conteúdo selecionável */
+input,textarea,[contenteditable],.det-nota,.notif-item .nt-t,.nota-item .ni-tx,.rep-nm,.cn,.rs-pcard,.tec-sheet-meta,.bib-srch-inp{user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
+/* tap responsivo em elementos clicáveis */
+.rep-card,.sc-card,.cat-acc,.tec-row,.rev-row,.kpi,.info-row,.cfg-row,.notif-item,.nota-item,.prod-card,.ld-card,.ci-row,.dow-bar,.rs-pcard,.foco-card,.prog-mini{touch-action:manipulation}
 /* foco por teclado (acessibilidade) — só aparece em navegação por teclado, não no clique */
 :focus-visible{outline:2.5px solid var(--blue);outline-offset:2px;border-radius:8px}
 :focus:not(:focus-visible){outline:none}
@@ -29,7 +34,8 @@ body{
 
 .phone{
   width:100%;max-width:430px;min-height:100dvh;background:var(--bg);
-  display:flex;flex-direction:column;position:relative;padding-bottom:92px;
+  display:flex;flex-direction:column;position:relative;
+  padding-bottom:calc(70px + env(safe-area-inset-bottom, 0px));
   overflow-x:hidden;zoom:.92;
 }
 @supports not (zoom:1){

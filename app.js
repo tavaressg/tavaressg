@@ -3298,14 +3298,47 @@ function setRole(r){ DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
 function goAluno(id){ DB.navAluno=id; render(); window.scrollTo(0,0); }
 function goProf(id){ DB.navProf=id; render(); window.scrollTo(0,0); }
 function _isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
+function _updateThemeColor(){
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', _isDark() ? '#0a0b0d' : '#f4f4f6');
+}
 function toggleTheme(){
   const dark = document.documentElement.getAttribute('data-theme')==='dark';
   const next = dark?'light':'dark';
   document.documentElement.setAttribute('data-theme', next);
   try{ localStorage.setItem('yama.theme', next); }catch(e){}
+  _updateThemeColor();
   render();
 }
 try{ const _st=localStorage.getItem('yama.theme'); if(_st) document.documentElement.setAttribute('data-theme', _st); }catch(e){}
+// scroll lock no body quando sheet/overlay está aberto (iOS-friendly: preserva posição)
+function _setupBodyLock(){
+  if (typeof MutationObserver === 'undefined') return;
+  const apply = ()=>{
+    const hasOpen = !!document.querySelector('.sheet-overlay');
+    const locked = document.body.dataset.lockY != null;
+    if (hasOpen && !locked){
+      const y = window.scrollY || document.documentElement.scrollTop || 0;
+      document.body.dataset.lockY = y;
+      document.body.style.position = 'fixed';
+      document.body.style.top = '-'+y+'px';
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+    } else if (!hasOpen && locked){
+      const y = parseInt(document.body.dataset.lockY, 10) || 0;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      delete document.body.dataset.lockY;
+      window.scrollTo(0, y);
+    }
+  };
+  const obs = new MutationObserver(apply);
+  obs.observe(document.body, { childList:true, subtree:false });
+  // observa attributes para detectar quando sheet ganha/perde classe .open (opcional, mas robusto)
+  document.addEventListener('transitionend', apply, true);
+}
 
 /* ============================================================
    ONBOARDING · EDIÇÃO DE PERFIL · CONFIG · PLACEHOLDERS · VAZIOS
@@ -4100,6 +4133,10 @@ if (DEMO) {
   sp.addEventListener('click', hide);          // toque pula a splash
   setTimeout(hide, 1900);
 })();
+
+// Boot: scroll lock em sheets + theme-color sincronizado com tema atual
+_setupBodyLock();
+_updateThemeColor();
 
 /* === PWA: standalone detection, A2HS, online/offline, theme-color sync === */
 (function(){
