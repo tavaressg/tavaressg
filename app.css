@@ -22,6 +22,8 @@ body{-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;user-select:
 input,textarea,[contenteditable],.det-nota,.notif-item .nt-t,.nota-item .ni-tx,.rep-nm,.cn,.rs-pcard,.tec-sheet-meta,.bib-srch-inp{user-select:text;-webkit-user-select:text;-webkit-touch-callout:default}
 /* tap responsivo em elementos clicáveis */
 .rep-card,.sc-card,.cat-acc,.tec-row,.rev-row,.kpi,.info-row,.cfg-row,.notif-item,.nota-item,.prod-card,.ld-card,.ci-row,.dow-bar,.rs-pcard,.foco-card,.prog-mini{touch-action:manipulation}
+/* CSS containment em cards repetidos: isola reflow/paint, melhora scroll em listas longas */
+.rep-card,.tec-row,.notif-item,.nota-item,.history-item,.timeline-item,.rs-pcard{contain:layout style;content-visibility:auto;contain-intrinsic-size:auto 90px}
 /* foco por teclado (acessibilidade) — só aparece em navegação por teclado, não no clique */
 :focus-visible{outline:2.5px solid var(--blue);outline-offset:2px;border-radius:8px}
 :focus:not(:focus-visible){outline:none}
@@ -35,13 +37,50 @@ body{
 .phone{
   width:100%;max-width:430px;min-height:100dvh;background:var(--bg);
   display:flex;flex-direction:column;position:relative;
-  padding-bottom:calc(70px + env(safe-area-inset-bottom, 0px));
+  padding-bottom:calc(95px + env(safe-area-inset-bottom, 0px));
   overflow-x:hidden;zoom:.92;
 }
 @supports not (zoom:1){
   .phone{transform:scale(.92);transform-origin:top center;width:108.7%;margin-left:-4.35%}
 }
 .view{animation:viewIn .18s ease}
+#root.no-anim .view{animation:none}
+html.reduced-motion *,html.reduced-motion *::before,html.reduced-motion *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+/* indicador offline discreto + toast de atualização do SW */
+html.offline body::before{content:'📡 offline';position:fixed;top:calc(env(safe-area-inset-top, 0px) + 6px);left:50%;transform:translateX(-50%);font-size:10.5px;font-weight:800;color:#fff;background:rgba(40,40,50,.85);padding:3px 10px;border-radius:99px;z-index:300;letter-spacing:.3px;pointer-events:none}
+.sw-update-toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 88px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:99px;font-size:13px;font-weight:700;z-index:250;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.sw-update-toast button{border:none;background:var(--red);color:#fff;padding:6px 14px;border-radius:99px;font-size:12px;font-weight:800;cursor:pointer}
+/* iOS keyboard avoidance: sheets sobem com o teclado */
+html.kb-open .sheet-overlay{align-items:flex-start;padding-top:max(20px, env(safe-area-inset-top))}
+html.kb-open .sheet{margin-bottom:var(--kb-h, 0)}
+/* toast com botão Desfazer */
+.toast-action{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 110px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 16px 11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:250;display:flex;align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .2s,transform .2s;max-width:calc(100% - 40px)}
+.toast-action.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast-action .ta-undo{border:none;background:var(--red);color:#fff;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:800;cursor:pointer;flex:none}
+/* sheet drag-down (handle visual + animação) */
+.sheet{will-change:transform}
+.sheet.dragging{transition:none}
+/* skeleton loader */
+.skel{background:linear-gradient(90deg,var(--field) 25%,var(--line) 50%,var(--field) 75%);background-size:200% 100%;animation:skel-shimmer 1.4s infinite;border-radius:12px}
+html.reduced-motion .skel{animation:none;background:var(--field)}
+@keyframes skel-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.skel-row{height:64px;margin:0 20px 8px}
+/* skip link a11y */
+.skip-link{position:absolute;top:-40px;left:8px;background:var(--ink);color:#fff;padding:8px 12px;border-radius:8px;font-weight:700;z-index:9999;text-decoration:none}
+.skip-link:focus{top:8px}
+/* Action sheet (long-press menu) */
+.action-list{display:flex;flex-direction:column;gap:4px;margin:4px 0 12px}
+.action-item{display:flex;align-items:center;gap:14px;padding:14px 16px;border:none;background:var(--field);border-radius:12px;font-size:14.5px;font-weight:600;color:var(--ink);cursor:pointer;text-align:left;font-family:inherit;width:100%;touch-action:manipulation}
+.action-item:active{background:var(--hover);transform:scale(.99)}
+.action-item.danger{color:var(--red)}
+.action-item .ai-ic{font-size:18px;flex:none;width:24px;text-align:center}
+.action-item .ai-l{flex:1}
+/* streak clicável */
+.streak-badge.compact{cursor:pointer;touch-action:manipulation;transition:transform .12s,background .12s}
+.streak-badge.compact:active{transform:scale(.99);background:var(--hover)}
+.streak-badge.compact:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
+/* skeleton stack para histórico paginação */
+.hist-skel-stack{display:flex;flex-direction:column;gap:8px;margin:12px 20px}
 @keyframes viewIn{from{opacity:0}to{opacity:1}}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .hidden{display:none!important}
@@ -711,7 +750,7 @@ body{
 .h-tx{flex:1;min-width:0}
 .h-tx .t{font-size:14.5px;font-weight:700}
 .h-tx .d{font-size:12.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.h-right{text-align:right;flex:none}
+.h-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .h-right .day{font-size:12px;color:var(--muted);font-weight:700}
 .h-right .mood{font-size:16px;margin-top:3px}
 /* .empty-state: definição principal em linha 319 */

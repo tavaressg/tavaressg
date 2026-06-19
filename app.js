@@ -34,16 +34,50 @@ function diaRelativo(iso){
 const plural = (n,s,p)=> `${n} ${Math.abs(n)===1?s:p}`;   // 1 semana · 2 semanas
 const moneyBR = (n) => 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+// ---- Focus trap em sheets (acessibilidade): Tab cicla dentro, Esc fecha ----
+function _focusableInSheet(sheet){
+  return [...sheet.querySelectorAll('button,input,select,textarea,[tabindex="0"],a[href]')]
+    .filter(el => !el.hasAttribute('disabled') && !el.hidden && el.offsetParent !== null);
+}
+function _topmostSheet(){
+  const all = document.querySelectorAll('.sheet-overlay.open .sheet');
+  return all.length ? all[all.length-1] : null;
+}
 document.addEventListener('keydown', e=>{
-  if(e.key!=='Tab') return;
-  const sheet=document.querySelector('.sheet-overlay.open .sheet');
-  if(!sheet) return;
-  const focusable=sheet.querySelectorAll('button,input,select,textarea,[tabindex="0"],a[href]');
-  if(!focusable.length) return;
-  const first=focusable[0], last=focusable[focusable.length-1];
-  if(e.shiftKey){ if(document.activeElement===first){e.preventDefault();last.focus();} }
-  else { if(document.activeElement===last){e.preventDefault();first.focus();} }
+  const sheet = _topmostSheet();
+  if (!sheet) return;
+  if (e.key === 'Tab'){
+    const focusable = _focusableInSheet(sheet);
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length-1];
+    if (e.shiftKey){ if (document.activeElement === first || !sheet.contains(document.activeElement)){ e.preventDefault(); last.focus(); } }
+    else { if (document.activeElement === last || !sheet.contains(document.activeElement)){ e.preventDefault(); first.focus(); } }
+  } else if (e.key === 'Escape'){
+    const overlay = sheet.closest('.sheet-overlay');
+    const cancelBtn = sheet.querySelector('.sheet-cancel') || sheet.querySelector('[id$="-close"]') || sheet.querySelector('[id$="-cancel"]');
+    if (cancelBtn){ e.preventDefault(); cancelBtn.click(); }
+    else if (overlay){ e.preventDefault(); overlay.classList.remove('open'); setTimeout(()=>overlay.remove(), 260); }
+  }
 });
+// Auto-focus no primeiro elemento focável da sheet quando abre (a11y + comportamento nativo)
+(function(){
+  if (typeof MutationObserver === 'undefined') return;
+  const obs = new MutationObserver((muts)=>{
+    muts.forEach(m=> m.addedNodes.forEach(n=>{
+      if (n.nodeType !== 1) return;
+      const overlay = (n.classList && n.classList.contains('sheet-overlay')) ? n : n.querySelector?.('.sheet-overlay');
+      if (!overlay) return;
+      // espera animação .open
+      setTimeout(()=>{
+        const sheet = overlay.querySelector('.sheet');
+        if (!sheet) return;
+        const focusable = _focusableInSheet(sheet);
+        if (focusable.length){ try{ focusable[0].focus({preventScroll:true}); }catch(e){} }
+      }, 280);
+    }));
+  });
+  obs.observe(document.body, { childList:true, subtree:false });
+})();
 
 const BELTS = {
   branca:{cor:'#e8e8e8',nome:'Branca'}, azul:{cor:'#2f6fef',nome:'Azul'},
@@ -563,8 +597,8 @@ function _updateStepperUI(jp){
   if((t.hojeT||0)>0 && !rst){ const b=el(`<button class="rs-reset" data-act="limpar">limpar</button>`); b.onclick=()=>rtLimpar(jp); card.querySelector('.rs-acts').appendChild(b); }
   if((t.hojeT||0)===0 && rst) rst.remove();
 }
-function rtAck(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeA=(t.hojeA||0)+1; t.hojeT=(t.hojeT||0)+1; } else if(t.hojeA>0){ t.hojeA--; t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
-function rtErr(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeT=(t.hojeT||0)+1; } else if((t.hojeT||0)-(t.hojeA||0)>0){ t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
+function rtAck(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeA=(t.hojeA||0)+1; t.hojeT=(t.hojeT||0)+1; haptic(8); } else if(t.hojeA>0){ t.hojeA--; t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
+function rtErr(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeT=(t.hojeT||0)+1; haptic(8); } else if((t.hojeT||0)-(t.hojeA||0)>0){ t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
 function rtLimpar(jp){ const t=tecByKey(jp); if(t){ t.hojeA=0; t.hojeT=0; } _updateStepperUI(jp); scheduleSave(); }
 
 // cartão Renshū de uma técnica (nome + tradução PT + Deu certo/Não deu)
@@ -672,6 +706,7 @@ function salvar(){
   _clearDraft();
   // volta para Home com toast sutil (share via detalhe do treino)
   DB.flow=null; DB.navAluno='inicio';
+  haptic([10,30,10]); _releaseWakeLock();
   render(); toast('✅ Treino concluído — Fase 1 + Fase 2 registradas');
 }
 
@@ -722,9 +757,25 @@ function rsAddFoco(){
 /* ============================================================
    ROTEADOR
    ============================================================ */
+function _viewKey(){
+  if (DB.onboardingOpen) return 'onb';
+  if (DB.retroOpen) return 'retro';
+  if (DB.lojaOpen) return 'loja';
+  if (DB.shareOpen) return 'share';
+  if (DB.treinoAberto) return 'treino';
+  if (DB.flow) return 'flow:'+DB.flow;
+  if (DB.role==='aluno') return 'al:'+DB.navAluno+':'+(DB.jogoTab||'')+':'+(DB.jornadaTab||'');
+  return 'prof:'+DB.navProf;
+}
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
   const root = $('#root');
+  const curView = _viewKey();
+  const sameView = root.dataset.view === curView;
+  // memoriza scrollY da view atual antes de trocar
+  if (root.dataset.view && root.dataset.view !== curView && typeof _scrollMem !== 'undefined') _scrollMem[root.dataset.view] = window.scrollY;
+  root.dataset.view = curView;
+  root.classList.toggle('no-anim', sameView);
   root.innerHTML = '';
   /* auth desabilitado — implementação futura */
   if (DB.onboardingOpen){ root.appendChild(renderOnboarding()); return; }
@@ -923,11 +974,15 @@ function streakBadge(){
   const todayIdx = (hoje.getDay()+6)%7;   // segunda = 0
   const dots = labels.map((d,i)=>
     `<span class="wk-dot ${s.dias[i]?'on':''} ${i===todayIdx?'today':''}"></span>`).join('');
-  return el(`<div class="streak-badge compact">
+  const node = el(`<div class="streak-badge compact" role="button" tabindex="0" aria-label="Ver histórico de aulas">
     <span class="sb-fire">🔥</span>
     <span class="sb-n">${s.streakSemanas} sem</span>
     <div class="sb-dots">${dots}</div>
   </div>`);
+  const goHist = ()=>{ DB.navAluno='jornada'; DB.jornadaTab='historico'; render(); window.scrollTo(0,0); };
+  node.onclick = goHist;
+  node.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); goHist(); } };
+  return node;
 }
 
 
@@ -1084,10 +1139,29 @@ function jornadaHistorico(){
   const PAGE = 20;
   const page = DB._histPage || 0;
   const visivel = itens.slice(0, (page+1)*PAGE);
-  visivel.forEach(t=>{ const item = histItem(t); item.onclick = ()=> abrirTreino(t.id); hist.appendChild(item); });
+  visivel.forEach(t=>{
+    const item = histItem(t);
+    item.onclick = ()=> abrirTreino(t.id);
+    _attachLongPress(item, { onLongPress: ()=>{
+      _openActionSheet(t.titulo||'Treino', [
+        { icon:'👁️', label:'Abrir detalhes', onClick:()=> abrirTreino(t.id) },
+        { icon:'🗑️', label:'Excluir treino', danger:true, onClick:()=>{
+          const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
+          DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
+          render(); scheduleSave();
+          toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); render(); scheduleSave(); });
+        } },
+      ]);
+    }});
+    hist.appendChild(item);
+  });
   if (visivel.length < itens.length){
     const mais = el(`<button class="hist-mais">Carregar mais (${itens.length - visivel.length} restantes)</button>`);
-    mais.onclick = ()=>{ DB._histPage = (DB._histPage||0)+1; render(); };
+    mais.onclick = ()=>{
+      // injeta 3 skeletons temporários para feedback visual antes da paginação carregar
+      mais.replaceWith(el(`<div class="hist-skel-stack"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div>`));
+      setTimeout(()=>{ DB._histPage = (DB._histPage||0)+1; render(); }, 120);
+    };
     hist.appendChild(mais);
   }
   w.appendChild(hist);
@@ -1426,7 +1500,7 @@ function renderTreinoDetalhe(){
     const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
     sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
     sheet.querySelector('#del-cancel').onclick=close;
-    sheet.querySelector('#del-confirm').onclick=()=>{ DB.treinos=DB.treinos.filter(x=>x.id!==t.id); close(); DB.treinoAberto=null; render(); toast('Treino excluído'); };
+    sheet.querySelector('#del-confirm').onclick=()=>{ const snap = {...t}; const idx = DB.treinos.findIndex(x=>x.id===t.id); DB.treinos = DB.treinos.filter(x=>x.id!==t.id); close(); DB.treinoAberto=null; render(); toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); render(); scheduleSave(); }); };
     document.body.appendChild(sheet);
     requestAnimationFrame(()=>sheet.classList.add('open'));
   };
@@ -2000,7 +2074,8 @@ function evoluirBiblioteca(){
   });
   w.appendChild(catBlock);
 
-  searchInp.oninput = ()=>{
+  let _bibQT = null;
+  const _doSearch = ()=>{
     const q = searchInp.value.trim().toLowerCase(); DB._bibQ = q;
     searchClr.hidden = !searchInp.value;
     searchResults.innerHTML='';
@@ -2011,7 +2086,12 @@ function evoluirBiblioteca(){
     searchResults.appendChild(el(`<div class="bib-search-count">${hits.length} resultado${hits.length>1?'s':''}</div>`));
     hits.forEach(t=> searchResults.appendChild(bibCardNode(t, t.estado)));
   };
-  if(DB._bibQ){ catBlock.style.display='none'; searchInp.dispatchEvent(new Event('input')); }
+  searchInp.oninput = ()=>{
+    searchClr.hidden = !searchInp.value;
+    clearTimeout(_bibQT);
+    _bibQT = setTimeout(_doSearch, 150);
+  };
+  if(DB._bibQ){ catBlock.style.display='none'; _doSearch(); }
   w.appendChild(el(`<div style="height:18px"></div>`));
   return w;
 }
@@ -2053,6 +2133,16 @@ function bibCardNode(t, st){
     </div>`:''}
   </div>`);
   card.querySelector('.rep-row').onclick = ()=> bibToggle(t.jp);
+  // long-press: menu rápido de ações na técnica
+  _attachLongPress(card, { onLongPress: ()=>{
+    const acts = [
+      { icon:'🔁', label:'Marcar revisada', onClick:()=> bibRevisar(t.jp) },
+      { icon:'✏️', label:'Editar', onClick:()=> bibEditar(t.jp) },
+    ];
+    if (t.estado === 'guardada' || t.estado === 'aprendida') acts.push({ icon:'🎯', label:'Voltar pro foco', onClick:()=> bibVoltarFoco(t.jp) });
+    if (t.id && t.id.indexOf('usr-')===0) acts.push({ icon:'🗑️', label:'Excluir técnica', danger:true, onClick:()=> bibExcluirCustom(t.id) });
+    _openActionSheet(t.jp, acts);
+  }});
   if(exp){
     card.querySelectorAll('[data-del-de]').forEach(b=> b.onclick=(e)=>{ e.stopPropagation(); bibDelLink(b.dataset.delDe,b.dataset.delPara); });
     const av=card.querySelector('[data-act="voltar"]');  if(av) av.onclick=(e)=>{ e.stopPropagation(); bibVoltarFoco(t.jp); };
@@ -2456,13 +2546,15 @@ function alunoPerfil(){
     <div class="info-row" id="row-notif" role="button" tabindex="0" aria-label="Notificações" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
     <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="${_isDark()?'Tema escuro ativado':'Tema claro ativado'}" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">${_isDark()?'Tema escuro':'Tema claro'}</div><div class="s">${_isDark()?'Toque para modo claro':'Toque para modo escuro'}</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
     <div class="info-row" id="row-backup" role="button" tabindex="0" aria-label="Backup do perfil" style="cursor:pointer"><div class="ii">💾</div><div class="it"><div class="t">Backup do perfil</div><div class="s">Exportar / importar dados</div></div><div class="iv">›</div></div>
+    ${(typeof window._yamaCanInstall==='function' && window._yamaCanInstall())?`<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`:''}
     <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
-  const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
+  const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
   _bindRow('#row-lesoes', ()=> abrirLesoes());
   _bindRow('#row-notif', ()=> abrirNotificacoes());
   _bindRow('#row-tema', ()=> toggleTheme());
   _bindRow('#row-backup', ()=> abrirBackup());
+  _bindRow('#row-install', ()=> window._yamaInstall && window._yamaInstall());
   _bindRow('#row-config', ()=> abrirConfiguracoes());
   w.appendChild(conta);
   return w;
@@ -2530,7 +2622,7 @@ function openFlow(){
   else DB.flow = { phase:1 };
   render(); window.scrollTo(0,0);
 }
-function _startPhase1(){ DB.flow = { phase:1 }; render(); window.scrollTo(0,0); }
+function _startPhase1(){ DB.flow = { phase:1 }; _acquireWakeLock(); render(); window.scrollTo(0,0); }
 function closeFlow(){
   const draft = _loadDraft();
   const reg = DB.registro;
@@ -2547,12 +2639,12 @@ function closeFlow(){
     const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
     sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
     sheet.querySelector('#cf-stay').onclick=close;
-    sheet.querySelector('#cf-leave').onclick=()=>{ close(); DB.flow=null; render(); };
+    sheet.querySelector('#cf-leave').onclick=()=>{ close(); DB.flow=null; _releaseWakeLock(); render(); };
     document.body.appendChild(sheet);
     requestAnimationFrame(()=>sheet.classList.add('open'));
     return;
   }
-  DB.flow=null; render();
+  DB.flow=null; _releaseWakeLock(); render();
 }
 
 const INTENS = { leve:'Leve', medio:'Médio', forte:'Forte' };  // compat: detalhe de treinos antigos
@@ -3905,6 +3997,59 @@ function selfTest(){
       DB.tecnicas=snapTec;
       if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
     }catch(e){ ok('tecnicasCustom round-trip', false); }
+    // === v122-v125: helpers PWA + UX ===
+    try{
+      // _viewKey: combinações
+      const savNav=DB.navAluno, savJogo=DB.jogoTab, savJornada=DB.jornadaTab, savFlow=DB.flow, savLoja=DB.lojaOpen;
+      DB.role='aluno'; DB.navAluno='inicio'; DB.jogoTab='progresso'; DB.jornadaTab='historico'; DB.flow=null; DB.lojaOpen=false;
+      ok('_viewKey aluno inicio', _viewKey()==='al:inicio:progresso:historico');
+      DB.flow='tecnica';
+      ok('_viewKey flow tem prefixo', _viewKey()==='flow:tecnica');
+      DB.flow=null; DB.lojaOpen=true;
+      ok('_viewKey loja', _viewKey()==='loja');
+      DB.lojaOpen=false; DB.navAluno=savNav; DB.jogoTab=savJogo; DB.jornadaTab=savJornada; DB.flow=savFlow;
+    }catch(e){ ok('_viewKey', false); }
+    // _focusableInSheet: filtra disabled e hidden
+    try{
+      const fake=document.createElement('div'); fake.style.cssText='position:fixed;left:-9999px';
+      fake.innerHTML='<button>a</button><button disabled>b</button><input type="text" hidden><a href="#">c</a><span tabindex="0">d</span>';
+      document.body.appendChild(fake);
+      const f=_focusableInSheet(fake);
+      ok('_focusableInSheet filtra disabled e hidden', f.length===3);
+      fake.remove();
+    }catch(e){ ok('_focusableInSheet', false); }
+    // _topmostSheet: 2 overlays.open, retorna a última
+    try{
+      const o1=document.createElement('div'); o1.className='sheet-overlay open'; o1.innerHTML='<div class="sheet" data-x="1"></div>';
+      const o2=document.createElement('div'); o2.className='sheet-overlay open'; o2.innerHTML='<div class="sheet" data-x="2"></div>';
+      document.body.appendChild(o1); document.body.appendChild(o2);
+      const top=_topmostSheet();
+      ok('_topmostSheet pega a última', top && top.dataset.x==='2');
+      o1.remove(); o2.remove();
+    }catch(e){ ok('_topmostSheet', false); }
+    // toastUndo: cria toast e dispara undo
+    try{
+      let called=false;
+      toastUndo('selfTest', ()=>{ called=true; });
+      const t=document.querySelector('.toast-action');
+      ok('toastUndo cria toast', !!t);
+      t?.querySelector('.ta-undo')?.click();
+      ok('toastUndo dispara undo', called);
+      document.querySelectorAll('.toast-action').forEach(n=>n.remove());
+    }catch(e){ ok('toastUndo', false); }
+    // helpers existência
+    try{
+      ok('_attachLongPress existe', typeof _attachLongPress==='function');
+      ok('_attachSheetDrag existe', typeof _attachSheetDrag==='function');
+      ok('_openActionSheet existe', typeof _openActionSheet==='function');
+      ok('haptic existe', typeof haptic==='function');
+    }catch(e){ ok('helpers v124', false); }
+    // Manifest shortcut query params parse
+    try{
+      const qp=new URLSearchParams('flow=registrar&go=biblioteca');
+      ok('shortcut ?flow', qp.get('flow')==='registrar');
+      ok('shortcut ?go', qp.get('go')==='biblioteca');
+    }catch(e){ ok('manifest shortcuts parse', false); }
     // toggleTheme alterna e _isDark reflete
     try{
       const snapT=document.documentElement.getAttribute('data-theme');
@@ -4138,31 +4283,255 @@ if (DEMO) {
 _setupBodyLock();
 _updateThemeColor();
 
-/* === PWA: standalone detection, A2HS, online/offline, theme-color sync === */
+/* === PWA: standalone, A2HS, online/offline, SW update, prefers, resume, persist === */
 (function(){
   const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
   if (isStandalone) document.documentElement.classList.add('standalone');
 
+  // A2HS prompt (Android Chrome) — botão "Instalar app" só aparece se navegador suportar
   let _deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _deferredPrompt = e; });
-  window._yamaInstall = ()=>{ if(_deferredPrompt){ _deferredPrompt.prompt(); _deferredPrompt=null; } };
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _deferredPrompt = e; document.documentElement.classList.add('installable'); });
+  window._yamaInstall = ()=>{ if(_deferredPrompt){ _deferredPrompt.prompt(); _deferredPrompt.userChoice.finally(()=>{ _deferredPrompt=null; document.documentElement.classList.remove('installable'); }); } };
+  window._yamaCanInstall = ()=> !!_deferredPrompt;
 
-  const _syncTheme = ()=>{
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.querySelectorAll('meta[name="theme-color"]').forEach(m => {
-      if(!m.getAttribute('media')) return;
-      if(m.getAttribute('media').includes('dark')) m.content = dark ? '#0a0b0d' : '#0a0b0d';
-      else m.content = dark ? '#0a0b0d' : '#f4f4f6';
-    });
+  // Online/offline — toast + classe no documentElement
+  const _updateOnline = ()=>{
+    document.documentElement.classList.toggle('offline', !navigator.onLine);
   };
-  const _origRender = window._yamaThemeSync;
-  window._yamaThemeSync = _syncTheme;
-  new MutationObserver(_syncTheme).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+  window.addEventListener('online', ()=>{ _updateOnline(); toast('🟢 Conexão restaurada'); });
+  window.addEventListener('offline', ()=>{ _updateOnline(); toast('📡 Modo offline — dados salvos localmente'); });
+  _updateOnline();
 
-  const _offlineBanner = ()=>{ if(!navigator.onLine) toast('Você está offline — dados salvos localmente'); };
-  window.addEventListener('online', ()=> toast('Conexão restaurada'));
-  window.addEventListener('offline', _offlineBanner);
+  // prefers-color-scheme: usa o tema do sistema se usuário ainda não escolheu
+  try{
+    const userPref = localStorage.getItem('yama.theme');
+    if (!userPref && window.matchMedia('(prefers-color-scheme: dark)').matches){
+      document.documentElement.setAttribute('data-theme', 'dark');
+      _updateThemeColor();
+    }
+  }catch(e){}
+
+  // prefers-reduced-motion: respeita acessibilidade
+  const _rm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const _applyRM = ()=> document.documentElement.classList.toggle('reduced-motion', _rm.matches);
+  _applyRM();
+  if (_rm.addEventListener) _rm.addEventListener('change', _applyRM);
+
+  // Service Worker update detection — quando nova versão chega, oferece atualizar
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+      if (window._yamaSWUpdating) return;
+      window._yamaSWUpdating = true;
+      setTimeout(()=> location.reload(), 200);
+    });
+    navigator.serviceWorker.ready.then(reg=>{
+      const checkUpdate = ()=>{
+        if (reg.waiting){
+          const t = el(`<div class="sw-update-toast">📦 Nova versão disponível <button id="sw-up">Atualizar</button></div>`);
+          document.body.appendChild(t);
+          t.querySelector('#sw-up').onclick = ()=>{ reg.waiting.postMessage({type:'SKIP_WAITING'}); t.remove(); };
+        }
+      };
+      reg.addEventListener('updatefound', ()=>{
+        const nw = reg.installing;
+        if (nw) nw.addEventListener('statechange', ()=>{ if (nw.state==='installed' && navigator.serviceWorker.controller) checkUpdate(); });
+      });
+      checkUpdate();
+      setInterval(()=> reg.update().catch(()=>{}), 60*60*1000); // checa a cada 1h
+    }).catch(()=>{});
+  }
+
+  // navigator.storage.persist — previne navegador de limpar localStorage automaticamente
+  if (navigator.storage && navigator.storage.persist){
+    navigator.storage.persist().catch(()=>{});
+  }
+
+  // Resume detection — quando iOS suspende e retoma o PWA, recalcular dia e re-render
+  let _lastVisible = Date.now();
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.visibilityState === 'visible'){
+      const gap = Date.now() - _lastVisible;
+      if (gap > 5*60*1000){ // 5min+ suspenso: pode ter virado o dia
+        try{ _checkMidnight(); }catch(e){}
+        try{ render(); }catch(e){}
+      }
+      _lastVisible = Date.now();
+    } else {
+      _lastVisible = Date.now();
+    }
+  });
+
+  // Long-press menu em canvas/imagens (share story): prevenir "Salvar imagem" do iOS
+  document.addEventListener('contextmenu', e=>{
+    if (e.target && (e.target.tagName==='CANVAS' || e.target.closest('.share-canvas-wrap'))) e.preventDefault();
+  });
 })();
+
+// Wake Lock — mantém tela acesa durante o flow de registro de treino
+let _wakeLock = null;
+async function _acquireWakeLock(){
+  if (!('wakeLock' in navigator)) return;
+  try{
+    if (_wakeLock) return;
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', ()=>{ _wakeLock = null; });
+  }catch(e){ _wakeLock = null; }
+}
+function _releaseWakeLock(){
+  if (_wakeLock){ try{ _wakeLock.release(); }catch(e){} _wakeLock = null; }
+}
+// re-adquire se a tela voltar a ficar visível e flow ainda está ativo
+document.addEventListener('visibilitychange', ()=>{
+  if (document.visibilityState === 'visible' && DB.flow) _acquireWakeLock();
+});
+
+// Haptic feedback leve (Android principalmente; iOS Safari ignora silenciosamente)
+function haptic(ms){ try{ if (navigator.vibrate) navigator.vibrate(ms||10); }catch(e){} }
+
+// Long-press menu genérico — abre action sheet ao segurar 500ms
+function _attachLongPress(el, opts){
+  if (!el || el.dataset.lpWired) return; el.dataset.lpWired = '1';
+  let timer = null, startXY = null, fired = false;
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+  const start = (e)=>{
+    fired = false;
+    const t = e.touches?.[0] || e;
+    startXY = { x: t.clientX, y: t.clientY };
+    cancel();
+    timer = setTimeout(()=>{
+      fired = true;
+      haptic(15);
+      try{ opts.onLongPress(el); }catch(err){}
+    }, 500);
+  };
+  const move = (e)=>{
+    if(!startXY) return;
+    const t = e.touches?.[0] || e;
+    const dx = Math.abs(t.clientX - startXY.x), dy = Math.abs(t.clientY - startXY.y);
+    if (dx > 10 || dy > 10) cancel();
+  };
+  const end = ()=>{ cancel(); startXY = null; };
+  el.addEventListener('touchstart', start, { passive:true });
+  el.addEventListener('touchmove', move, { passive:true });
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', end);
+  // desktop: mousedown/up para teste
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mousemove', move);
+  el.addEventListener('mouseup', end);
+  el.addEventListener('mouseleave', end);
+  // suprime click se long-press disparou
+  el.addEventListener('click', (e)=>{ if(fired){ e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+}
+
+function _openActionSheet(title, actions){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="${title}">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${safeTxt(title)}</div>
+    <div class="action-list"></div>
+    <button class="sheet-cancel" id="as-cancel">Cancelar</button>
+  </div></div>`);
+  const list = sheet.querySelector('.action-list');
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#as-cancel').onclick = close;
+  actions.forEach(a=>{
+    const btn = el(`<button class="action-item ${a.danger?'danger':''}"><span class="ai-ic">${a.icon||'›'}</span><span class="ai-l">${safeTxt(a.label)}</span></button>`);
+    btn.onclick = ()=>{ close(); setTimeout(()=>{ try{ a.onClick(); }catch(e){} }, 240); };
+    list.appendChild(btn);
+  });
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Toast com botão Desfazer — promessa: chame undo() em até 5s
+function toastUndo(msg, onUndo){
+  document.querySelectorAll('.toast-action').forEach(n=>n.remove());
+  const t = el(`<div class="toast-action"><span>${msg}</span><button class="ta-undo">Desfazer</button></div>`);
+  document.body.appendChild(t);
+  requestAnimationFrame(()=>t.classList.add('show'));
+  let done = false;
+  const close = ()=>{ done = true; t.classList.remove('show'); setTimeout(()=>t.remove(), 220); };
+  t.querySelector('.ta-undo').onclick = ()=>{ if(done) return; try{ onUndo && onUndo(); }catch(e){} close(); };
+  setTimeout(()=>{ if(!done) close(); }, 5000);
+}
+
+// Sheet drag-to-dismiss (gesto iOS-like)
+function _attachSheetDrag(sheetEl, closeFn){
+  let startY = 0, currentY = 0, dragging = false;
+  const handle = sheetEl.querySelector('.sheet-grip') || sheetEl;
+  handle.addEventListener('touchstart', (e)=>{ startY = e.touches[0].clientY; currentY = 0; dragging = true; sheetEl.classList.add('dragging'); }, { passive:true });
+  handle.addEventListener('touchmove', (e)=>{
+    if(!dragging) return;
+    currentY = Math.max(0, e.touches[0].clientY - startY);
+    sheetEl.style.transform = `translateY(${currentY}px)`;
+  }, { passive:true });
+  handle.addEventListener('touchend', ()=>{
+    if(!dragging) return;
+    dragging = false; sheetEl.classList.remove('dragging');
+    if (currentY > 100){ try{ closeFn(); }catch(e){} }
+    sheetEl.style.transform = '';
+  });
+}
+// Aplica drag em todas as sheets abertas via MutationObserver
+(function(){
+  if (typeof MutationObserver === 'undefined') return;
+  const obs = new MutationObserver((muts)=>{
+    muts.forEach(m=> m.addedNodes.forEach(n=>{
+      if (n.nodeType !== 1) return;
+      const overlay = n.classList && n.classList.contains('sheet-overlay') ? n : n.querySelector?.('.sheet-overlay');
+      if (!overlay || overlay.dataset.dragWired) return;
+      const sheet = overlay.querySelector('.sheet');
+      if (!sheet || !sheet.querySelector('.sheet-grip')) return;
+      overlay.dataset.dragWired = '1';
+      _attachSheetDrag(sheet, ()=>{
+        sheet.classList.remove('open'); overlay.classList.remove('open');
+        setTimeout(()=> overlay.remove(), 260);
+      });
+    }));
+  });
+  obs.observe(document.body, { childList:true, subtree:false });
+})();
+
+// Skip link (a11y) — pular para conteúdo principal via teclado
+(function(){
+  const link = document.createElement('a');
+  link.href = '#root'; link.className = 'skip-link';
+  link.textContent = 'Pular para o conteúdo principal';
+  document.body.insertBefore(link, document.body.firstChild);
+})();
+
+// iOS keyboard avoidance: ajusta sheet quando teclado virtual abre/fecha
+(function(){
+  if (!window.visualViewport) return;
+  const vv = window.visualViewport;
+  const update = ()=>{
+    const kbH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb-h', kbH+'px');
+    document.documentElement.classList.toggle('kb-open', kbH > 80);
+  };
+  vv.addEventListener('resize', update);
+  vv.addEventListener('scroll', update);
+  update();
+})();
+
+// Scroll restoration por view (lembra a posição ao voltar)
+const _scrollMem = {};
+window.addEventListener('scroll', ()=>{
+  const k = (document.getElementById('root')||{}).dataset?.view;
+  if (k) _scrollMem[k] = window.scrollY;
+}, { passive:true });
+function _restoreScroll(viewKey){
+  const y = _scrollMem[viewKey];
+  if (y != null) window.scrollTo(0, y);
+  else window.scrollTo(0, 0);
+}
 
 // ?test=1 → roda o smoke test e guarda o resultado em window.__selfTest
 try{ if (new URLSearchParams(location.search).has('test')) setTimeout(()=>{ window.__selfTest = selfTest(); }, 500); }catch(_){}
+// PWA shortcuts: ?flow=registrar | ?go=biblioteca
+try{
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('flow') === 'registrar') setTimeout(()=>{ try{ openFlow(); }catch(e){} }, 400);
+  else if (qp.get('go') === 'biblioteca') setTimeout(()=>{ DB.navAluno='jogo'; DB.jogoTab='biblioteca'; render(); }, 400);
+}catch(_){}

@@ -1,9 +1,9 @@
-const CACHE = 'yama-v121';
+const CACHE = 'yama-v125';
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=121',
-  './app.css?v=84',
+  './app.js?v=125',
+  './app.css?v=90',
   './fonts.css?v=1',
   './manifest.json?v=2',
   './logo.png',
@@ -19,8 +19,12 @@ self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
       .then(c => c.addAll(ASSETS))
-      .then(() => self.skipWaiting())
   );
+});
+
+// permite o app pedir update imediato via postMessage({type:'SKIP_WAITING'})
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
