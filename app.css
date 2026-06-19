@@ -752,6 +752,9 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .h-tx .d{font-size:12.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .h-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .h-right .day{font-size:12px;color:var(--muted);font-weight:700}
+.h-item .lesao-flag{font-size:13px;margin-left:6px;opacity:.9;vertical-align:-1px}
+.h-item.has-lesao{position:relative}
+.h-item.has-lesao::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--orange);opacity:.7}
 .h-right .mood{font-size:16px;margin-top:3px}
 /* .empty-state: definição principal em linha 319 */
 

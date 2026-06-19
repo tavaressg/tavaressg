@@ -992,13 +992,20 @@ function dataLabel(t){
   const dt = new Date(y, m-1, d);
   return `${diasSem[dt.getDay()].slice(0,3)}, ${String(d).padStart(2,'0')} ${meses[m-1]}`;
 }
+function lesaoAtivaEm(dataISO){
+  if (!DB.lesoes || !DB.lesoes.length || !dataISO) return null;
+  // lesão "ativa" no dia: status==='recuperando' E dataISO >= lesao.data (sem data fim, considera contínua)
+  return DB.lesoes.find(l => l && l.status==='recuperando' && l.data && dataISO >= l.data) || null;
+}
 function histItem(t, dateMode){
   const sub = dateMode ? dataLabel(t) : t.tecnica;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
-  const e = el(`<div class="h-item h-${t.tipo}">
+  const lesao = lesaoAtivaEm(t.data);
+  const lesaoBadge = lesao ? `<span class="lesao-flag" title="Lesão ativa: ${safeAttr(lesao.parte)}" aria-label="Treino durante lesão: ${safeAttr(lesao.parte)}">🤕</span>` : '';
+  const e = el(`<div class="h-item h-${t.tipo}${lesao?' has-lesao':''}">
     <div class="h-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
-    <div class="h-tx"><div class="t">${safeTxt(t.titulo)}</div><div class="d">${safeTxt(sub)}</div></div>
+    <div class="h-tx"><div class="t">${safeTxt(t.titulo)}${lesaoBadge}</div><div class="d">${safeTxt(sub)}</div></div>
     <div class="h-right">${right}</div></div>`);
   return e;
 }
@@ -3999,15 +4006,16 @@ function selfTest(){
     }catch(e){ ok('tecnicasCustom round-trip', false); }
     // === v122-v125: helpers PWA + UX ===
     try{
-      // _viewKey: combinações
-      const savNav=DB.navAluno, savJogo=DB.jogoTab, savJornada=DB.jornadaTab, savFlow=DB.flow, savLoja=DB.lojaOpen;
+      // _viewKey: combinações (precisa zerar todas as flags modais antes)
+      const sav={ nav:DB.navAluno, jogo:DB.jogoTab, jornada:DB.jornadaTab, flow:DB.flow, loja:DB.lojaOpen, onb:DB.onboardingOpen, retro:DB.retroOpen, share:DB.shareOpen, treino:DB.treinoAberto };
+      DB.onboardingOpen=false; DB.retroOpen=false; DB.shareOpen=false; DB.treinoAberto=null;
       DB.role='aluno'; DB.navAluno='inicio'; DB.jogoTab='progresso'; DB.jornadaTab='historico'; DB.flow=null; DB.lojaOpen=false;
       ok('_viewKey aluno inicio', _viewKey()==='al:inicio:progresso:historico');
       DB.flow='tecnica';
       ok('_viewKey flow tem prefixo', _viewKey()==='flow:tecnica');
       DB.flow=null; DB.lojaOpen=true;
       ok('_viewKey loja', _viewKey()==='loja');
-      DB.lojaOpen=false; DB.navAluno=savNav; DB.jogoTab=savJogo; DB.jornadaTab=savJornada; DB.flow=savFlow;
+      DB.lojaOpen=false; DB.navAluno=sav.nav; DB.jogoTab=sav.jogo; DB.jornadaTab=sav.jornada; DB.flow=sav.flow; DB.onboardingOpen=sav.onb; DB.retroOpen=sav.retro; DB.shareOpen=sav.share; DB.treinoAberto=sav.treino;
     }catch(e){ ok('_viewKey', false); }
     // _focusableInSheet: filtra disabled e hidden
     try{
