@@ -1,9 +1,9 @@
-const CACHE = 'yama-v132';
+const CACHE = 'yama-v134';
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=132',
-  './app.css?v=93',
+  './app.js?v=134',
+  './app.css?v=94',
   './fonts.css?v=1',
   './manifest.json',
   './logo.png',

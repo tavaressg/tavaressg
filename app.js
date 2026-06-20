@@ -197,7 +197,7 @@ function beltMini(b, graus){
 /* ---------------- ESTADO COMPARTILHADO (o "banco") ---------------- */
 const DB = {
   role: 'aluno',                 // 'aluno' | 'professor'
-  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', artes:'Judô Kodokan · Kosen · Jiu-Jitsu' },
+  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', artes:'Judô Kodokan · Kosen · Jiu-Jitsu', turma:'Adulto · Gi · 19h30' },
   professor: { nome:'Prof. Ricardo Maciel' },
 
   // >>> ponto de integração nº1: a técnica do dia é definida pelo professor
@@ -989,13 +989,16 @@ function aulaDoDia(){
 // Selo de streak / consistência semanal
 function streakBadge(){
   const s = DB.semana;
+  const meta = s.meta || 4;
   const labels = ['S','T','Q','Q','S','S','D'];
-  const todayIdx = (hoje.getDay()+6)%7;   // segunda = 0
+  const todayIdx = (hoje.getDay()+6)%7;
   const dots = labels.map((d,i)=>
     `<span class="wk-dot ${s.dias[i]?'on':''} ${i===todayIdx?'today':''}"></span>`).join('');
+  const abaixo = s.feitos < meta && todayIdx >= 4;
   const node = el(`<div class="streak-badge compact" role="button" tabindex="0" aria-label="Ver histórico de aulas">
-    <span class="sb-fire">🔥</span>
+    <span class="sb-fire">${abaixo?'⚠️':'🔥'}</span>
     <span class="sb-n">${s.streakSemanas} sem</span>
+    <span class="sb-meta">${s.feitos}/${meta}</span>
     <div class="sb-dots">${dots}</div>
   </div>`);
   const goHist = ()=>{ DB.navAluno='jornada'; DB.jornadaTab='historico'; render(); window.scrollTo(0,0); };
@@ -2323,9 +2326,16 @@ function abrirImportGrad(){
   const isCorrecao = !!DB.eu.gradLocked;
   const title = isCorrecao ? 'Corrigir histórico' : 'Importar histórico de graduação';
   const existentes = DB.graduacoes||[];
-  let entries = existentes.length
-    ? existentes.map(g=>{ const c={...g}; delete c.por; return c; })
-    : _sugerirGraduacoes(DB.eu.faixa, DB.eu.graus);
+  let entries;
+  if(isCorrecao){
+    entries = existentes.map(g=>{ const c={...g}; delete c.por; return c; });
+  } else {
+    entries = _sugerirGraduacoes(DB.eu.faixa, DB.eu.graus);
+    existentes.forEach(ex=>{
+      const match = entries.find(e=>e.faixa===ex.faixa && e.graus===(ex.tipo==='faixa'?0:ex.graus) && e.tipo===ex.tipo);
+      if(match){ match.data = ex.data||''; match.aulas = ex.aulas||0; }
+    });
+  }
 
   function renderSheet(){
     const lastIdx = entries.length - 1;
@@ -2536,36 +2546,32 @@ function alunoPerfil(){
   </div>`;
   w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
 
-  // Loja + "Minha academia" (mensalidade/frequência) dependem da gestão do professor.
-  // No beta (sem backend/professor) ficam ESCONDIDOS — só aparecem na vitrine ?demo=1.
-  if (DEMO){
-    const lojaWrap = el(`<div class="loja-destaque">
-      <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span><a class="ld-link">ver tudo ›</a></div>
-      <div class="ld-strip"></div>
-    </div>`);
-    lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
-    const strip = lojaWrap.querySelector('.ld-strip');
-    DB.loja.produtos.slice(0,5).forEach(p=>{
-      const card = el(`<div class="ld-card">
-        <div class="ld-img" style="background:${p.cor}">${p.emoji}</div>
-        <div class="ld-nm">${p.nome}</div><div class="ld-pr">${moneyBR(p.preco)}</div></div>`);
-      card.onclick = ()=>{ openLoja(); abrirProduto(p.id); };
-      strip.appendChild(card);
-    });
-    w.appendChild(lojaWrap);
+  const lojaWrap = el(`<div class="loja-destaque">
+    <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span><a class="ld-link">ver tudo ›</a></div>
+    <div class="ld-strip"></div>
+  </div>`);
+  lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
+  const strip = lojaWrap.querySelector('.ld-strip');
+  DB.loja.produtos.slice(0,5).forEach(p=>{
+    const card = el(`<div class="ld-card">
+      <div class="ld-img" style="background:${p.cor}">${p.emoji}</div>
+      <div class="ld-nm">${p.nome}</div><div class="ld-pr">Sob consulta</div></div>`);
+    card.onclick = ()=>{ openLoja(); abrirProduto(p.id); };
+    strip.appendChild(card);
+  });
+  w.appendChild(lojaWrap);
 
-    const m = me.mensalidade;
-    const payTxt = m.status==='ok' ? `Em dia · vence ${m.venc}` : 'Vencida';
-    w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
-    w.appendChild(el(`<div class="info-list block">
-      <div class="info-row"><div class="ii">💳</div><div class="it"><div class="t">Mensalidade</div>
-        <div class="s">${payTxt}</div></div><div class="iv ${m.status==='ok'?'green':'red'}">${moneyBR(m.valor)}</div></div>
-      <div class="info-row"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
-        <div class="s">Meta de 16 treinos</div></div><div class="iv">9</div></div>
-      <div class="info-row"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
-        <div class="s">Adulto · Gi · 19h</div></div><div class="iv"></div></div>
-    </div>`));
-  }
+  const m = me.mensalidade;
+  const payTxt = m.status==='ok' ? `Em dia · vence ${m.venc}` : 'Vencida';
+  w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
+  w.appendChild(el(`<div class="info-list block">
+    <div class="info-row"><div class="ii">💳</div><div class="it"><div class="t">Mensalidade <span style="font-size:10px;color:var(--muted);font-weight:400">(teste)</span></div>
+      <div class="s">${payTxt}</div></div><div class="iv ${m.status==='ok'?'green':'red'}">${m.valor?moneyBR(m.valor):'—'}</div></div>
+    <div class="info-row"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
+      <div class="s">Meta de ${DB.semana.meta||4} treinos/sem</div></div><div class="iv">${(DB.treinos||[]).filter(t=>{ const d=t.data; if(!d) return false; return d.slice(0,7)===HOJE_ISO.slice(0,7); }).length}</div></div>
+    <div class="info-row"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
+      <div class="s">${DB.academia?.turma||'—'}</div></div><div class="iv"></div></div>
+  </div>`));
 
   w.appendChild(el(`<div class="sec-title">Conta</div>`));
   const conta = el(`<div class="info-list">
@@ -2864,7 +2870,7 @@ function renderLoja(){
         <div class="prod-img" style="background:${p.cor}">${p.emoji}</div>
         <div class="prod-info">
           <div class="prod-name">${p.nome}</div>
-          <div class="prod-price">${moneyBR(p.preco)}</div>
+          <div class="prod-price">Sob consulta</div>
         </div></div>`);
       c.onclick = ()=> abrirProduto(p.id);
       grid.appendChild(c);
@@ -2882,7 +2888,7 @@ function abrirProduto(id){
     <div class="sheet-grip"></div>
     <div class="prod-hero" style="background:${p.cor}">${p.emoji}</div>
     <div class="prod-sheet-name">${p.nome}</div>
-    <div class="prod-sheet-price">${moneyBR(p.preco)}</div>
+    <div class="prod-sheet-price">Sob consulta</div>
     <div class="prod-sheet-desc">${p.desc}</div>
     <div class="flbl" style="margin-top:16px">Tamanho</div>
     <div class="chips tam-chips"></div>
@@ -2890,7 +2896,7 @@ function abrirProduto(id){
       <span class="flbl" style="margin:0">Quantidade</span>
       <div class="qty"><button class="qbtn" data-d="-1" aria-label="Diminuir quantidade">−</button><span class="qv">1</span><button class="qbtn" data-d="1" aria-label="Aumentar quantidade">+</button></div>
     </div>
-    <button class="btn-save add-btn">Adicionar · ${moneyBR(p.preco)}</button>
+    <button class="btn-save add-btn">Adicionar à sacola</button>
   </div></div>`);
   const tc = sheet.querySelector('.tam-chips');
   p.tam.forEach(t=>{
@@ -2901,7 +2907,7 @@ function abrirProduto(id){
   sheet.querySelectorAll('.qbtn').forEach(b=> b.onclick=()=>{
     qtd = Math.max(1, qtd + (+b.dataset.d));
     sheet.querySelector('.qv').textContent = qtd;
-    sheet.querySelector('.add-btn').textContent = `Adicionar · ${moneyBR(p.preco*qtd)}`;
+    sheet.querySelector('.add-btn').textContent = `Adicionar à sacola`;
   });
   const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
@@ -2924,13 +2930,13 @@ function abrirCarrinho(){
     return `<div class="cart-item">
       <div class="ci-img" style="background:${p.cor}">${p.emoji}</div>
       <div class="ci-tx"><div class="ci-n">${p.nome}</div><div class="ci-s">Tam ${i.tam} · ${i.qtd}x</div></div>
-      <div class="ci-p">${moneyBR(p.preco*i.qtd)}</div></div>`;
+      <div class="ci-p">Sob consulta</div></div>`;
   }).join('');
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Sua sacola</div>
     ${itens}
-    <div class="cart-total"><span>Total</span><b>${moneyBR(carrinhoTotal())}</b></div>
+    <div class="cart-total"><span>Total</span><b>Sob consulta</b></div>
     <div class="cart-pickup">📍 Retire na recepção da Yama — sem frete</div>
     <button class="btn-save" style="margin-top:6px">Finalizar com PIX</button>
     <button class="sheet-cancel">Continuar comprando</button>
@@ -3619,6 +3625,8 @@ function abrirEditarPerfil(){
     <div class="seg" id="ep-graus"></div>
     <label class="flbl" style="margin-top:12px">Data da faixa atual</label>
     <input class="inp" id="ep-data-faixa" type="date">
+    <label class="flbl" style="margin-top:12px">Meta semanal de treinos</label>
+    <div class="seg" id="ep-meta"></div>
     <button class="btn-save" id="ep-save" style="margin-top:16px">Salvar</button>
     <button class="sheet-cancel" id="ep-cancel">Cancelar</button>
   </div></div>`);
@@ -3636,6 +3644,13 @@ function abrirEditarPerfil(){
   ADULT_BELTS.forEach(b=>{ const x=el(`<button class="seg-chip ${b===faixa?'on':''}">${BELTS[b].nome}</button>`);
     x.onclick=()=>{ faixa=b; bs.querySelectorAll('.seg-chip').forEach(y=>y.classList.remove('on')); x.classList.add('on'); _rebuildGraus(); }; bs.appendChild(x); });
   _rebuildGraus();
+  let metaSem = DB.semana.meta || 4;
+  const metaWrap = sheet.querySelector('#ep-meta');
+  [2,3,4,5,6].forEach(n=>{
+    const b = el(`<button class="${n===metaSem?'active':''}">${n}x</button>`);
+    b.onclick=()=>{ metaSem=n; metaWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); };
+    metaWrap.appendChild(b);
+  });
   const dataFaixaAtual = (DB.graduacoes||[]).find(g=>g.tipo==='faixa'&&g.faixa===me.faixa);
   const epDataFaixa = sheet.querySelector('#ep-data-faixa');
   if(dataFaixaAtual) epDataFaixa.value = dataFaixaAtual.data;
@@ -3653,11 +3668,11 @@ function abrirEditarPerfil(){
     const faixaMudou = faixa !== me.faixa;
     const grausMudou = graus !== me.graus;
     me.faixa=faixa; me.graus=graus; me.foto=foto;
-    // promoção/correção de grau ou faixa → zera o head-start de aulas (base vale só p/ o grau importado)
+    DB.semana.meta = metaSem;
     if(faixaMudou || grausMudou) me.aulasGrau = Object.assign({}, me.aulasGrau, { base:0 });
     if(faixaMudou){
       if(!DB.graduacoes.some(g=>g.tipo==='faixa'&&g.faixa===faixa))
-        DB.graduacoes.push({faixa, graus:0, tipo:'faixa', data:novaData, por:'—'});
+        DB.graduacoes.push({faixa, graus:0, tipo:'faixa', data:novaData});
     } else {
       const existing = DB.graduacoes.find(g=>g.tipo==='faixa'&&g.faixa===faixa);
       if(existing && epDataFaixa.value) existing.data = epDataFaixa.value;
@@ -3665,7 +3680,7 @@ function abrirEditarPerfil(){
     if(grausMudou && !faixaMudou){
       DB.graduacoes = DB.graduacoes.filter(g=>!(g.tipo==='grau'&&g.faixa===faixa&&g.graus>graus));
       if(graus>0 && !DB.graduacoes.some(g=>g.tipo==='grau'&&g.faixa===faixa&&g.graus===graus))
-        DB.graduacoes.push({faixa, graus, tipo:'grau', data:HOJE_ISO, por:'—'});
+        DB.graduacoes.push({faixa, graus, tipo:'grau', data:HOJE_ISO});
     }
     DB.graduacoes.sort((a,b)=>a.data.localeCompare(b.data));
     sheet.remove(); render(); toast('Perfil atualizado ✔');
