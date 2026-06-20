@@ -888,6 +888,12 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .rep-dot.dot-green{background:var(--good)}
 .rep-dot.dot-muted{background:var(--line)}
 .bkp-note{font-size:13px;color:var(--muted);line-height:1.45;padding:4px 2px 14px}
+/* Sheet de instalar PWA — passos numerados */
+.ipwa-steps{list-style:none;counter-reset:s;padding:0;margin:0 0 12px}
+.ipwa-steps li{counter-increment:s;position:relative;padding:10px 12px 10px 44px;background:var(--field);border-radius:12px;margin-bottom:6px;font-size:13.5px;line-height:1.5;color:var(--ink);font-weight:500}
+.ipwa-steps li::before{content:counter(s);position:absolute;left:12px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:99px;background:var(--red);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.ipwa-steps li b{color:var(--ink);font-weight:800}
+.ipwa-ic{display:inline-block;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:0 5px;font-size:13px}
 /* Card de técnica customizada — destacar opção de excluir */
 .rep-card.is-custom{border-left:3px solid var(--blue)}
 .rep-del-row{display:flex;justify-content:flex-end;padding:6px 12px 10px}
@@ -925,7 +931,9 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .tl-belt{margin-bottom:8px}
 /* import de graduação */
 .grad-entry{margin-bottom:14px;padding:14px;background:var(--field);border-radius:14px}
-.ge-prev{margin-bottom:11px}
+.ge-prev{margin-bottom:6px}
+.ge-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.ge-label{font-size:14px;font-weight:600;color:var(--ink)}
 .ge-line{display:flex;gap:10px;align-items:center}
 .ge-line+.ge-line{margin-top:8px}
 .ge-lbl{font-size:13px;color:var(--muted);white-space:nowrap}

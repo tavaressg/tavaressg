@@ -233,10 +233,10 @@ const DB = {
 
   // >>> ponto de integração nº2: graduações (professor registra, aluno vê na timeline)
   graduacoes: [
-    { faixa:'azul', graus:2, tipo:'grau', data:'2026-02-15', por:'Prof. Ricardo' },
-    { faixa:'azul', graus:1, tipo:'grau', data:'2025-09-10', por:'Prof. Ricardo' },
-    { faixa:'azul', graus:0, tipo:'faixa', data:'2024-11-20', por:'Prof. Ricardo' },
-    { faixa:'branca', graus:4, tipo:'faixa', data:'2021-03-01', por:'—' },
+    { faixa:'azul', graus:2, tipo:'grau', data:'2026-02-15' },
+    { faixa:'azul', graus:1, tipo:'grau', data:'2025-09-10' },
+    { faixa:'azul', graus:0, tipo:'faixa', data:'2024-11-20' },
+    { faixa:'branca', graus:4, tipo:'faixa', data:'2021-03-01' },
   ],
 
   // >>> ponto de integração nº3: check-in fundido ao registro do treino
@@ -415,7 +415,9 @@ const _FB = [53,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.joi
 // chaves de DB que pertencem ao usuário (persistidas)
 const USER_KEYS = ['eu','treinos','graduacoes','checkinHoje','semana','notas','lesoes','notificacoes','retro','analytics','links'];
 // campos de progresso pessoal por técnica
-const TEC_PROG = ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev','nota','nivel'];
+// Campos de progresso pessoal + edições de catálogo persistidos por técnica.
+// jp/pt/cat/oficial: incluídos para preservar edições do usuário no catálogo (Kodokan/Kosen/Outros).
+const TEC_PROG = ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev','nota','nivel','jp','pt','cat','oficial'];
 
 function _hasStorage(){ try{ const k='__y'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; } }
 const STORAGE_OK = _hasStorage();
@@ -449,11 +451,28 @@ function load(){
     if(data.treinos && !Array.isArray(data.treinos)) return false;
     if(data.eu && typeof data.eu!=='object') return false;
     if(data.__schema && data.__schema > SCHEMA) return false;
-    USER_KEYS.forEach(k=>{ if(data[k]!=null) DB[k]=data[k]; });
+    USER_KEYS.forEach(k=>{
+      if (data[k] == null) return;
+      // 'eu' (perfil) faz MERGE preservando campos do seed que não vieram no backup
+      if (k === 'eu' && DB.eu && typeof data[k] === 'object' && !Array.isArray(data[k])){
+        DB.eu = Object.assign({}, DB.eu, data[k]);
+      } else {
+        DB[k] = data[k];
+      }
+    });
     // restaura técnicas customizadas (definição) antes de aplicar tecProg
     if(Array.isArray(data.tecnicasCustom)){
-      const have = new Set(DB.tecnicas.map(t=>t.id).filter(Boolean));
-      data.tecnicasCustom.forEach(c=>{ if(c && c.id && !have.has(c.id)) DB.tecnicas.push({ ...c, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'' }); });
+      const have = new Map(DB.tecnicas.map((t,i)=>[t.id, i]).filter(([id])=>id));
+      data.tecnicasCustom.forEach(c=>{
+        if (!c || !c.id) return;
+        if (have.has(c.id)){
+          // UPDATE: aplica edições de definição feitas após criação
+          Object.assign(DB.tecnicas[have.get(c.id)], { jp:c.jp, pt:c.pt, cat:c.cat, oficial:!!c.oficial });
+        } else {
+          // ADD: nova técnica custom não presente no estado atual
+          DB.tecnicas.push({ ...c, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'' });
+        }
+      });
     }
     if(data.tecProg) DB.tecnicas.forEach(t=>{ const p=data.tecProg[t.id]||data.tecProg[t.jp]; if(p) TEC_PROG.forEach(f=>{ if(p[f]!=null) t[f]=p[f]; }); });
     const MOOD_TO_FEEL={'😣':1,'😐':2,'😊':4,'🔥':5};
@@ -2285,20 +2304,35 @@ function _isoToBr(iso){ if(!iso) return ''; const p=iso.split('-'); return (p.le
 function _brToIso(br){ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return ''; const d=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||d<1||d>31||y<1950||y>2100) return ''; return `${m[3]}-${m[2]}-${m[1]}`; }
 // normaliza entradas de graduação: descarta sem data, corrige graus por tipo (faixa=0, grau≥1), ordena por data. Retorna null se nenhuma válida.
 function _normalizeGrad(entries){
-  const valid=(entries||[]).filter(e=>e&&e.data).map(e=>{ const g={...e}; if(g.tipo==='faixa') g.graus=0; else if(!(g.graus>=1)) g.graus=1; return g; });
+  const valid=(entries||[]).filter(e=>e&&e.data).map(e=>{ const g={...e}; delete g.por; if(g.tipo==='faixa') g.graus=0; else if(!(g.graus>=1)) g.graus=1; return g; });
   return valid.length ? valid.sort((a,b)=>a.data.localeCompare(b.data)) : null;
+}
+function _sugerirGraduacoes(faixa, graus){
+  const seq = [];
+  const idx = ADULT_BELTS.indexOf(faixa);
+  if(idx<0) return [{ faixa:'branca', graus:0, tipo:'faixa', data:'', aulas:0 }];
+  for(let b=0; b<=idx; b++){
+    const belt = ADULT_BELTS[b];
+    seq.push({ faixa:belt, graus:0, tipo:'faixa', data:'', aulas:0 });
+    const maxG = (b<idx) ? maxGrausDe(belt) : graus;
+    for(let g=1; g<=maxG; g++) seq.push({ faixa:belt, graus:g, tipo:'grau', data:'', aulas:0 });
+  }
+  return seq;
 }
 function abrirImportGrad(){
   const isCorrecao = !!DB.eu.gradLocked;
   const title = isCorrecao ? 'Corrigir histórico' : 'Importar histórico de graduação';
   const existentes = DB.graduacoes||[];
-  let entries = existentes.length ? existentes.map(g=>({...g})) : [{ faixa:'branca', graus:0, tipo:'faixa', data:'', por:'—', aulas:0 }];
+  let entries = existentes.length
+    ? existentes.map(g=>{ const c={...g}; delete c.por; return c; })
+    : _sugerirGraduacoes(DB.eu.faixa, DB.eu.graus);
 
   function renderSheet(){
+    const lastIdx = entries.length - 1;
     const sheet = el(`<div class="sheet-overlay"><div class="sheet" style="max-height:85vh;overflow-y:auto">
       <div class="sheet-grip"></div>
       <div class="sheet-title">${title}</div>
-      <div class="sheet-desc">${isCorrecao?'Corrija as datas ou dados. Após salvar, o histórico será travado definitivamente.':'Adicione cada graduação que você recebeu, da faixa branca até a atual.'}</div>
+      <div class="sheet-desc">${isCorrecao?'Corrija as datas ou dados. Após salvar, o histórico será travado definitivamente.':'Preencha apenas as datas. Exclua graduações que não teve.'}</div>
       <div id="grad-list"></div>
       <button class="btn-ghost" id="grad-add" style="margin-top:12px">+ Adicionar graduação</button>
       <button class="btn-save" id="grad-save" style="margin-top:14px">${isCorrecao?'Salvar e travar':'Importar histórico'}</button>
@@ -2310,40 +2344,26 @@ function abrirImportGrad(){
 
     const list = sheet.querySelector('#grad-list');
     entries.forEach((e,i)=>{
+      const isLast = (i===lastIdx);
       const bOpts = ADULT_BELTS.map(b=>`<option value="${b}" ${e.faixa===b?'selected':''}>${BELTS[b].nome}</option>`).join('');
-      // input de graus SEMPRE presente (escondido qd faixa) → trocar o tipo não reconstrói a sheet (sem perda de dados)
+      const x = BELTS[e.faixa];
+      const lbl = e.tipo==='faixa' ? `Faixa ${x?x.nome:e.faixa}` : `${e.graus}º grau · ${x?x.nome:e.faixa}`;
       const row = el(`<div class="grad-entry">
         <div class="ge-prev"></div>
-        <div class="ge-line">
-          <select class="inp" style="flex:1" data-field="faixa">${bOpts}</select>
-          <select class="inp" style="width:88px" data-field="tipo">
-            <option value="faixa" ${e.tipo==='faixa'?'selected':''}>Faixa</option>
-            <option value="grau" ${e.tipo==='grau'?'selected':''}>Grau</option>
-          </select>
+        <div class="ge-head">
+          <span class="ge-label">${safeTxt(lbl)}${isLast?' <span style="color:var(--good);font-size:12px">← atual</span>':''}</span>
+          <button class="sc-rm" data-del="${i}" title="Excluir">✕</button>
         </div>
         <div class="ge-line">
           <input class="inp" type="text" inputmode="numeric" maxlength="10" data-field="data" value="${_isoToBr(e.data)}" placeholder="DD/MM/AAAA" style="flex:1">
-          <input class="inp ge-graus" type="number" data-field="graus" value="${e.graus||1}" min="1" max="6" style="width:64px;${e.tipo==='grau'?'':'display:none'}" placeholder="Grau">
-          <button class="sc-rm" data-del="${i}" title="Remover">✕</button>
         </div>
-        <div class="ge-line">
+        ${isLast?`<div class="ge-line">
           <input class="inp" type="number" data-field="aulas" value="${e.aulas||0}" min="0" style="flex:1" placeholder="Aulas neste grau">
           <span class="ge-lbl">aulas feitas</span>
-        </div>
+        </div>`:''}
       </div>`);
       const prev = row.querySelector('.ge-prev');
-      const grausInp = row.querySelector('.ge-graus');
-      const drawPrev = ()=>{ prev.innerHTML = beltMini(entries[i].faixa, entries[i].tipo==='grau'?(entries[i].graus||0):0); };
-      drawPrev();
-      // commits em tempo real (input) → entries[] sempre atual; add/excluir não perdem nada
-      row.querySelector('[data-field="faixa"]').onchange=(ev)=>{ entries[i].faixa=ev.target.value; drawPrev(); };
-      const tipoSel = row.querySelector('[data-field="tipo"]');
-      tipoSel.onchange=()=>{
-        entries[i].tipo = tipoSel.value;
-        if(entries[i].tipo==='faixa'){ entries[i].graus=0; grausInp.style.display='none'; }
-        else { if(!(entries[i].graus>=1)) entries[i].graus=1; grausInp.value=entries[i].graus; grausInp.style.display=''; }
-        drawPrev();
-      };
+      prev.innerHTML = beltMini(e.faixa, e.tipo==='grau'?(e.graus||0):0);
       row.querySelector('[data-field="data"]').oninput=(ev)=>{
         let d=ev.target.value.replace(/\D/g,'').slice(0,8);
         let out=d;
@@ -2352,14 +2372,14 @@ function abrirImportGrad(){
         ev.target.value=out;
         entries[i].data=_brToIso(out);
       };
-      row.querySelector('[data-field="aulas"]').oninput=(ev)=>{ entries[i].aulas=+ev.target.value||0; };
-      grausInp.oninput=(ev)=>{ entries[i].graus=+ev.target.value||0; drawPrev(); };
+      const aulasInp = row.querySelector('[data-field="aulas"]');
+      if(aulasInp) aulasInp.oninput=(ev)=>{ entries[i].aulas=+ev.target.value||0; };
       row.querySelector('[data-del]').onclick=()=>{ entries.splice(i,1); sheet.remove(); renderSheet(); };
       list.appendChild(row);
     });
 
     sheet.querySelector('#grad-add').onclick=()=>{
-      entries.push({ faixa:'branca', graus:0, tipo:'faixa', data:'', por:'—', aulas:0 });
+      entries.push({ faixa:'branca', graus:0, tipo:'faixa', data:'', aulas:0 });
       sheet.remove(); renderSheet();
     };
 
@@ -2553,7 +2573,11 @@ function alunoPerfil(){
     <div class="info-row" id="row-notif" role="button" tabindex="0" aria-label="Notificações" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
     <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="${_isDark()?'Tema escuro ativado':'Tema claro ativado'}" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">${_isDark()?'Tema escuro':'Tema claro'}</div><div class="s">${_isDark()?'Toque para modo claro':'Toque para modo escuro'}</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
     <div class="info-row" id="row-backup" role="button" tabindex="0" aria-label="Backup do perfil" style="cursor:pointer"><div class="ii">💾</div><div class="it"><div class="t">Backup do perfil</div><div class="s">Exportar / importar dados</div></div><div class="iv">›</div></div>
-    ${(typeof window._yamaCanInstall==='function' && window._yamaCanInstall())?`<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`:''}
+    ${(()=>{
+      const isStandalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if (isStandalone) return '';
+      return `<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`;
+    })()}
     <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
   const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
@@ -2561,7 +2585,7 @@ function alunoPerfil(){
   _bindRow('#row-notif', ()=> abrirNotificacoes());
   _bindRow('#row-tema', ()=> toggleTheme());
   _bindRow('#row-backup', ()=> abrirBackup());
-  _bindRow('#row-install', ()=> window._yamaInstall && window._yamaInstall());
+  _bindRow('#row-install', ()=> abrirInstalarPWA());
   _bindRow('#row-config', ()=> abrirConfiguracoes());
   w.appendChild(conta);
   return w;
@@ -3775,6 +3799,49 @@ function abrirEditarLesao(lesao, onDone){
 }
 
 // ---- Exportar dados ----
+function abrirInstalarPWA(){
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isAndroid = /Android/i.test(ua);
+  const canPrompt = typeof window._yamaCanInstall === 'function' && window._yamaCanInstall();
+  let body = '';
+  if (canPrompt){
+    body = `<div class="bkp-note">Toque em "Instalar agora" para adicionar o Yama à sua tela inicial.</div>
+      <button class="btn-save" id="ip-prompt">📲 Instalar agora</button>`;
+  } else if (isIOS){
+    body = `<div class="bkp-note">No iPhone/iPad, instale assim:</div>
+      <ol class="ipwa-steps">
+        <li>Abra este app no <b>Safari</b> (não no Chrome)</li>
+        <li>Toque no ícone <b>Compartilhar</b> <span class="ipwa-ic">⎙</span> na barra inferior</li>
+        <li>Role e toque em <b>"Adicionar à Tela de Início"</b></li>
+        <li>Toque em <b>Adicionar</b> no canto superior direito</li>
+      </ol>
+      <div class="bkp-note" style="font-size:12px;color:var(--muted)">Pronto: o Yama vira um app de verdade — abre em tela cheia, salva offline e fica no seu home.</div>`;
+  } else if (isAndroid){
+    body = `<div class="bkp-note">No Android (Chrome), instale assim:</div>
+      <ol class="ipwa-steps">
+        <li>Toque nos <b>3 pontinhos</b> no canto superior direito</li>
+        <li>Toque em <b>"Instalar app"</b> ou <b>"Adicionar à tela inicial"</b></li>
+        <li>Confirme tocando em <b>Instalar</b></li>
+      </ol>`;
+  } else {
+    body = `<div class="bkp-note">No desktop, procure no menu do navegador (⋮) por "Instalar Yama".</div>`;
+  }
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Instalar app">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">📥 Instalar Yama</div>
+    ${body}
+    <button class="sheet-cancel" id="ip-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#ip-close').onclick=close;
+  const promptBtn = sheet.querySelector('#ip-prompt');
+  if (promptBtn) promptBtn.onclick = ()=>{ try{ window._yamaInstall && window._yamaInstall(); }catch(e){} close(); };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 function abrirBackup(){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
@@ -3791,7 +3858,9 @@ function abrirBackup(){
   sheet.querySelector('#bkp-exp').onclick=()=>{
     try{ flushSave(); }catch(e){}
     const raw=localStorage.getItem(STORE_KEY)||'{}';
-    const dump={ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw) };
+    const theme = localStorage.getItem('yama.theme') || null;
+    const draft = localStorage.getItem(DRAFT_KEY) || null;
+    const dump={ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw), theme, draft };
     const json=JSON.stringify(dump,null,2);
     const blob=new Blob([json],{type:'application/json'});
     const url=URL.createObjectURL(blob);
@@ -3824,6 +3893,8 @@ function abrirBackup(){
         conf.querySelector('#ci-ok').onclick=()=>{
           try{
             localStorage.setItem(STORE_KEY, JSON.stringify(dump.data));
+            if (dump.theme) localStorage.setItem('yama.theme', dump.theme);
+            if (dump.draft) localStorage.setItem(DRAFT_KEY, dump.draft);
             cClose(); close();
             toast('Perfil restaurado — recarregando…');
             setTimeout(()=>location.reload(), 600);
@@ -4058,6 +4129,102 @@ function selfTest(){
       ok('shortcut ?flow', qp.get('flow')==='registrar');
       ok('shortcut ?go', qp.get('go')==='biblioteca');
     }catch(e){ ok('manifest shortcuts parse', false); }
+    // Bug fix: técnica custom EDITADA volta com edições no load
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      const snapTec=DB.tecnicas.slice();
+      const customId='usr-edit-'+Date.now().toString(36);
+      DB.tecnicas.push({ id:customId, jp:'Original', pt:'desc', cat:'outros', oficial:false, nivel:'aprendendo', treinos:0 });
+      save();
+      // Simula edição: muda jp/pt/cat
+      const idx = DB.tecnicas.findIndex(t=>t.id===customId);
+      DB.tecnicas[idx].jp='Editado'; DB.tecnicas[idx].pt='nova descricao'; DB.tecnicas[idx].cat='nage';
+      save();
+      // Simula reload: load() deve preservar edições
+      DB.tecnicas = DB.tecnicas.filter(t=>!t.id || !t.id.startsWith('usr-edit-'));
+      load();
+      const restaurada = DB.tecnicas.find(t=>t.id===customId);
+      ok('custom editada: jp preservado', restaurada && restaurada.jp==='Editado');
+      ok('custom editada: pt preservado', restaurada && restaurada.pt==='nova descricao');
+      ok('custom editada: cat preservado', restaurada && restaurada.cat==='nage');
+      // cleanup
+      DB.tecnicas=snapTec;
+      if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
+    }catch(e){ ok('custom edit round-trip', false); }
+    // Bug fix: edição de técnica do CATÁLOGO (jp/pt/cat) persiste via TEC_PROG
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      const t0=DB.tecnicas.find(t=>t.id==='nag-osoto');
+      if (!t0) throw new Error('seed missing');
+      const origJp=t0.jp, origPt=t0.pt;
+      t0.jp='O-soto-gari (custom)'; t0.pt='nome customizado';
+      save();
+      // reset em memória
+      t0.jp=origJp; t0.pt=origPt;
+      load();
+      const restaurada=DB.tecnicas.find(t=>t.id==='nag-osoto');
+      ok('catalog edit: jp persiste via tecProg', restaurada && restaurada.jp==='O-soto-gari (custom)');
+      ok('catalog edit: pt persiste via tecProg', restaurada && restaurada.pt==='nome customizado');
+      // reset
+      restaurada.jp=origJp; restaurada.pt=origPt;
+      if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
+    }catch(e){ ok('catalog edit round-trip', false); }
+    // === END-TO-END: backup completo do app preserva TUDO ===
+    try{
+      const snapS=localStorage.getItem(STORE_KEY);
+      const snapT=document.documentElement.getAttribute('data-theme');
+      const snapEu={...DB.eu};
+      const snapTreinos=JSON.parse(JSON.stringify(DB.treinos));
+      const snapGrad=JSON.parse(JSON.stringify(DB.graduacoes||[]));
+      const snapNotas=JSON.parse(JSON.stringify(DB.notas||[]));
+      const snapLesoes=JSON.parse(JSON.stringify(DB.lesoes||[]));
+      const snapSemana=JSON.parse(JSON.stringify(DB.semana));
+      const snapLinks=JSON.parse(JSON.stringify(DB.links||[]));
+      const snapTec=JSON.parse(JSON.stringify(DB.tecnicas));
+      // 1. Modifica dados em TODAS as áreas
+      DB.eu.faixa='roxa'; DB.eu.graus=3; DB.eu.nomeCompleto='E2E Test User';
+      DB.treinos.unshift({id:99999, tipo:'tecnica', data:HOJE_ISO, titulo:'E2E Treino', det:{nota:'e2e nota', feel:5, randori:true, renshu:[]}});
+      DB.graduacoes.unshift({tipo:'grau', faixa:'azul', graus:3, data:HOJE_ISO, aulas:50});
+      DB.notas.unshift({id:99998, data:HOJE_ISO, texto:'E2E nota rápida'});
+      DB.lesoes.unshift({id:99997, parte:'E2E Cotovelo', data:HOJE_ISO, status:'recuperando', nota:'e2e lesão'});
+      DB.semana.meta=6;
+      DB.links.push({de:'O-soto-gari', para:'Juji-gatame'});
+      const t0=DB.tecnicas.find(t=>t.id==='nag-osoto'); if(t0){ t0.nota='e2e nota técnica'; t0.nivel='dominada'; t0.treinos=42; }
+      const newCustomId='usr-e2e-'+Date.now().toString(36);
+      DB.tecnicas.push({id:newCustomId, jp:'E2E Custom', pt:'custom desc', cat:'outros', oficial:false, nivel:'novo', treinos:0});
+      // 2. Save (export do JSON é o STORE_KEY)
+      save();
+      const exportData = JSON.parse(localStorage.getItem(STORE_KEY));
+      // 3. Wipe em memória — simula "perdi os dados"
+      DB.tecnicas = DB.tecnicas.filter(t=>!t.id || !t.id.startsWith('usr-e2e-'));
+      DB.tecnicas.forEach(t=>{ if(t.id==='nag-osoto'){ t.nota=''; t.nivel='aprendendo'; t.treinos=0; } });
+      DB.eu={...snapEu}; DB.treinos=[...snapTreinos]; DB.graduacoes=[...snapGrad]; DB.notas=[...snapNotas]; DB.lesoes=[...snapLesoes]; DB.semana={...snapSemana}; DB.links=[...snapLinks];
+      // 4. Re-import (load lê do localStorage que tem o exportData)
+      load();
+      // 5. Verifica TUDO restaurado
+      ok('E2E: eu.faixa roxa', DB.eu.faixa==='roxa');
+      ok('E2E: eu.graus 3', DB.eu.graus===3);
+      ok('E2E: eu.nomeCompleto', DB.eu.nomeCompleto==='E2E Test User');
+      ok('E2E: eu.aulasGrau preservado (do seed)', DB.eu.aulasGrau && typeof DB.eu.aulasGrau.meta === 'number');
+      ok('E2E: eu.mensalidade preservado (do seed)', DB.eu.mensalidade && DB.eu.mensalidade.valor != null);
+      ok('E2E: treino novo (id 99999)', !!DB.treinos.find(t=>t.id===99999));
+      ok('E2E: treino com det.nota', DB.treinos.find(t=>t.id===99999)?.det?.nota==='e2e nota');
+      ok('E2E: graduação azul 3º', !!DB.graduacoes.find(g=>g.tipo==='grau' && g.faixa==='azul' && g.graus===3 && g.aulas===50));
+      ok('E2E: nota rápida', !!DB.notas.find(n=>n.id===99998 && n.texto==='E2E nota rápida'));
+      ok('E2E: lesão E2E', !!DB.lesoes.find(l=>l.id===99997 && l.parte==='E2E Cotovelo'));
+      ok('E2E: semana.meta 6', DB.semana.meta===6);
+      ok('E2E: link novo', !!DB.links.find(l=>l.de==='O-soto-gari' && l.para==='Juji-gatame'));
+      const t0Reload=DB.tecnicas.find(t=>t.id==='nag-osoto');
+      ok('E2E: tecnica catálogo nota', t0Reload && t0Reload.nota==='e2e nota técnica');
+      ok('E2E: tecnica catálogo nivel', t0Reload && t0Reload.nivel==='dominada');
+      ok('E2E: tecnica catálogo treinos', t0Reload && t0Reload.treinos===42);
+      const custom=DB.tecnicas.find(t=>t.id===newCustomId);
+      ok('E2E: técnica customizada restaurada', !!custom && custom.jp==='E2E Custom' && custom.cat==='outros');
+      // Cleanup
+      DB.eu={...snapEu}; DB.treinos=snapTreinos; DB.graduacoes=snapGrad; DB.notas=snapNotas; DB.lesoes=snapLesoes; DB.semana=snapSemana; DB.links=snapLinks; DB.tecnicas=snapTec;
+      if(snapS!=null) localStorage.setItem(STORE_KEY, snapS); else localStorage.removeItem(STORE_KEY);
+      if(snapT) document.documentElement.setAttribute('data-theme', snapT); else document.documentElement.removeAttribute('data-theme');
+    }catch(e){ ok('E2E backup completo', false); }
     // toggleTheme alterna e _isDark reflete
     try{
       const snapT=document.documentElement.getAttribute('data-theme');
@@ -4172,17 +4339,27 @@ function selfTest(){
     if(!DEMO){ const sTr=DB.treinos, sGr=DB.graduacoes, sEu=DB.eu; try{
       DB.eu = Object.assign({}, sEu, { faixa:'azul', graus:1, aulasGrau:{meta:40, base:0}, aulasGraduacao:160 });
       DB.graduacoes = [
-        { faixa:'azul', graus:0, tipo:'faixa', data:'2025-01-01', por:'—' },
-        { faixa:'azul', graus:1, tipo:'grau',  data:'2025-06-01', por:'—' },
+        { faixa:'azul', graus:0, tipo:'faixa', data:'2025-01-01' },
+        { faixa:'azul', graus:1, tipo:'grau',  data:'2025-06-01' },
       ];
       DB.treinos = [ {id:1,data:'2025-07-10'}, {id:2,data:'2025-07-10'}, {id:3,data:'2025-03-01'} ];
       ok('C1 aulas dedup mesmo dia no grau', aulasStats().atual===1);   // 2x 10/07 = 1; 01/03 é pré-grau
       ok('C1 estimativa da faixa dedup', aulasStats().restantes===158); // 160 - 2 dias na faixa
-      DB.eu.graus=2; DB.graduacoes.push({faixa:'azul',graus:2,tipo:'grau',data:HOJE_ISO,por:'—'}); DB.eu.aulasGrau.base=0;
+      DB.eu.graus=2; DB.graduacoes.push({faixa:'azul',graus:2,tipo:'grau',data:HOJE_ISO}); DB.eu.aulasGrau.base=0;
       ok('C1 reset de aulas no novo grau', aulasStats().atual===0);
       DB.eu.graus=1; DB.graduacoes.pop(); DB.eu.aulasGrau.base=5;
       ok('C1 baseline importada entra no grau', aulasStats().atual===6); // 5 base + 1 dia
     }catch(e){ ok('C1 aulasStats', false); } finally { DB.treinos=sTr; DB.graduacoes=sGr; DB.eu=sEu; } }
+    const sg1 = _sugerirGraduacoes('azul', 2);
+    ok('sugerirGrad azul 2 = 8 entries', sg1.length===8);
+    ok('sugerirGrad começa branca lisa', sg1[0].faixa==='branca' && sg1[0].tipo==='faixa' && sg1[0].graus===0);
+    ok('sugerirGrad termina azul 2', sg1[7].faixa==='azul' && sg1[7].tipo==='grau' && sg1[7].graus===2);
+    ok('sugerirGrad branca tem 4 graus', sg1.filter(e=>e.faixa==='branca').length===5);
+    const sg2 = _sugerirGraduacoes('roxa', 0);
+    ok('sugerirGrad roxa lisa = 11 entries', sg2.length===11);
+    ok('sugerirGrad roxa termina faixa', sg2[10].faixa==='roxa' && sg2[10].tipo==='faixa');
+    const norm = _normalizeGrad([{faixa:'azul',graus:0,tipo:'faixa',data:'2024-01-01',por:'Prof. X'}]);
+    ok('normalizeGrad remove por', !norm[0].por);
   /* === Batch 1 tests === */
   { const sT=DB.tecnicas.map(t=>t.estado);
     const t0=DB.tecnicas[0]; const old0=t0.estado; t0.estado='aprendida';
