@@ -304,6 +304,11 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .hmm-cell{display:flex;flex-direction:column;align-items:center;gap:2px}
 .hmm-cell .hm-cell{width:26px;height:26px;border-radius:8px}
 .hmm-n{font-size:9.5px;color:var(--muted);font-weight:600}
+/* M4: marcador "2×" para dias com mais de um treino */
+.hmw-day .hm-cell.big,.hmm-cell .hm-cell{display:flex;align-items:center;justify-content:center}
+.hm-mult{color:#fff;font-weight:800;line-height:1}
+.hmm-cell .hm-mult{font-size:9px}
+.hmw-day .hm-cell.big .hm-mult{font-size:11px}
 
 /* ---------- Revisão espaçada (linhas) ---------- */
 .rev-row .rev-ic{background:var(--gold-tint)}
@@ -407,6 +412,10 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 [data-theme="dark"] .onb-logo{filter:invert(1) brightness(1.4)}
 .onb-t{font-size:25px;font-weight:800;letter-spacing:-.3px}
 .onb-s{font-size:14px;color:var(--muted);font-weight:600;margin-top:8px;line-height:1.5;margin-bottom:18px}
+/* B6: bloco de valor "o que esperar" no onboarding */
+.onb-value{width:100%;display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.onb-value .ov-row{display:flex;align-items:center;gap:10px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12.5px;font-weight:600;color:var(--ink);text-align:left;line-height:1.35}
+.onb-value .ov-ic{font-size:18px;flex:none}
 .onb-lbl{align-self:flex-start;margin:14px 0 7px 4px}
 .onb-belt{justify-content:center;margin-top:2px}
 .onb-btn{margin-top:22px}
@@ -615,11 +624,12 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 
 /* ---------- Bottom sheet ---------- */
 .sheet-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.42);display:flex;align-items:flex-end;
-  justify-content:center;opacity:0;transition:opacity .25s}
+  justify-content:center;opacity:0;transition:opacity .25s;overflow:hidden;touch-action:none}
 .sheet-overlay.open{opacity:1}
 .sheet{width:100%;max-width:430px;background:var(--card);border-radius:24px 24px 0 0;
   padding:12px 20px calc(env(safe-area-inset-bottom) + 20px);transform:translateY(100%);
-  transition:transform .28s cubic-bezier(.2,.85,.25,1)}
+  transition:transform .28s cubic-bezier(.2,.85,.25,1);
+  touch-action:pan-y;overscroll-behavior:contain;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .sheet-overlay.open .sheet{transform:none}
 .sheet-grip{width:40px;height:5px;border-radius:99px;background:var(--line);margin:0 auto 16px}
 .sheet-title{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;text-align:center}

@@ -1,13 +1,17 @@
-const CACHE = 'yama-v134';
+const CACHE = 'yama-v137';
 const ASSETS = [
   './',
   './index.html',
-  './app.js?v=134',
-  './app.css?v=94',
+  './app.js?v=137',
+  './app.css?v=96',
   './fonts.css?v=1',
   './manifest.json',
   './logo.png',
   './yama-logo.png',
+  './icon-180.png',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-512-maskable.png',
   './fonts/montserrat-400.woff2',
   './fonts/montserrat-500.woff2',
   './fonts/montserrat-600.woff2',

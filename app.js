@@ -10,7 +10,8 @@ const el = (h) => { const t=document.createElement('template'); t.innerHTML=h.tr
 function safeTxt(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 // escape para uso dentro de atributos HTML ("..."): cobre aspas além de <>&
 function safeAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function openSheet(node){ const close=()=>{ node.classList.remove('open'); setTimeout(()=>node.remove(),260); }; node.onclick=(e)=>{ if(e.target===node) close(); }; document.body.appendChild(node); requestAnimationFrame(()=>node.classList.add('open')); return close; }
+// Helper único de sheet: monta no DOM, anima, fecha ao tocar fora e (opcional) liga o botão cancelar. Retorna close().
+function openSheet(node, cancelSel){ const close=()=>{ node.classList.remove('open'); setTimeout(()=>node.remove(),260); }; node.onclick=(e)=>{ if(e.target===node) close(); }; if(cancelSel){ const c=node.querySelector(cancelSel); if(c) c.onclick=close; } document.body.appendChild(node); requestAnimationFrame(()=>node.classList.add('open')); return close; }
 const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const diasSem = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 // ?demo=1 = vitrine (data congelada p/ o seed casar); usuário real = data de hoje (presença real ao longo dos dias)
@@ -377,7 +378,7 @@ const isHoje = (s) => s === HOJE_ISO;
    Aditivo: cada técnica ganha `estado` (foco|arma|guardada|aprendida) e
    `dias[]` (histórico diário de 30 dias) · DB.links substitui DB.sistemas.
    ============================================================ */
-const FOCO_INICIAL = ['Sankaku-jime','Hikikomi-gaeshi','Niju-garami']; // máx 3 em treino
+const FOCO_INICIAL = ['Sankaku-jime','Hikikomi-gaeshi','Juji-gatame']; // máx 3 em treino (todas existem no catálogo)
 const _WD = ['dom','seg','ter','qua','qui','sex','sáb'];
 function gerarDias(t){
   const base  = t.nivel==='dominada'?64 : t.nivel==='treinando'?40 : 18;
@@ -995,10 +996,11 @@ function streakBadge(){
   const dots = labels.map((d,i)=>
     `<span class="wk-dot ${s.dias[i]?'on':''} ${i===todayIdx?'today':''}"></span>`).join('');
   const abaixo = s.feitos < meta && todayIdx >= 4;
-  const node = el(`<div class="streak-badge compact" role="button" tabindex="0" aria-label="Ver histórico de aulas">
+  const ariaB4 = `Sequência de ${plural(s.streakSemanas,'semana','semanas')} seguidas treinando. Esta semana: ${s.feitos} de ${meta} treinos. Toque para ver o histórico.`;
+  const node = el(`<div class="streak-badge compact" role="button" tabindex="0" aria-label="${ariaB4}">
     <span class="sb-fire">${abaixo?'⚠️':'🔥'}</span>
-    <span class="sb-n">${s.streakSemanas} sem</span>
-    <span class="sb-meta">${s.feitos}/${meta}</span>
+    <span class="sb-n" title="Semanas seguidas com pelo menos 1 treino">${s.streakSemanas} sem</span>
+    <span class="sb-meta" title="Treinos nesta semana / sua meta semanal">${s.feitos}/${meta}</span>
     <div class="sb-dots">${dots}</div>
   </div>`);
   const goHist = ()=>{ DB.navAluno='jornada'; DB.jornadaTab='historico'; render(); window.scrollTo(0,0); };
@@ -1217,16 +1219,18 @@ function freqStats(){
   const ts = DB.treinos||[];
   const months=[]; for(let i=5;i>=0;i--){ const d=new Date(hoje.getFullYear(),hoje.getMonth()-i,1); months.push({y:d.getFullYear(),m:d.getMonth(),label:meses[d.getMonth()],count:0}); }
   const dow=[0,0,0,0,0,0]; let monthCount=0;
-  ts.forEach(t=>{ if(!t.data) return; const p=t.data.split('-').map(Number); if(p.length<3) return; const dt=new Date(p[0],p[1]-1,p[2]);
+  // M4: contagem por DIA distinto (2 treinos no mesmo dia = 1), igual ao heatmap/streak.
+  const dias=[...new Set(ts.map(t=>t.data).filter(Boolean))];
+  dias.forEach(iso=>{ const p=iso.split('-').map(Number); if(p.length<3) return; const dt=new Date(p[0],p[1]-1,p[2]);
     const mo=months.find(x=>x.y===p[0]&&x.m===p[1]-1); if(mo) mo.count++;
     const wd=(dt.getDay()+6)%7; if(wd<=5) dow[wd]++;
     if(p[0]===hoje.getFullYear()&&p[1]-1===hoje.getMonth()) monthCount++; });
-  const att=_attendedSet(); let classDays=0, attended=0;
-  for(let day=1;day<=hoje.getDate();day++){ const d=new Date(hoje.getFullYear(),hoje.getMonth(),day); const wd=d.getDay(); if(wd>=1&&wd<=6){ classDays++; if(att.has(isoOf(d))) attended++; } }
-  const presenca = classDays? Math.round(attended/classDays*100):0;
+  // A1: "Presença no mês" = % da meta mensal cumprida (meta semanal × 4), não dias de aula presumidos.
+  const monthMeta=(DB.semana.meta||4)*4;
+  const presenca = monthMeta? Math.min(100, Math.round(monthCount/monthMeta*100)):0;
   const dowNames=['segundas','terças','quartas','quintas','sextas','sábados'];
   const topi = dow.indexOf(Math.max(...dow));
-  return { months, dow, monthCount, monthMeta:(DB.semana.meta||4)*4, presenca, total:ts.length, topDow: dow[topi]>0?dowNames[topi]:null };
+  return { months, dow, monthCount, monthMeta, presenca, total:ts.length, topDow: dow[topi]>0?dowNames[topi]:null };
 }
 // retrospectiva derivada dos dados reais
 function retroStats(){
@@ -1339,6 +1343,8 @@ function _attendedSet(){
   if (sig!==_attSig){ _attSet=new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); _attSig=sig; }
   return _attSet;
 }
+// M4: quantos treinos foram registrados num dia (p/ marcador "2×" no heatmap)
+function _treinosNoDia(iso){ return (DB.treinos||[]).filter(t=>t.data===iso).length; }
 // semana atual (seg→dom) + streak de semanas seguidas com treino — tudo dos dados reais
 function semanaStats(){
   const meta=(DB.semana&&DB.semana.meta)||4, THR=1;   // streak conta semana com ≥1 treino
@@ -1367,17 +1373,20 @@ function diaTreino(d){
   const classDay = tipo!==null;
   const past = d <= hoje;
   let attended = false;
-  if (classDay && past){
+  // A1: presença = só o que foi REALMENTE treinado (qualquer dia, inclusive fim de semana).
+  // Não inferimos mais "Faltou" a partir de uma grade fixa de aulas.
+  if (past){
     if (DEMO){ const key = d.getFullYear()*1000 + d.getMonth()*32 + d.getDate(); attended = (key % 4 !== 0); } // vitrine
     else attended = _attendedSet().has(isoOf(d));   // presença real do aluno
   }
+  // tipo p/ cor: dia útil = técnica, fim de semana = livre (não implica que houve aula)
+  if (attended && tipo==null) tipo = 'livre';
   return { date:new Date(d), dow, classDay, tipo, attended, past };
 }
 function hmCellClass(c){
-  if (!c.classDay) return 'hm-cell hm-empty';          // domingo: sem aula
+  // A1: mapa de atividade — só destaca dias treinados; sem "Faltou"/"futuro".
   if (c.attended) return 'hm-cell ' + (c.tipo==='tecnica' ? 'hm-tec' : 'hm-liv');
-  if (c.past) return 'hm-cell hm-miss';                // dia de aula que faltou
-  return 'hm-cell hm-future';                          // aula futura agendada
+  return 'hm-cell hm-empty';
 }
 // Heatmap por período: só dias de aula, cor por tipo
 function heatmapCard(){
@@ -1399,7 +1408,8 @@ function heatmapCard(){
     const labels=['S','T','Q','Q','S','S','D'];
     const row = el(`<div class="hm-week"></div>`);
     for(let i=0;i<7;i++){ const d=new Date(base); d.setDate(base.getDate()+i); const c=diaTreino(d);
-      const day=el(`<div class="hmw-day" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)} big"></span><span class="hmw-lbl">${labels[i]}</span><span class="hmw-num">${d.getDate()}</span></div>`);
+      const mult=c.attended?_treinosNoDia(isoOf(d)):0;
+      const day=el(`<div class="hmw-day" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)} big">${mult>1?`<span class="hm-mult">${mult}×</span>`:''}</span><span class="hmw-lbl">${labels[i]}</span><span class="hmw-num">${d.getDate()}</span></div>`);
       row.appendChild(day); }
     card.appendChild(row);
   } else if (periodo==='mes'){
@@ -1410,7 +1420,8 @@ function heatmapCard(){
     ['S','T','Q','Q','S','S','D'].forEach(l=> grid.appendChild(el(`<span class="hmm-h">${l}</span>`)));
     for(let k=0;k<startOff;k++) grid.appendChild(el(`<span class="hmm-cell"></span>`));
     for(let day=1;day<=dim;day++){ const d=new Date(hoje.getFullYear(),hoje.getMonth(),day); const c=diaTreino(d);
-      grid.appendChild(el(`<span class="hmm-cell" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)}"></span><span class="hmm-n">${day}</span></span>`)); }
+      const mult=c.attended?_treinosNoDia(isoOf(d)):0;
+      grid.appendChild(el(`<span class="hmm-cell" data-iso="${isoOf(d)}"><span class="${hmCellClass(c)}">${mult>1?`<span class="hm-mult">${mult}×</span>`:''}</span><span class="hmm-n">${day}</span></span>`)); }
     card.appendChild(grid);
     card.appendChild(el(`<div class="hm-sub" style="margin-top:10px">${meses[hoje.getMonth()]} de ${hoje.getFullYear()}</div>`));
   } else {
@@ -1441,7 +1452,6 @@ function heatmapCard(){
   }
 
   card.appendChild(el(`<div class="hm-legend">
-    <span class="hm-cell hm-miss"></span><span>Faltou</span>
     <span class="hm-cell hm-tec"></span><span>Técnica</span>
     <span class="hm-cell hm-liv"></span><span>Livre</span></div>`));
   card.addEventListener('click', e=>{
@@ -2304,7 +2314,7 @@ function evoluirGraduacao(){
 
 // conversão de data: ISO (AAAA-MM-DD) ↔ BR (DD/MM/AAAA) para entrada manual no import
 function _isoToBr(iso){ if(!iso) return ''; const p=iso.split('-'); return (p.length===3) ? `${p[2]}/${p[1]}/${p[0]}` : ''; }
-function _brToIso(br){ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return ''; const d=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||d<1||d>31||y<1950||y>2100) return ''; return `${m[3]}-${m[2]}-${m[1]}`; }
+function _brToIso(br){ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return ''; const d=+m[1],mo=+m[2],y=+m[3]; if(mo<1||mo>12||d<1||d>31||y<1950||y>2100) return ''; const dt=new Date(y,mo-1,d); if(dt.getFullYear()!==y||dt.getMonth()!==mo-1||dt.getDate()!==d) return ''; return `${m[3]}-${m[2]}-${m[1]}`; }
 // normaliza entradas de graduação: descarta sem data, corrige graus por tipo (faixa=0, grau≥1), ordena por data. Retorna null se nenhuma válida.
 function _normalizeGrad(entries){
   const valid=(entries||[]).filter(e=>e&&e.data).map(e=>{ const g={...e}; delete g.por; if(g.tipo==='faixa') g.graus=0; else if(!(g.graus>=1)) g.graus=1; return g; });
@@ -2525,6 +2535,9 @@ function abrirEditorTecnica(idx){
   sheet.querySelector('#et-save').onclick = ()=>{
     const jp = sheet.querySelector('#et-jp').value.trim();
     if (!jp){ toast('Dê um nome à técnica'); return; }
+    // B5: evita técnica com nome duplicado (ignora a própria ao editar)
+    const dup = DB.tecnicas.some((x,i)=> (!editing || i!==idx) && (x.jp||'').toLowerCase()===jp.toLowerCase());
+    if (dup){ toast('Já existe uma técnica com esse nome'); return; }
     const data = { jp, pt:sheet.querySelector('#et-pt').value.trim(), cat, oficial:cat!=='kosen'&&cat!=='outros', nivel:niv, nota:sheet.querySelector('#et-nota').value.trim() };
     if (editing) Object.assign(DB.tecnicas[idx], data);
     else DB.tecnicas.push({ id:'usr-'+Date.now().toString(36), ...data, treinos:0, ultima:'hoje', ultimaRev:HOJE_ISO });
@@ -2546,29 +2559,13 @@ function alunoPerfil(){
   </div>`;
   w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
 
-  const lojaWrap = el(`<div class="loja-destaque">
-    <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span><a class="ld-link">ver tudo ›</a></div>
-    <div class="ld-strip"></div>
-  </div>`);
-  lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
-  const strip = lojaWrap.querySelector('.ld-strip');
-  DB.loja.produtos.slice(0,5).forEach(p=>{
-    const card = el(`<div class="ld-card">
-      <div class="ld-img" style="background:${p.cor}">${p.emoji}</div>
-      <div class="ld-nm">${p.nome}</div><div class="ld-pr">Sob consulta</div></div>`);
-    card.onclick = ()=>{ openLoja(); abrirProduto(p.id); };
-    strip.appendChild(card);
-  });
-  w.appendChild(lojaWrap);
+  // A2: Loja oculta no MVP (catálogo/checkout ainda não funcionais).
+  // A3: Mensalidade oculta no MVP (gestão financeira é fase futura).
 
-  const m = me.mensalidade;
-  const payTxt = m.status==='ok' ? `Em dia · vence ${m.venc}` : 'Vencida';
   w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
   w.appendChild(el(`<div class="info-list block">
-    <div class="info-row"><div class="ii">💳</div><div class="it"><div class="t">Mensalidade <span style="font-size:10px;color:var(--muted);font-weight:400">(teste)</span></div>
-      <div class="s">${payTxt}</div></div><div class="iv ${m.status==='ok'?'green':'red'}">${m.valor?moneyBR(m.valor):'—'}</div></div>
     <div class="info-row"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
-      <div class="s">Meta de ${DB.semana.meta||4} treinos/sem</div></div><div class="iv">${(DB.treinos||[]).filter(t=>{ const d=t.data; if(!d) return false; return d.slice(0,7)===HOJE_ISO.slice(0,7); }).length}</div></div>
+      <div class="s">Meta de ${DB.semana.meta||4} treinos/sem</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
     <div class="info-row"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
       <div class="s">${DB.academia?.turma||'—'}</div></div><div class="iv"></div></div>
   </div>`));
@@ -2629,7 +2626,7 @@ function tabbarAluno(){
    FLOW DE REGISTRO (Aula Técnica / Livre)
    ============================================================ */
 const DRAFT_KEY = 'yama.draft';
-function _loadDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return null; const d=JSON.parse(raw); if(d&&d.date===HOJE_ISO) return d; _clearDraft(); return null; }catch(e){ return null; } }
+function _loadDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return null; const d=JSON.parse(raw); if(!d) return null; if(d.date===HOJE_ISO) return d; if(d.date && diasEntre(d.date)<=1) return d; /* virou o dia com rascunho aberto: mantém o de ontem p/ não perder o registro */ _clearDraft(); return null; }catch(e){ return null; } }
 function _saveDraft(d){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); }catch(e){} }
 function _clearDraft(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} }
 function _autosaveDraft(){ const d=_loadDraft(); if(d){ d.registro=DB.registro; _saveDraft(d); } }
@@ -3494,18 +3491,36 @@ function renderOnboarding(){
   body.appendChild(el(`<img class="onb-logo" src="logo.png?v=2" onerror="this.onerror=null;this.src='yama-logo.png?v=2'" alt="">`));
   body.appendChild(el(`<div class="onb-t">Bem-vindo à Yama</div>`));
   body.appendChild(el(`<div class="onb-s">Seu diário de Jiu-Jitsu — do em pé ao chão. Vamos te conhecer rapidinho.</div>`));
+  body.appendChild(el(`<div class="onb-value">
+    <div class="ov-row"><span class="ov-ic">📝</span><span>Registre o treino em ~15s e veja seu histórico crescer</span></div>
+    <div class="ov-row"><span class="ov-ic">📈</span><span>Acompanhe seu acerto por técnica e a consistência semanal</span></div>
+    <div class="ov-row"><span class="ov-ic">🥋</span><span>Veja quanto falta para o próximo grau e faixa (regras CBJJ)</span></div>
+  </div>`));
   body.appendChild(el(`<label class="flbl onb-lbl">Como te chamam?</label>`));
   const inp = el(`<input class="inp" id="onb-apelido" value="${safeAttr(me.apelido)}" placeholder="Seu apelido">`);
   body.appendChild(inp);
   body.appendChild(el(`<label class="flbl onb-lbl">Sua faixa</label>`));
-  let bf = me.faixa;
+  let bf = me.faixa, bg = me.graus||0;
   const beltSeg = el(`<div class="seg-wrap onb-belt"></div>`);
+  const grauLbl = el(`<label class="flbl onb-lbl" style="display:none">Grau</label>`);
+  const grauSeg = el(`<div class="seg" style="display:none"></div>`);
+  const _maxGraus = (f)=> f==='preta'?6:4;
+  const _rebuildOnbGraus = ()=>{
+    const mx=_maxGraus(bf); if(bg>mx) bg=mx;
+    grauSeg.innerHTML='';
+    for(let g=0;g<=mx;g++){ const x=el(`<button class="${g===bg?'active':''}">${g}º</button>`);
+      x.onclick=()=>{ bg=g; grauSeg.querySelectorAll('button').forEach(y=>y.classList.remove('active')); x.classList.add('active'); }; grauSeg.appendChild(x); }
+    grauLbl.style.display=''; grauSeg.style.display='';
+  };
   ['branca','azul','roxa','marrom','preta'].forEach(b=>{
     const btn=el(`<button class="seg-chip ${b===bf?'on':''}">${BELTS[b].nome}</button>`);
-    btn.onclick=()=>{ bf=b; beltSeg.querySelectorAll('.seg-chip').forEach(x=>x.classList.remove('on')); btn.classList.add('on'); };
+    btn.onclick=()=>{ bf=b; beltSeg.querySelectorAll('.seg-chip').forEach(x=>x.classList.remove('on')); btn.classList.add('on'); _rebuildOnbGraus(); };
     beltSeg.appendChild(btn);
   });
   body.appendChild(beltSeg);
+  body.appendChild(grauLbl);
+  body.appendChild(grauSeg);
+  _rebuildOnbGraus();
 
   body.appendChild(el(`<label class="flbl onb-lbl">Ano de nascimento</label>`));
   const inpNasc = el(`<input class="inp" id="onb-nasc" type="number" inputmode="numeric" placeholder="Ex: 1998" value="${me.nascimento||''}" min="1920" max="${hoje.getFullYear()}">`);
@@ -3527,12 +3542,14 @@ function renderOnboarding(){
   go.onclick = ()=>{
     if (!chk.checked){ toast('Marque o aceite para continuar'); return; }
     const ap = inp.value.trim(); if (ap){ me.apelido = ap; me.nome = me.nome || ap; me.iniciais = _iniciais(ap); }
-    me.faixa = bf;
+    me.faixa = bf; me.graus = bg;
     const nascVal = parseInt(inpNasc.value); if(nascVal>=1920 && nascVal<=hoje.getFullYear()) me.nascimento=nascVal;
     me.consentimento = HOJE_ISO;   // registro do aceite (LGPD)
     // primeira graduação = faixa inicial (alimenta a timeline da Jornada)
     if (!DB.graduacoes.some(g=>g.tipo==='faixa' && g.faixa===bf))
       DB.graduacoes.unshift({ faixa:bf, graus:0, tipo:'faixa', data:HOJE_ISO, por:'—' });
+    if (bg>0 && !DB.graduacoes.some(g=>g.tipo==='grau' && g.faixa===bf && g.graus===bg))
+      DB.graduacoes.push({ faixa:bf, graus:bg, tipo:'grau', data:HOJE_ISO });
     DB.onboarded=true; DB.onboardingOpen=false;
     const primeiraVez = !me.viuAjuda;
     track('onboarding_done', { faixa:bf });
@@ -3609,6 +3626,7 @@ function abrirEditarPerfil(){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Editar perfil</div>
+    <div class="sheet-scroll">
     <div class="ep-foto">
       <div class="ep-avatar">${foto?`<img src="${safeAttr(foto)}" alt="">`:safeTxt(me.iniciais)}</div>
       <label class="ep-foto-btn">Trocar foto<input type="file" accept="image/*" hidden id="ep-file"></label>
@@ -3627,13 +3645,26 @@ function abrirEditarPerfil(){
     <input class="inp" id="ep-data-faixa" type="date">
     <label class="flbl" style="margin-top:12px">Meta semanal de treinos</label>
     <div class="seg" id="ep-meta"></div>
+    <label class="flbl" style="margin-top:12px">Aulas para o próximo grau</label>
+    <input class="inp" id="ep-meta-grau" type="number" inputmode="numeric" placeholder="Ex: 40" value="${(me.aulasGrau&&me.aulasGrau.meta)||40}" min="1" max="500">
+    <label class="flbl" style="margin-top:12px">Aulas para a próxima faixa</label>
+    <input class="inp" id="ep-meta-faixa" type="number" inputmode="numeric" placeholder="Ex: 160" value="${me.aulasGraduacao||160}" min="1" max="2000">
+    </div>
     <button class="btn-save" id="ep-save" style="margin-top:16px">Salvar</button>
     <button class="sheet-cancel" id="ep-cancel">Cancelar</button>
   </div></div>`);
   sheet.querySelector('#ep-file').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return;
-    if(f.size>500000){ toast('Foto muito grande (máx 500KB)'); return; }
-    const r=new FileReader();
-    r.onload=()=>{ foto=r.result; sheet.querySelector('.ep-avatar').innerHTML=`<img src="${foto}" alt="">`; }; r.readAsDataURL(f); };
+    if(f.size>31457280){ toast('Foto muito grande (máx 30 MB)'); return; }
+    const img=new Image(); const url=URL.createObjectURL(f);
+    img.onload=()=>{
+      const MAX=1024; let w=img.width, h=img.height;
+      if(w>MAX||h>MAX){ const s=MAX/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      foto=cv.toDataURL('image/jpeg',0.85);
+      sheet.querySelector('.ep-avatar').innerHTML=`<img src="${foto}" alt="">`;
+      URL.revokeObjectURL(url);
+    }; img.src=url; };
   const _rebuildGraus=()=>{
     const gs=sheet.querySelector('#ep-graus'); gs.innerHTML='';
     const mx=maxGraus(faixa); if(graus>mx) graus=mx;
@@ -3669,6 +3700,9 @@ function abrirEditarPerfil(){
     const grausMudou = graus !== me.graus;
     me.faixa=faixa; me.graus=graus; me.foto=foto;
     DB.semana.meta = metaSem;
+    // A5: metas de aulas por grau/faixa configuráveis pelo aluno
+    const _mg=parseInt(sheet.querySelector('#ep-meta-grau').value); if(_mg>=1 && _mg<=500) me.aulasGrau = Object.assign({}, me.aulasGrau, { meta:_mg });
+    const _mf=parseInt(sheet.querySelector('#ep-meta-faixa').value); if(_mf>=1 && _mf<=2000) me.aulasGraduacao=_mf;
     if(faixaMudou || grausMudou) me.aulasGrau = Object.assign({}, me.aulasGrau, { base:0 });
     if(faixaMudou){
       if(!DB.graduacoes.some(g=>g.tipo==='faixa'&&g.faixa===faixa))
@@ -3748,7 +3782,15 @@ function abrirLesoes(){
         <div class="li-actions"><button class="li-edit">Editar</button><button class="li-del">Excluir</button></div></div>`);
       row.querySelector('.li-edit').onclick=()=> abrirEditarLesao(l, renderList);
       row.querySelector('.li-del').onclick=()=>{
-        if(confirm('Excluir esta lesão?')){ DB.lesoes=DB.lesoes.filter(x=>x.id!==l.id); renderList(); toast('Lesão excluída'); }
+        const cf = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+          <div class="sheet-grip"></div>
+          <div class="sheet-title">Excluir lesão?</div>
+          <div class="sheet-desc">Esta lesão será removida permanentemente. Não dá pra desfazer.</div>
+          <button class="btn-save danger" id="ld-ok">Excluir</button>
+          <button class="sheet-cancel" id="ld-no">Cancelar</button>
+        </div></div>`);
+        const closeCf = openSheet(cf, '#ld-no');
+        cf.querySelector('#ld-ok').onclick=()=>{ DB.lesoes=DB.lesoes.filter(x=>x.id!==l.id); closeCf(); renderList(); toast('Lesão excluída'); };
       };
       c.appendChild(row); }); };
   renderList();
@@ -3958,9 +4000,10 @@ function limparDados(){
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#rs-nao').onclick=close;
   sheet.querySelector('#rs-sim').onclick=async()=>{
-    aplicarCleanSlate();
+    aplicarCleanSlate(); DB.onboarded=false;
     try{ localStorage.removeItem(STORE_KEY); }catch(e){}
     if(DB.sbUser && typeof sbAuth!=='undefined'){ DB.sbUser=null; await sbAuth.signOut(); }
+    DB.onboardingOpen=true;
     sheet.remove(); render(); toast('Dados apagados ✔');
   };
   document.body.appendChild(sheet);
@@ -4482,6 +4525,24 @@ if (DEMO) {
 // Boot: scroll lock em sheets + theme-color sincronizado com tema atual
 _setupBodyLock();
 _updateThemeColor();
+
+// A4: aviso persistente quando o navegador não permite salvar (aba anônima / storage bloqueado).
+// Sem isso o app roda em memória e perde tudo no reload, em silêncio.
+function _warnNoStorage(){
+  if (STORAGE_OK || DEMO || document.getElementById('storage-warn')) return;
+  const b = document.createElement('div');
+  b.id = 'storage-warn';
+  b.setAttribute('role','alert');
+  b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#b71c1c;color:#fff;'
+    + 'font:600 12.5px -apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.35;'
+    + 'padding:calc(10px + env(safe-area-inset-top,0px)) 40px 10px 14px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+  b.innerHTML = '⚠️ Este navegador não está salvando seus dados (modo anônimo?). Eles serão perdidos ao recarregar — saia do modo privativo ou exporte com frequência.'
+    + '<span id="storage-warn-x" role="button" aria-label="Fechar" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:18px;cursor:pointer;opacity:.85">✕</span>';
+  document.body.appendChild(b);
+  const x = b.querySelector('#storage-warn-x');
+  if (x) x.onclick = ()=> b.remove();
+}
+_warnNoStorage();
 
 /* === PWA: standalone, A2HS, online/offline, SW update, prefers, resume, persist === */
 (function(){

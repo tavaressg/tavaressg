@@ -13,15 +13,15 @@
   "categories": ["lifestyle", "sports", "health"],
   "display_override": ["standalone", "minimal-ui"],
   "shortcuts": [
-    { "name": "Registrar treino", "short_name": "Registrar", "description": "Comece o registro de uma aula técnica ou livre", "url": "./?flow=registrar", "icons": [{ "src": "logo.png", "sizes": "192x192" }] },
-    { "name": "Biblioteca", "short_name": "Técnicas", "description": "Veja seu catálogo de técnicas", "url": "./?go=biblioteca", "icons": [{ "src": "logo.png", "sizes": "192x192" }] }
+    { "name": "Registrar treino", "short_name": "Registrar", "description": "Comece o registro de uma aula técnica ou livre", "url": "./?flow=registrar", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Biblioteca", "short_name": "Técnicas", "description": "Veja seu catálogo de técnicas", "url": "./?go=biblioteca", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
   ],
   "icons": [
-    { "src": "logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "yama-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "yama-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "screenshots": [
-    { "src": "yama-logo.png", "sizes": "512x512", "type": "image/png", "form_factor": "narrow", "label": "Tela inicial do Yama" }
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "form_factor": "narrow", "label": "Tela inicial do Yama" }
   ]
 }
