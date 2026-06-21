@@ -52,7 +52,12 @@ html.offline body::before{content:'📡 offline';position:fixed;top:calc(env(saf
 .sw-update-toast button{border:none;background:var(--red);color:#fff;padding:6px 14px;border-radius:99px;font-size:12px;font-weight:800;cursor:pointer}
 /* iOS keyboard avoidance: sheets sobem com o teclado */
 html.kb-open .sheet-overlay{align-items:flex-start;padding-top:max(20px, env(safe-area-inset-top))}
-html.kb-open .sheet{margin-bottom:var(--kb-h, 0)}
+/* teclado aberto: estende a área rolável do sheet (em vez de empurrar o sheet inteiro pra cima),
+   deixando o campo focado rolar pra vista sem o sheet "saltar" */
+html.kb-open .sheet{padding-bottom:calc(env(safe-area-inset-bottom) + 20px + var(--kb-h, 0px));scroll-padding-bottom:var(--kb-h, 0px)}
+/* esconde as barras fixas inferiores enquanto um sheet está aberto (anti-flicker base) */
+.tabbar,.save-bar{transition:opacity .2s ease}
+html.sheet-open .tabbar,html.sheet-open .save-bar{opacity:0;pointer-events:none}
 /* toast com botão Desfazer */
 .toast-action{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 110px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 16px 11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:250;display:flex;align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .2s,transform .2s;max-width:calc(100% - 40px)}
 .toast-action.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -459,6 +464,7 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
   font-size:30px;font-weight:800;color:#fff;background:linear-gradient(145deg,var(--blue),#1d6fd0)}
 .ep-avatar img{width:100%;height:100%;object-fit:cover}
 .ep-foto-btn{font-size:13px;font-weight:800;color:var(--red-strong);cursor:pointer}
+.ep-dias-hint{font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.4;margin-top:8px}
 /* ---------- Configurações ---------- */
 .cfg-list{display:flex;flex-direction:column;gap:2px;margin-top:6px}
 .cfg-row{display:flex;align-items:center;justify-content:space-between;padding:14px 4px;font-size:14.5px;font-weight:700;cursor:pointer;border-bottom:1px solid var(--line)}
