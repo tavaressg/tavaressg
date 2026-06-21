@@ -3938,25 +3938,33 @@ function abrirBackup(){
     <div class="bkp-note">Exporte para guardar tudo (treinos, técnicas, graduação) num arquivo. Importe pra restaurar — útil durante a fase beta.</div>
     <button class="btn-save" id="bkp-exp">⬇️ Exportar perfil (JSON)</button>
     <button class="btn-save" id="bkp-imp" style="margin-top:8px;background:var(--blue)">⬆️ Importar perfil (JSON)</button>
-    <input type="file" id="bkp-file" accept=".json,application/json" style="display:none" aria-hidden="true">
+    <input type="file" id="bkp-file" accept="application/json,.json,text/plain,*/*" style="display:none" aria-hidden="true">
     <button class="sheet-cancel" id="bkp-close">Fechar</button>
   </div></div>`);
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#bkp-close').onclick=close;
-  sheet.querySelector('#bkp-exp').onclick=()=>{
+  sheet.querySelector('#bkp-exp').onclick=async ()=>{
     try{ flushSave(); }catch(e){}
     const raw=localStorage.getItem(STORE_KEY)||'{}';
     const theme = localStorage.getItem('yama.theme') || null;
     const draft = localStorage.getItem(DRAFT_KEY) || null;
     const dump={ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw), theme, draft };
     const json=JSON.stringify(dump,null,2);
-    const blob=new Blob([json],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url; a.download=`yama-perfil-${new Date().toISOString().slice(0,10)}.json`;
-    a.click(); URL.revokeObjectURL(url);
-    toast('Backup baixado ✓');
+    const fname=`yama-perfil-${new Date().toISOString().slice(0,10)}.json`;
+    const file=new File([json],fname,{type:'application/json'});
+    // iOS/PWA standalone: download via <a> é instável → usa Web Share (salvar em Arquivos/enviar).
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file],title:'Backup Yama'}); toast('Backup gerado — salve em Arquivos ✓'); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }   // usuário cancelou: não cai no fallback
+    }
+    try{
+      const url=URL.createObjectURL(file);
+      const a=document.createElement('a'); a.href=url; a.download=fname;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      toast('Backup baixado ✓');
+    }catch(e){ toast('⚠️ Não consegui exportar — tente novamente'); }
   };
   const fileInp=sheet.querySelector('#bkp-file');
   sheet.querySelector('#bkp-imp').onclick=()=> fileInp.click();
@@ -3965,7 +3973,8 @@ function abrirBackup(){
     const reader=new FileReader();
     reader.onload=(ev)=>{
       try{
-        const dump=JSON.parse(ev.target.result);
+        const txt=String(ev.target.result||'').trim();   // .trim() remove BOM/espaços (iOS Files)
+        const dump=JSON.parse(txt);
         if(dump.app!=='Yama BJJ' || !dump.data){ toast('⚠️ Arquivo inválido'); fileInp.value=''; return; }
         if(dump.schema && dump.schema>SCHEMA){ toast('⚠️ Backup de versão futura'); fileInp.value=''; return; }
         const dataDump=dump.exportadoEm?dump.exportadoEm.slice(0,10):'desconhecida';

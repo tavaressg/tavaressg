@@ -37,7 +37,7 @@ body{
 .phone{
   width:100%;max-width:430px;min-height:100dvh;background:var(--bg);
   display:flex;flex-direction:column;position:relative;
-  padding-bottom:calc(95px + env(safe-area-inset-bottom, 0px));
+  padding-bottom:calc(82px + env(safe-area-inset-bottom, 0px));
   overflow-x:hidden;zoom:.92;
 }
 @supports not (zoom:1){
@@ -776,8 +776,8 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 
 /* ---------- Tab bar ---------- */
 .tabbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
-  background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;
-  padding:8px 0 calc(env(safe-area-inset-bottom) + 9px);box-shadow:0 -1px 8px rgba(0,0,0,.03);z-index:40}
+  background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:flex-end;
+  padding:6px 0 calc(env(safe-area-inset-bottom) + 5px);box-shadow:0 -1px 8px rgba(0,0,0,.03);z-index:40}
 .tab{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--muted);flex:1}
 .tab svg{width:23px;height:23px}
 .tab .tl{font-size:10px;font-weight:700;letter-spacing:.2px}
