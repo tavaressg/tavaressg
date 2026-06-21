@@ -3932,81 +3932,107 @@ function abrirInstalarPWA(){
 }
 
 function abrirBackup(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+  // monta o JSON do backup (estado atual)
+  const buildDump=()=>{ try{ flushSave(); }catch(e){}
+    const raw=localStorage.getItem(STORE_KEY)||'{}';
+    const theme=localStorage.getItem('yama.theme')||null, draft=localStorage.getItem(DRAFT_KEY)||null;
+    return JSON.stringify({ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw), theme, draft }, null, 2);
+  };
+  // confirma e restaura a partir de um dump já parseado
+  const doRestore=(dump)=>{
+    const dataDump=dump.exportadoEm?dump.exportadoEm.slice(0,10):'desconhecida';
+    const conf=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+      <div class="sheet-grip"></div>
+      <div class="sheet-title">⚠️ Substituir dados?</div>
+      <div class="bkp-note">Vai apagar seus dados atuais e restaurar o backup de <b>${dataDump}</b>. Confirma?</div>
+      <button class="btn-save danger" id="ci-ok">Sim, substituir tudo</button>
+      <button class="sheet-cancel" id="ci-no">Cancelar</button>
+    </div></div>`);
+    const cClose=openSheet(conf,'#ci-no');
+    conf.querySelector('#ci-ok').onclick=()=>{
+      try{
+        localStorage.setItem(STORE_KEY, JSON.stringify(dump.data));
+        if(dump.theme) localStorage.setItem('yama.theme', dump.theme);
+        if(dump.draft) localStorage.setItem(DRAFT_KEY, dump.draft);
+        cClose(); toast('Perfil restaurado — recarregando…'); setTimeout(()=>location.reload(),600);
+      }catch(err){ toast('⚠️ Falha ao restaurar (armazenamento cheio?)'); }
+    };
+  };
+  // valida texto → dump; retorna true se abriu o confirm
+  const applyText=(text)=>{
+    let dump; try{ dump=JSON.parse(String(text||'').trim()); }catch(e){ toast('⚠️ Backup ilegível — copie o texto inteiro'); return false; }
+    if(dump.app!=='Yama BJJ' || !dump.data){ toast('⚠️ Não parece um backup do Yama'); return false; }
+    if(dump.schema && dump.schema>SCHEMA){ toast('⚠️ Backup de versão futura'); return false; }
+    doRestore(dump); return true;
+  };
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-scroll" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">💾 Backup do perfil</div>
-    <div class="bkp-note">Exporte para guardar tudo (treinos, técnicas, graduação) num arquivo. Importe pra restaurar — útil durante a fase beta.</div>
-    <button class="btn-save" id="bkp-exp">⬇️ Exportar perfil (JSON)</button>
-    <button class="btn-save" id="bkp-imp" style="margin-top:8px;background:var(--blue)">⬆️ Importar perfil (JSON)</button>
+    <div class="bkp-note">Guarda tudo (treinos, técnicas, graduação, foto). No iPhone, <b>Copiar/Colar</b> é o jeito mais confiável — cole o texto no app Notas ou num e-mail pra você mesmo e guarde.</div>
+    <div class="flbl" style="margin-top:6px">Exportar</div>
+    <button class="btn-save" id="bkp-copy">📋 Copiar backup</button>
+    <button class="btn-save" id="bkp-exp" style="margin-top:8px;background:var(--blue)">⬇️ Salvar como arquivo</button>
+    <div class="flbl" style="margin-top:16px">Restaurar</div>
+    <button class="btn-save" id="bkp-paste" style="background:var(--good)">📥 Colar backup</button>
+    <button class="btn-save" id="bkp-imp" style="margin-top:8px;background:var(--blue)">📂 Abrir arquivo</button>
     <input type="file" id="bkp-file" accept="application/json,.json,text/plain,*/*" style="display:none" aria-hidden="true">
     <button class="sheet-cancel" id="bkp-close">Fechar</button>
   </div></div>`);
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#bkp-close').onclick=close;
+  openSheet(sheet,'#bkp-close');
+
+  // COPIAR backup p/ a área de transferência (fallback: textarea selecionável)
+  sheet.querySelector('#bkp-copy').onclick=async ()=>{
+    const json=buildDump();
+    try{
+      if(!(navigator.clipboard && navigator.clipboard.writeText)) throw new Error('no clipboard');
+      await navigator.clipboard.writeText(json);
+      toast('Backup copiado ✓ cole no Notas/e-mail e guarde');
+    }catch(e){
+      const t=el(`<div class="sheet-overlay"><div class="sheet sheet-scroll" role="dialog">
+        <div class="sheet-grip"></div><div class="sheet-title">Copiar backup</div>
+        <div class="bkp-note">Toque no texto → Selecionar tudo → Copiar. Guarde no Notas ou num e-mail.</div>
+        <textarea class="ta" style="min-height:170px" readonly>${safeTxt(json)}</textarea>
+        <button class="sheet-cancel" id="tx-close">Fechar</button>
+      </div></div>`);
+      openSheet(t,'#tx-close'); const ta=t.querySelector('textarea'); try{ ta.focus(); ta.select(); }catch(_){}
+    }
+  };
+  // SALVAR ARQUIVO (Web Share no iOS, download no desktop/Android)
   sheet.querySelector('#bkp-exp').onclick=async ()=>{
-    try{ flushSave(); }catch(e){}
-    const raw=localStorage.getItem(STORE_KEY)||'{}';
-    const theme = localStorage.getItem('yama.theme') || null;
-    const draft = localStorage.getItem(DRAFT_KEY) || null;
-    const dump={ app:'Yama BJJ', schema:SCHEMA, exportadoEm:new Date().toISOString(), data:JSON.parse(raw), theme, draft };
-    const json=JSON.stringify(dump,null,2);
-    const fname=`yama-perfil-${new Date().toISOString().slice(0,10)}.json`;
+    const json=buildDump(); const fname=`yama-perfil-${new Date().toISOString().slice(0,10)}.json`;
     const file=new File([json],fname,{type:'application/json'});
-    // iOS/PWA standalone: download via <a> é instável → usa Web Share (salvar em Arquivos/enviar).
     if(navigator.canShare && navigator.canShare({files:[file]})){
-      try{ await navigator.share({files:[file],title:'Backup Yama'}); toast('Backup gerado — salve em Arquivos ✓'); return; }
-      catch(e){ if(e && e.name==='AbortError') return; }   // usuário cancelou: não cai no fallback
+      try{ await navigator.share({files:[file],title:'Backup Yama'}); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }
     }
     try{
       const url=URL.createObjectURL(file);
-      const a=document.createElement('a'); a.href=url; a.download=fname;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),1000);
-      toast('Backup baixado ✓');
-    }catch(e){ toast('⚠️ Não consegui exportar — tente novamente'); }
+      const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000); toast('Arquivo gerado ✓');
+    }catch(e){ toast('⚠️ No iPhone use "Copiar backup"'); }
   };
+  // COLAR backup (textarea) — restaurar
+  sheet.querySelector('#bkp-paste').onclick=()=>{
+    const p=el(`<div class="sheet-overlay"><div class="sheet sheet-scroll" role="dialog">
+      <div class="sheet-grip"></div><div class="sheet-title">Colar backup</div>
+      <div class="bkp-note">Cole aqui o texto do backup que você guardou.</div>
+      <textarea class="ta" id="bkp-paste-ta" style="min-height:170px" placeholder='{"app":"Yama BJJ", ...}'></textarea>
+      <button class="btn-save" id="bkp-paste-ok" style="margin-top:10px">Restaurar</button>
+      <button class="sheet-cancel" id="bkp-paste-cancel">Cancelar</button>
+    </div></div>`);
+    const pc=openSheet(p,'#bkp-paste-cancel');
+    p.querySelector('#bkp-paste-ok').onclick=()=>{ if(applyText(p.querySelector('#bkp-paste-ta').value)) pc(); };
+  };
+  // ABRIR ARQUIVO (secundário)
   const fileInp=sheet.querySelector('#bkp-file');
   sheet.querySelector('#bkp-imp').onclick=()=> fileInp.click();
   fileInp.onchange=(e)=>{
-    const file=e.target.files[0]; if(!file) return;
+    const file=e.target.files&&e.target.files[0]; if(!file) return;
     const reader=new FileReader();
-    reader.onload=(ev)=>{
-      try{
-        const txt=String(ev.target.result||'').trim();   // .trim() remove BOM/espaços (iOS Files)
-        const dump=JSON.parse(txt);
-        if(dump.app!=='Yama BJJ' || !dump.data){ toast('⚠️ Arquivo inválido'); fileInp.value=''; return; }
-        if(dump.schema && dump.schema>SCHEMA){ toast('⚠️ Backup de versão futura'); fileInp.value=''; return; }
-        const dataDump=dump.exportadoEm?dump.exportadoEm.slice(0,10):'desconhecida';
-        const conf=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-          <div class="sheet-grip"></div>
-          <div class="sheet-title">⚠️ Substituir dados?</div>
-          <div class="bkp-note">Vai apagar seus dados atuais e restaurar o backup de <b>${dataDump}</b>. Confirma?</div>
-          <button class="btn-save" id="ci-ok" style="background:var(--red)">Sim, substituir tudo</button>
-          <button class="sheet-cancel" id="ci-no">Cancelar</button>
-        </div></div>`);
-        const cClose=()=>{ conf.classList.remove('open'); setTimeout(()=>conf.remove(),260); };
-        conf.onclick=(ev2)=>{ if(ev2.target===conf) cClose(); };
-        conf.querySelector('#ci-no').onclick=cClose;
-        conf.querySelector('#ci-ok').onclick=()=>{
-          try{
-            localStorage.setItem(STORE_KEY, JSON.stringify(dump.data));
-            if (dump.theme) localStorage.setItem('yama.theme', dump.theme);
-            if (dump.draft) localStorage.setItem(DRAFT_KEY, dump.draft);
-            cClose(); close();
-            toast('Perfil restaurado — recarregando…');
-            setTimeout(()=>location.reload(), 600);
-          }catch(err){ toast('⚠️ Falha ao restaurar'); }
-        };
-        document.body.appendChild(conf);
-        requestAnimationFrame(()=>conf.classList.add('open'));
-      }catch(err){ toast('⚠️ Não foi possível ler o arquivo'); }
-      fileInp.value='';
-    };
+    reader.onload=(ev)=>{ applyText(ev.target.result); fileInp.value=''; };
+    reader.onerror=()=>{ toast('⚠️ Não consegui ler o arquivo'); fileInp.value=''; };
     reader.readAsText(file);
   };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 // ---- Centro de notificações ----

@@ -37,11 +37,8 @@ body{
 .phone{
   width:100%;max-width:430px;min-height:100dvh;background:var(--bg);
   display:flex;flex-direction:column;position:relative;
-  padding-bottom:calc(82px + env(safe-area-inset-bottom, 0px));
-  overflow-x:hidden;zoom:.92;
-}
-@supports not (zoom:1){
-  .phone{transform:scale(.92);transform-origin:top center;width:108.7%;margin-left:-4.35%}
+  padding-bottom:calc(78px + env(safe-area-inset-bottom, 0px));
+  overflow-x:hidden;
 }
 .view{animation:viewIn .18s ease}
 #root.no-anim .view{animation:none}
@@ -55,9 +52,8 @@ html.kb-open .sheet-overlay{align-items:flex-start;padding-top:max(20px, env(saf
 /* teclado aberto: estende a área rolável do sheet (em vez de empurrar o sheet inteiro pra cima),
    deixando o campo focado rolar pra vista sem o sheet "saltar" */
 html.kb-open .sheet{padding-bottom:calc(env(safe-area-inset-bottom) + 20px + var(--kb-h, 0px));scroll-padding-bottom:var(--kb-h, 0px)}
-/* trava de scroll leve quando há sheet aberto — sem body{position:fixed}, que no PWA iOS
-   criava uma "barra preta" na base e fazia o tabbar piscar ao fechar */
-html.sheet-open{overflow:hidden}
+/* Sem trava de scroll por CSS: o overlay (position:fixed; inset:0; touch-action:none) já
+   bloqueia o fundo. Evita qualquer mudança de layout ao abrir/fechar sheet → sem flicker. */
 /* toast com botão Desfazer */
 .toast-action{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 110px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 16px 11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:250;display:flex;align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .2s,transform .2s;max-width:calc(100% - 40px)}
 .toast-action.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -776,8 +772,8 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 
 /* ---------- Tab bar ---------- */
 .tabbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
-  background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:flex-end;
-  padding:6px 0 calc(env(safe-area-inset-bottom) + 5px);box-shadow:0 -1px 8px rgba(0,0,0,.03);z-index:40}
+  background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;
+  padding:6px 0 calc(env(safe-area-inset-bottom) + 6px);box-shadow:0 -1px 8px rgba(0,0,0,.03);z-index:40}
 .tab{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--muted);flex:1}
 .tab svg{width:23px;height:23px}
 .tab .tl{font-size:10px;font-weight:700;letter-spacing:.2px}
