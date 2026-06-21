@@ -1345,6 +1345,16 @@ function _attendedSet(){
 }
 // M4: quantos treinos foram registrados num dia (p/ marcador "2×" no heatmap)
 function _treinosNoDia(iso){ return (DB.treinos||[]).filter(t=>t.data===iso).length; }
+// Texto da meta semanal: dois modos — quantidade ou dias específicos escolhidos pelo aluno
+const _WD_LBL = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function metaSemanalTxt(){
+  const s = DB.semana||{};
+  if(s.metaMode==='dias' && Array.isArray(s.metaDias) && s.metaDias.length){
+    const dias=[1,2,3,4,5,6,0].filter(d=>s.metaDias.includes(d)).map(d=>_WD_LBL[d]);
+    return 'Treina: '+dias.join(' · ');
+  }
+  return 'Meta de '+(s.meta||4)+' treinos/sem';
+}
 // semana atual (seg→dom) + streak de semanas seguidas com treino — tudo dos dados reais
 function semanaStats(){
   const meta=(DB.semana&&DB.semana.meta)||4, THR=1;   // streak conta semana com ≥1 treino
@@ -2565,7 +2575,7 @@ function alunoPerfil(){
   w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
   w.appendChild(el(`<div class="info-list block">
     <div class="info-row"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
-      <div class="s">Meta de ${DB.semana.meta||4} treinos/sem</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
+      <div class="s">${metaSemanalTxt()}</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
     <div class="info-row"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
       <div class="s">${DB.academia?.turma||'—'}</div></div><div class="iv"></div></div>
   </div>`));
@@ -3442,6 +3452,9 @@ function _setupBodyLock(){
   if (typeof MutationObserver === 'undefined') return;
   const apply = ()=>{
     const hasOpen = !!document.querySelector('.sheet-overlay');
+    // esconde as barras fixas inferiores (tabbar/save-bar) enquanto há sheet aberto —
+    // elas ficam atrás do overlay de qualquer forma; evita o "pulo"/flicker da base no iOS
+    document.documentElement.classList.toggle('sheet-open', hasOpen);
     const locked = document.body.dataset.lockY != null;
     if (hasOpen && !locked){
       const y = window.scrollY || document.documentElement.scrollTop || 0;
@@ -3643,12 +3656,13 @@ function abrirEditarPerfil(){
     <div class="seg" id="ep-graus"></div>
     <label class="flbl" style="margin-top:12px">Data da faixa atual</label>
     <input class="inp" id="ep-data-faixa" type="date">
-    <label class="flbl" style="margin-top:12px">Meta semanal de treinos</label>
-    <div class="seg" id="ep-meta"></div>
-    <label class="flbl" style="margin-top:12px">Aulas para o próximo grau</label>
-    <input class="inp" id="ep-meta-grau" type="number" inputmode="numeric" placeholder="Ex: 40" value="${(me.aulasGrau&&me.aulasGrau.meta)||40}" min="1" max="500">
-    <label class="flbl" style="margin-top:12px">Aulas para a próxima faixa</label>
-    <input class="inp" id="ep-meta-faixa" type="number" inputmode="numeric" placeholder="Ex: 160" value="${me.aulasGraduacao||160}" min="1" max="2000">
+    <label class="flbl" style="margin-top:12px">Meta semanal</label>
+    <div class="seg" id="ep-meta-mode"></div>
+    <div id="ep-meta-qtd"><div class="seg" id="ep-meta" style="margin-top:8px"></div></div>
+    <div id="ep-meta-dias-wrap" style="display:none">
+      <div class="seg-wrap" id="ep-dias" style="margin-top:8px"></div>
+      <div class="ep-dias-hint">Marque os dias em que você costuma treinar — a meta semanal passa a ser esse número de dias.</div>
+    </div>
     </div>
     <button class="btn-save" id="ep-save" style="margin-top:16px">Salvar</button>
     <button class="sheet-cancel" id="ep-cancel">Cancelar</button>
@@ -3676,12 +3690,32 @@ function abrirEditarPerfil(){
     x.onclick=()=>{ faixa=b; bs.querySelectorAll('.seg-chip').forEach(y=>y.classList.remove('on')); x.classList.add('on'); _rebuildGraus(); }; bs.appendChild(x); });
   _rebuildGraus();
   let metaSem = DB.semana.meta || 4;
+  let metaMode = DB.semana.metaMode==='dias' ? 'dias' : 'qtd';
+  let metaDias = Array.isArray(DB.semana.metaDias) ? DB.semana.metaDias.slice() : [];
   const metaWrap = sheet.querySelector('#ep-meta');
   [2,3,4,5,6].forEach(n=>{
     const b = el(`<button class="${n===metaSem?'active':''}">${n}x</button>`);
     b.onclick=()=>{ metaSem=n; metaWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); };
     metaWrap.appendChild(b);
   });
+  // dias da semana (getDay(): 0=Dom..6=Sáb), exibidos Seg→Dom
+  const diasWrap = sheet.querySelector('#ep-dias');
+  [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']].forEach(([d,l])=>{
+    const b = el(`<button class="seg-chip ${metaDias.includes(d)?'on':''}">${l}</button>`);
+    b.onclick=()=>{ const i=metaDias.indexOf(d); if(i>=0) metaDias.splice(i,1); else metaDias.push(d); b.classList.toggle('on'); };
+    diasWrap.appendChild(b);
+  });
+  // alterna quantidade × dias específicos
+  const modeWrap = sheet.querySelector('#ep-meta-mode');
+  const qtdBox = sheet.querySelector('#ep-meta-qtd');
+  const diasBox = sheet.querySelector('#ep-meta-dias-wrap');
+  const _applyMetaMode = ()=>{ qtdBox.style.display = metaMode==='qtd'?'':'none'; diasBox.style.display = metaMode==='dias'?'':'none'; };
+  [['qtd','Por quantidade'],['dias','Dias específicos']].forEach(([m,l])=>{
+    const b = el(`<button class="${m===metaMode?'active':''}">${l}</button>`);
+    b.onclick=()=>{ metaMode=m; modeWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); _applyMetaMode(); };
+    modeWrap.appendChild(b);
+  });
+  _applyMetaMode();
   const dataFaixaAtual = (DB.graduacoes||[]).find(g=>g.tipo==='faixa'&&g.faixa===me.faixa);
   const epDataFaixa = sheet.querySelector('#ep-data-faixa');
   if(dataFaixaAtual) epDataFaixa.value = dataFaixaAtual.data;
@@ -3699,10 +3733,12 @@ function abrirEditarPerfil(){
     const faixaMudou = faixa !== me.faixa;
     const grausMudou = graus !== me.graus;
     me.faixa=faixa; me.graus=graus; me.foto=foto;
-    DB.semana.meta = metaSem;
-    // A5: metas de aulas por grau/faixa configuráveis pelo aluno
-    const _mg=parseInt(sheet.querySelector('#ep-meta-grau').value); if(_mg>=1 && _mg<=500) me.aulasGrau = Object.assign({}, me.aulasGrau, { meta:_mg });
-    const _mf=parseInt(sheet.querySelector('#ep-meta-faixa').value); if(_mf>=1 && _mf<=2000) me.aulasGraduacao=_mf;
+    // meta semanal: dois modos — quantidade (2–6x) ou dias específicos (a meta = nº de dias)
+    if(metaMode==='dias' && metaDias.length){
+      DB.semana.metaMode='dias'; DB.semana.metaDias=metaDias.slice(); DB.semana.meta=metaDias.length;
+    } else {
+      DB.semana.metaMode='qtd'; DB.semana.metaDias=[]; DB.semana.meta=metaSem;
+    }
     if(faixaMudou || grausMudou) me.aulasGrau = Object.assign({}, me.aulasGrau, { base:0 });
     if(faixaMudou){
       if(!DB.graduacoes.some(g=>g.tipo==='faixa'&&g.faixa===faixa))
