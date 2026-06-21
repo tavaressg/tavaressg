@@ -911,6 +911,8 @@ function alunoInicio(){
     <div class="profile-name">${me.nomeCompleto && me.nomeCompleto!==me.apelido ? safeTxt(me.nomeCompleto)+' | ' : ''}${safeTxt(me.apelido)}</div>
   </div>`);
   head.querySelector('.kh-bell').onclick = ()=> abrirNotificacoes();
+  const _phIni = head.querySelector('.profile-photo');
+  if(_phIni){ _phIni.style.cursor='pointer'; _phIni.setAttribute('aria-label','Editar foto'); _phIni.onclick=()=>editarFotoPerfil(); _attachLongPress(_phIni,{onLongPress:()=>editarFotoPerfil()}); }
   w.appendChild(head);
 
   // ---- Faixa / progresso compacto (ACIMA do registrar) — DINÂMICO ----
@@ -2568,17 +2570,22 @@ function alunoPerfil(){
     <div class="pn">${safeTxt(me.nome)}</div>
   </div>`;
   w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
+  const _phPerf = w.querySelector('.pa');
+  if(_phPerf){ _phPerf.style.cursor='pointer'; _phPerf.setAttribute('aria-label','Editar foto'); _phPerf.onclick=()=>editarFotoPerfil(); _attachLongPress(_phPerf,{onLongPress:()=>editarFotoPerfil()}); }
 
   // A2: Loja oculta no MVP (catálogo/checkout ainda não funcionais).
   // A3: Mensalidade oculta no MVP (gestão financeira é fase futura).
 
   w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
-  w.appendChild(el(`<div class="info-list block">
-    <div class="info-row"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
-      <div class="s">${metaSemanalTxt()}</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
+  const acadCard = el(`<div class="info-list block">
+    <div class="info-row" id="row-freq" role="button" tabindex="0" aria-label="Editar meta semanal" style="cursor:pointer"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
+      <div class="s">${metaSemanalTxt()} · toque para editar</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
     <div class="info-row"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
       <div class="s">${DB.academia?.turma||'—'}</div></div><div class="iv"></div></div>
-  </div>`));
+  </div>`);
+  const _rowFreq = acadCard.querySelector('#row-freq');
+  if(_rowFreq){ const _go=()=>abrirMetaSemanal(); _rowFreq.onclick=_go; _rowFreq.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _go(); } }; }
+  w.appendChild(acadCard);
 
   w.appendChild(el(`<div class="sec-title">Conta</div>`));
   const conta = el(`<div class="info-list">
@@ -3447,31 +3454,13 @@ function toggleTheme(){
   render();
 }
 try{ const _st=localStorage.getItem('yama.theme'); if(_st) document.documentElement.setAttribute('data-theme', _st); }catch(e){}
-// scroll lock no body quando sheet/overlay está aberto (iOS-friendly: preserva posição)
+// scroll lock quando há sheet aberto. Trava leve via CSS (html.sheet-open{overflow:hidden}) —
+// SEM body{position:fixed}, que no PWA iOS deixava uma "barra preta" na base e fazia o tabbar piscar.
+// O overlay (touch-action:none, inset:0) já bloqueia a interação com o fundo.
 function _setupBodyLock(){
   if (typeof MutationObserver === 'undefined') return;
   const apply = ()=>{
-    const hasOpen = !!document.querySelector('.sheet-overlay');
-    // esconde as barras fixas inferiores (tabbar/save-bar) enquanto há sheet aberto —
-    // elas ficam atrás do overlay de qualquer forma; evita o "pulo"/flicker da base no iOS
-    document.documentElement.classList.toggle('sheet-open', hasOpen);
-    const locked = document.body.dataset.lockY != null;
-    if (hasOpen && !locked){
-      const y = window.scrollY || document.documentElement.scrollTop || 0;
-      document.body.dataset.lockY = y;
-      document.body.style.position = 'fixed';
-      document.body.style.top = '-'+y+'px';
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-    } else if (!hasOpen && locked){
-      const y = parseInt(document.body.dataset.lockY, 10) || 0;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      delete document.body.dataset.lockY;
-      window.scrollTo(0, y);
-    }
+    document.documentElement.classList.toggle('sheet-open', !!document.querySelector('.sheet-overlay'));
   };
   const obs = new MutationObserver(apply);
   obs.observe(document.body, { childList:true, subtree:false });
@@ -3631,20 +3620,79 @@ function abrirAjuda(primeira){
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
 
+// ---- Meta semanal (editada a partir do card "Frequência (mês)") ----
+function abrirMetaSemanal(){
+  let metaSem = DB.semana.meta || 4;
+  let metaMode = DB.semana.metaMode==='dias' ? 'dias' : 'qtd';
+  let metaDias = Array.isArray(DB.semana.metaDias) ? DB.semana.metaDias.slice() : [];
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Meta semanal</div>
+    <div class="seg" id="ms-mode"></div>
+    <div id="ms-qtd"><div class="seg" id="ms-meta" style="margin-top:8px"></div></div>
+    <div id="ms-dias-wrap" style="display:none">
+      <div class="seg-wrap" id="ms-dias" style="margin-top:8px"></div>
+      <div class="ep-dias-hint">Marque os dias em que você costuma treinar — a meta semanal passa a ser esse número de dias.</div>
+    </div>
+    <button class="btn-save" id="ms-save" style="margin-top:16px">Salvar</button>
+    <button class="sheet-cancel" id="ms-cancel">Cancelar</button>
+  </div></div>`);
+  const metaWrap = sheet.querySelector('#ms-meta');
+  [2,3,4,5,6].forEach(n=>{ const b=el(`<button class="${n===metaSem?'active':''}">${n}x</button>`);
+    b.onclick=()=>{ metaSem=n; metaWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); }; metaWrap.appendChild(b); });
+  const diasWrap = sheet.querySelector('#ms-dias');
+  [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']].forEach(([d,l])=>{
+    const b=el(`<button class="seg-chip ${metaDias.includes(d)?'on':''}">${l}</button>`);
+    b.onclick=()=>{ const i=metaDias.indexOf(d); if(i>=0) metaDias.splice(i,1); else metaDias.push(d); b.classList.toggle('on'); }; diasWrap.appendChild(b); });
+  const modeWrap=sheet.querySelector('#ms-mode'), qtdBox=sheet.querySelector('#ms-qtd'), diasBox=sheet.querySelector('#ms-dias-wrap');
+  const _apply=()=>{ qtdBox.style.display=metaMode==='qtd'?'':'none'; diasBox.style.display=metaMode==='dias'?'':'none'; };
+  [['qtd','Por quantidade'],['dias','Dias específicos']].forEach(([m,l])=>{ const b=el(`<button class="${m===metaMode?'active':''}">${l}</button>`);
+    b.onclick=()=>{ metaMode=m; modeWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); _apply(); }; modeWrap.appendChild(b); });
+  _apply();
+  const close = openSheet(sheet, '#ms-cancel');
+  sheet.querySelector('#ms-save').onclick=()=>{
+    if(metaMode==='dias' && metaDias.length){ DB.semana.metaMode='dias'; DB.semana.metaDias=metaDias.slice(); DB.semana.meta=metaDias.length; }
+    else { DB.semana.metaMode='qtd'; DB.semana.metaDias=[]; DB.semana.meta=metaSem; }
+    close(); render(); toast('Meta semanal atualizada ✔');
+  };
+}
+
+// ---- Editar foto do perfil (acionada por toque longo na foto) ----
+function editarFotoPerfil(){
+  const me = DB.eu;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Foto do perfil</div>
+    <button class="btn-save" id="pf-pick">📷 Escolher nova foto</button>
+    ${me.foto?`<button class="sheet-cancel danger" id="pf-rm">Remover foto</button>`:''}
+    <button class="sheet-cancel" id="pf-close">Fechar</button>
+    <input type="file" accept="image/*" id="pf-file" style="display:none">
+  </div></div>`);
+  const close = openSheet(sheet, '#pf-close');
+  const fileIn = sheet.querySelector('#pf-file');
+  sheet.querySelector('#pf-pick').onclick = ()=> fileIn.click();   // síncrono no gesto (iOS)
+  fileIn.onchange = (e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+    if(f.size>31457280){ toast('Foto muito grande (máx 30 MB)'); return; }
+    const img=new Image(); const url=URL.createObjectURL(f);
+    img.onload=()=>{ const MAX=1024; let w=img.width, h=img.height;
+      if(w>MAX||h>MAX){ const s=MAX/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
+      DB.eu.foto=cv.toDataURL('image/jpeg',0.85); URL.revokeObjectURL(url); close(); scheduleSave(); render(); toast('Foto atualizada ✔'); };
+    img.src=url; };
+  const rm = sheet.querySelector('#pf-rm');
+  if(rm) rm.onclick = ()=>{ DB.eu.foto=null; close(); scheduleSave(); render(); toast('Foto removida'); };
+}
+
 // ---- Editar perfil ----
 function abrirEditarPerfil(){
   const me = DB.eu;
-  let foto = me.foto, faixa = me.faixa, graus = me.graus, nascimento = me.nascimento;
+  let faixa = me.faixa, graus = me.graus, nascimento = me.nascimento;
   const maxGraus = (f)=> f==='preta'?6:4;
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Editar perfil</div>
     <div class="sheet-scroll">
-    <div class="ep-foto">
-      <div class="ep-avatar">${foto?`<img src="${safeAttr(foto)}" alt="">`:safeTxt(me.iniciais)}</div>
-      <label class="ep-foto-btn">Trocar foto<input type="file" accept="image/*" hidden id="ep-file"></label>
-    </div>
-    <label class="flbl" style="margin-top:14px">Apelido</label>
+    <label class="flbl">Apelido</label>
     <input class="inp" id="ep-apelido" value="${safeAttr(me.apelido)}">
     <label class="flbl" style="margin-top:12px">Nome completo</label>
     <input class="inp" id="ep-nome" value="${safeAttr(me.nomeCompleto)}">
@@ -3656,29 +3704,10 @@ function abrirEditarPerfil(){
     <div class="seg" id="ep-graus"></div>
     <label class="flbl" style="margin-top:12px">Data da faixa atual</label>
     <input class="inp" id="ep-data-faixa" type="date">
-    <label class="flbl" style="margin-top:12px">Meta semanal</label>
-    <div class="seg" id="ep-meta-mode"></div>
-    <div id="ep-meta-qtd"><div class="seg" id="ep-meta" style="margin-top:8px"></div></div>
-    <div id="ep-meta-dias-wrap" style="display:none">
-      <div class="seg-wrap" id="ep-dias" style="margin-top:8px"></div>
-      <div class="ep-dias-hint">Marque os dias em que você costuma treinar — a meta semanal passa a ser esse número de dias.</div>
-    </div>
     </div>
     <button class="btn-save" id="ep-save" style="margin-top:16px">Salvar</button>
     <button class="sheet-cancel" id="ep-cancel">Cancelar</button>
   </div></div>`);
-  sheet.querySelector('#ep-file').onchange=(e)=>{ const f=e.target.files[0]; if(!f)return;
-    if(f.size>31457280){ toast('Foto muito grande (máx 30 MB)'); return; }
-    const img=new Image(); const url=URL.createObjectURL(f);
-    img.onload=()=>{
-      const MAX=1024; let w=img.width, h=img.height;
-      if(w>MAX||h>MAX){ const s=MAX/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
-      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-      cv.getContext('2d').drawImage(img,0,0,w,h);
-      foto=cv.toDataURL('image/jpeg',0.85);
-      sheet.querySelector('.ep-avatar').innerHTML=`<img src="${foto}" alt="">`;
-      URL.revokeObjectURL(url);
-    }; img.src=url; };
   const _rebuildGraus=()=>{
     const gs=sheet.querySelector('#ep-graus'); gs.innerHTML='';
     const mx=maxGraus(faixa); if(graus>mx) graus=mx;
@@ -3689,33 +3718,6 @@ function abrirEditarPerfil(){
   ADULT_BELTS.forEach(b=>{ const x=el(`<button class="seg-chip ${b===faixa?'on':''}">${BELTS[b].nome}</button>`);
     x.onclick=()=>{ faixa=b; bs.querySelectorAll('.seg-chip').forEach(y=>y.classList.remove('on')); x.classList.add('on'); _rebuildGraus(); }; bs.appendChild(x); });
   _rebuildGraus();
-  let metaSem = DB.semana.meta || 4;
-  let metaMode = DB.semana.metaMode==='dias' ? 'dias' : 'qtd';
-  let metaDias = Array.isArray(DB.semana.metaDias) ? DB.semana.metaDias.slice() : [];
-  const metaWrap = sheet.querySelector('#ep-meta');
-  [2,3,4,5,6].forEach(n=>{
-    const b = el(`<button class="${n===metaSem?'active':''}">${n}x</button>`);
-    b.onclick=()=>{ metaSem=n; metaWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); };
-    metaWrap.appendChild(b);
-  });
-  // dias da semana (getDay(): 0=Dom..6=Sáb), exibidos Seg→Dom
-  const diasWrap = sheet.querySelector('#ep-dias');
-  [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']].forEach(([d,l])=>{
-    const b = el(`<button class="seg-chip ${metaDias.includes(d)?'on':''}">${l}</button>`);
-    b.onclick=()=>{ const i=metaDias.indexOf(d); if(i>=0) metaDias.splice(i,1); else metaDias.push(d); b.classList.toggle('on'); };
-    diasWrap.appendChild(b);
-  });
-  // alterna quantidade × dias específicos
-  const modeWrap = sheet.querySelector('#ep-meta-mode');
-  const qtdBox = sheet.querySelector('#ep-meta-qtd');
-  const diasBox = sheet.querySelector('#ep-meta-dias-wrap');
-  const _applyMetaMode = ()=>{ qtdBox.style.display = metaMode==='qtd'?'':'none'; diasBox.style.display = metaMode==='dias'?'':'none'; };
-  [['qtd','Por quantidade'],['dias','Dias específicos']].forEach(([m,l])=>{
-    const b = el(`<button class="${m===metaMode?'active':''}">${l}</button>`);
-    b.onclick=()=>{ metaMode=m; modeWrap.querySelectorAll('button').forEach(y=>y.classList.remove('active')); b.classList.add('active'); _applyMetaMode(); };
-    modeWrap.appendChild(b);
-  });
-  _applyMetaMode();
   const dataFaixaAtual = (DB.graduacoes||[]).find(g=>g.tipo==='faixa'&&g.faixa===me.faixa);
   const epDataFaixa = sheet.querySelector('#ep-data-faixa');
   if(dataFaixaAtual) epDataFaixa.value = dataFaixaAtual.data;
@@ -3732,13 +3734,7 @@ function abrirEditarPerfil(){
     const novaData = epDataFaixa.value || HOJE_ISO;
     const faixaMudou = faixa !== me.faixa;
     const grausMudou = graus !== me.graus;
-    me.faixa=faixa; me.graus=graus; me.foto=foto;
-    // meta semanal: dois modos — quantidade (2–6x) ou dias específicos (a meta = nº de dias)
-    if(metaMode==='dias' && metaDias.length){
-      DB.semana.metaMode='dias'; DB.semana.metaDias=metaDias.slice(); DB.semana.meta=metaDias.length;
-    } else {
-      DB.semana.metaMode='qtd'; DB.semana.metaDias=[]; DB.semana.meta=metaSem;
-    }
+    me.faixa=faixa; me.graus=graus;
     if(faixaMudou || grausMudou) me.aulasGrau = Object.assign({}, me.aulasGrau, { base:0 });
     if(faixaMudou){
       if(!DB.graduacoes.some(g=>g.tipo==='faixa'&&g.faixa===faixa))

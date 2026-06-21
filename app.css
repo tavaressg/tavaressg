@@ -55,9 +55,9 @@ html.kb-open .sheet-overlay{align-items:flex-start;padding-top:max(20px, env(saf
 /* teclado aberto: estende a área rolável do sheet (em vez de empurrar o sheet inteiro pra cima),
    deixando o campo focado rolar pra vista sem o sheet "saltar" */
 html.kb-open .sheet{padding-bottom:calc(env(safe-area-inset-bottom) + 20px + var(--kb-h, 0px));scroll-padding-bottom:var(--kb-h, 0px)}
-/* esconde as barras fixas inferiores enquanto um sheet está aberto (anti-flicker base) */
-.tabbar,.save-bar{transition:opacity .2s ease}
-html.sheet-open .tabbar,html.sheet-open .save-bar{opacity:0;pointer-events:none}
+/* trava de scroll leve quando há sheet aberto — sem body{position:fixed}, que no PWA iOS
+   criava uma "barra preta" na base e fazia o tabbar piscar ao fechar */
+html.sheet-open{overflow:hidden}
 /* toast com botão Desfazer */
 .toast-action{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 110px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 16px 11px 18px;border-radius:99px;font-size:13px;font-weight:600;z-index:250;display:flex;align-items:center;gap:14px;box-shadow:0 8px 24px rgba(0,0,0,.28);opacity:0;transition:opacity .2s,transform .2s;max-width:calc(100% - 40px)}
 .toast-action.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -635,7 +635,7 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .sheet{width:100%;max-width:430px;background:var(--card);border-radius:24px 24px 0 0;
   padding:12px 20px calc(env(safe-area-inset-bottom) + 20px);transform:translateY(100%);
   transition:transform .28s cubic-bezier(.2,.85,.25,1);
-  touch-action:pan-y;overscroll-behavior:contain;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  touch-action:pan-y;overscroll-behavior:contain;max-height:92vh;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 .sheet-overlay.open .sheet{transform:none}
 .sheet-grip{width:40px;height:5px;border-radius:99px;background:var(--line);margin:0 auto 16px}
 .sheet-title{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;text-align:center}
@@ -826,6 +826,8 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
   color:var(--ink);font-size:16px;outline:none;font-family:inherit;resize:vertical}
 .ta:focus,.inp:focus{border-color:var(--red);background:var(--card)}
 .ta{min-height:84px;line-height:1.45}
+/* input de data: impede que a largura intrínseca nativa (iOS) estoure o sheet e cause rolagem horizontal */
+.inp[type="date"]{min-width:0;max-width:100%;-webkit-appearance:none;appearance:none}
 .flbl{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px;font-weight:800}
 
 /* save bar */
