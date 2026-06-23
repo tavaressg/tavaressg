@@ -410,6 +410,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';
 const SCHEMA = 1;
+const APP_VERSION = 'v142';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 // >>> EDITAR: canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [53,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
 // DEMO já definido no topo (vitrine ?demo=1)
@@ -423,8 +424,11 @@ const TEC_PROG = ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev'
 function _hasStorage(){ try{ const k='__y'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; } }
 const STORAGE_OK = _hasStorage();
 
+// trava o auto-save durante a restauração de backup, p/ o flushSave do unload (pagehide/
+// visibilitychange) não regravar o localStorage com o DB antigo antes do reload ler o backup.
+let _restoring = false;
 function save(){
-  if(!STORAGE_OK) return;
+  if(!STORAGE_OK || _restoring) return;
   try{
     const data = { __schema:SCHEMA, onboarded:DB.onboarded, _ultimoDia:HOJE_ISO };
     USER_KEYS.forEach(k=>{ data[k]=DB[k]; });
@@ -2565,6 +2569,7 @@ function alunoPerfil(){
   const w = el('<div></div>');
   const me = DB.eu;
   w.innerHTML = `<div class="profile-head">
+    <span class="pf-version" aria-label="Versão do app">${safeTxt(APP_VERSION)}</span>
     <button class="pf-edit">Editar</button>
     <div class="pa">${me.foto?`<img src="${safeAttr(me.foto)}" alt="">`:safeTxt(me.iniciais)}</div>
     <div class="pn">${safeTxt(me.nome)}</div>
@@ -3951,11 +3956,12 @@ function abrirBackup(){
     const cClose=openSheet(conf,'#ci-no');
     conf.querySelector('#ci-ok').onclick=()=>{
       try{
+        _restoring = true; clearTimeout(_saveT); _saveT=null;   // impede flushSave de sobrescrever o backup no unload
         localStorage.setItem(STORE_KEY, JSON.stringify(dump.data));
         if(dump.theme) localStorage.setItem('yama.theme', dump.theme);
         if(dump.draft) localStorage.setItem(DRAFT_KEY, dump.draft);
         cClose(); toast('Perfil restaurado — recarregando…'); setTimeout(()=>location.reload(),600);
-      }catch(err){ toast('⚠️ Falha ao restaurar (armazenamento cheio?)'); }
+      }catch(err){ _restoring=false; toast('⚠️ Falha ao restaurar (armazenamento cheio?)'); }
     };
   };
   // valida texto → dump; retorna true se abriu o confirm
