@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "Yama Jiu-Jitsu",
+  "short_name": "Yama",
+  "description": "Seu diário de Jiu-Jitsu — do em pé ao chão.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f6",
+  "theme_color": "#f4f4f6",
+  "lang": "pt-BR",
+  "categories": ["lifestyle", "sports", "health"],
+  "display_override": ["standalone", "minimal-ui"],
+  "shortcuts": [
+    { "name": "Registrar treino", "short_name": "Registrar", "description": "Comece o registro de uma aula técnica ou livre", "url": "./?flow=registrar", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Biblioteca", "short_name": "Técnicas", "description": "Veja seu catálogo de técnicas", "url": "./?go=biblioteca", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "icons": [
+    { "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "brand/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "brand/icon-512.png", "sizes": "512x512", "type": "image/png", "form_factor": "narrow", "label": "Tela inicial do Yama" }
+  ]
+}

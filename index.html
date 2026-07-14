@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<!-- A-1 (hardening): Content-Security-Policy. Bloqueia script inline/externo não-'self'
+     (defesa em profundidade sobre o escaping manual safeTxt/safeAttr). supabase-js não usa
+     eval/Function → script-src 'self' é seguro. style-src 'unsafe-inline' é exigido pelos
+     estilos inline do app. connect/img liberam o domínio Supabase (REST + realtime + data:).
+     NOTA: frame-ancestors, HSTS e X-Content-Type-Options NÃO funcionam via <meta> — configure
+     no HOST como HTTP headers: `Strict-Transport-Security`, `X-Frame-Options: DENY`
+     (ou `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Yama">
+<meta name="theme-color" content="#f4f4f6">
+<link rel="apple-touch-startup-image" href="brand/yama-logo.png">
+<meta name="description" content="Diário de treino de Jiu-Jitsu — registre treinos, técnicas, graduação CBJJ e acompanhe seu progresso no tatame.">
+<meta property="og:title" content="Yama · Jiu-Jitsu">
+<meta property="og:description" content="Seu diário de Jiu-Jitsu — do em pé ao chão.">
+<!-- og:image: WhatsApp/Facebook exigem URL ABSOLUTA. Substituir "https://SEU_DOMINIO"
+     pelo domínio real na publicação (ex.: https://app.yamajiujitsu.com.br/brand/yama-logo.png). -->
+<meta property="og:image" content="https://SEU_DOMINIO/brand/yama-logo.png">
+<meta property="og:url" content="https://SEU_DOMINIO/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" type="image/png" sizes="192x192" href="brand/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="brand/icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Yama · Jiu-Jitsu</title>
+<link rel="stylesheet" href="fonts.css?v=1">
+<link rel="stylesheet" href="app.css?v=140">
+</head>
+<body>
+<!-- Splash screen -->
+<div id="splash">
+  <img class="sp-logo" src="brand/yama-logo.png" alt="Yama Jiu-Jitsu">
+  <div class="sp-name">Yama Jiu-Jitsu</div>
+  <div class="sp-dots"><i></i><i></i><i></i></div>
+</div>
+
+<div class="phone" id="app" role="main">
+  <div id="root"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<noscript><p style="text-align:center;padding:40px;font-family:sans-serif">Este app requer JavaScript habilitado.</p></noscript>
+<!-- Cutover Supabase: lib (vendor local, cacheada pelo SW) + adapter ANTES do app -->
+<!-- SRI (M-5): trava o conteúdo da lib de terceiros (supabase-js@2.110.0). Se o arquivo
+     vendorizado for trocado/adulterado, o browser recusa a execução. Ao re-vendorizar a lib,
+     regenere o hash com `node gen_sri.mjs` e atualize o integrity abaixo. -->
+<script src="vendor/supabase-js.min.js?v=1" integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
+<script src="supabase.js?v=22"></script>
+<script src="app.js?v=217"></script>
+</body>
+</html>

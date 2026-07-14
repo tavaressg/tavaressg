@@ -1,0 +1,13 @@
+# === Perímetro de publicação (ver confidencial/DEPLOY.md) ===
+# Nada abaixo pode ir para o host / GitHub Pages.
+confidencial/
+CLAUDE.md
+.claude/
+
+# === Lixo de SO / editor ===
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
