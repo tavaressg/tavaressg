@@ -709,7 +709,7 @@
         SB.from('checkins').select('user_id,data,hora,tipo,turma_id').eq('academy_id', acad).gte('data', d120),
         SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),
         SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct'),
-        SB.from('lesoes').select('user_id,parte,status,data'),
+        SB.from('lesoes').select('user_id,parte,status,data,nota'),
       ]);
       const out = { checkins: ck.data || [], graduacoes: grads.data || [], progresso: prog.data || [], lesoes: les.data || [] };
       _relMemo = { t: Date.now(), data: out };

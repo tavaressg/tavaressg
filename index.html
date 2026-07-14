@@ -31,7 +31,7 @@
 <link rel="manifest" href="manifest.json">
 <title>Yama · Jiu-Jitsu</title>
 <link rel="stylesheet" href="fonts.css?v=1">
-<link rel="stylesheet" href="app.css?v=140">
+<link rel="stylesheet" href="app.css?v=144">
 </head>
 <body>
 <!-- Splash screen -->
@@ -45,13 +45,14 @@
   <div id="root"></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="route-announce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 <noscript><p style="text-align:center;padding:40px;font-family:sans-serif">Este app requer JavaScript habilitado.</p></noscript>
 <!-- Cutover Supabase: lib (vendor local, cacheada pelo SW) + adapter ANTES do app -->
 <!-- SRI (M-5): trava o conteúdo da lib de terceiros (supabase-js@2.110.0). Se o arquivo
      vendorizado for trocado/adulterado, o browser recusa a execução. Ao re-vendorizar a lib,
      regenere o hash com `node gen_sri.mjs` e atualize o integrity abaixo. -->
 <script src="vendor/supabase-js.min.js?v=1" integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
-<script src="supabase.js?v=22"></script>
-<script src="app.js?v=217"></script>
+<script src="supabase.js?v=23"></script>
+<script src="app.js?v=220"></script>
 </body>
 </html>

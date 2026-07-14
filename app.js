@@ -618,7 +618,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v217';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v220';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1074,9 +1074,29 @@ function _viewKey(){
   if (DB.lojaOpen) return 'loja';
   if (DB.shareOpen) return 'share';
   if (DB.treinoAberto) return 'treino';
+  if (DB.produtoFormOpen) return 'produtoForm';
+  if (DB.cadastroAlunoOpen) return 'cadastroAluno';
   if (DB.flow) return 'flow:'+DB.flow;
   if (DB.role==='aluno') return 'al:'+DB.navAluno+':'+(DB.jogoTab||'')+':'+(DB.jornadaTab||'');
   return 'prof:'+DB.navProf;
+}
+// a11y: nome legível da tela atual, escrito na live-region #route-announce para
+// que leitores de tela avisem a navegação (a SPA troca #root sem mudar de página).
+const _ROUTE_NOMES = {
+  'al:inicio':'Início','al:tatame':'Tatame','al:jornada':'Jornada','al:perfil':'Perfil',
+  'loja':'Loja','share':'Compartilhar treino','treino':'Detalhe do treino','retro':'Retrospectiva',
+  'onb':'Boas-vindas','trocarSenha':'Trocar senha','bootstrap':'Primeiro acesso',
+  'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
+  'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
+  'prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
+  'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
+  'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
+};
+function _announceRoute(viewKey){
+  const reg = document.getElementById('route-announce'); if(!reg) return;
+  const base = viewKey.split(':').slice(0,2).join(':');   // ignora sub-abas (jogoTab/jornadaTab)
+  const nome = _ROUTE_NOMES[base] || _ROUTE_NOMES[viewKey] || null;
+  if(nome) reg.textContent = nome;
 }
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
@@ -1086,7 +1106,10 @@ function render(){
   // memoriza scrollY da view atual antes de trocar
   if (root.dataset.view && root.dataset.view !== curView && typeof _scrollMem !== 'undefined') _scrollMem[root.dataset.view] = window.scrollY;
   root.dataset.view = curView;
+  if (!sameView) _announceRoute(curView);   // a11y: leitor de tela anuncia a troca de tela (SPA)
   document.body.setAttribute('data-role', DB.role||'aluno'); // hook do shell responsivo do professor (§7)
+  // páginas cheias do professor não têm sidebar → zera o padding fantasma da .phone (desktop)
+  document.body.classList.toggle('prof-fullpage', !!(DB.produtoFormOpen || DB.cadastroAlunoOpen));
   root.classList.toggle('no-anim', sameView);
   root.innerHTML = '';
   // Login (Fase 0): só dispara quando o backend está ligado e não há sessão (authOpen).
@@ -1098,6 +1121,8 @@ function render(){
   if (DB.retroOpen){ root.appendChild(renderRetro()); return; }
   // renderPresenca removido do roteador — presença agora é parte do flow unificado
   if (DB.lojaOpen){ root.appendChild(renderLoja()); return; }
+  if (DB.produtoFormOpen){ root.appendChild(renderProdutoForm()); return; }
+  if (DB.cadastroAlunoOpen){ root.appendChild(renderCadastroAluno()); return; }
   if (DB.shareOpen){ root.appendChild(renderShare()); return; }
   if (DB.treinoAberto){ root.appendChild(renderTreinoDetalhe()); return; }
   if (DB.flow){ root.appendChild(renderFlow(DB.flow)); return; }
@@ -4211,7 +4236,7 @@ function profAlunos(){
   // Ações de cadastro num toolbar único (botões sólidos, sem tracejado de protótipo).
   const actions = el(`<div class="dt-actions"></div>`);
   const addBtn = el(`<button class="btn-cad primary">＋ Cadastrar aluno</button>`);
-  addBtn.onclick=()=>_profCadastrarSheet(refresh);
+  addBtn.onclick=()=>abrirCadastroAluno();
   actions.appendChild(addBtn);
   // Só o DONO cadastra professores (Edge Function create-professor é gated em is_dono no servidor).
   if(DB.eu && DB.eu.role==='dono'){
@@ -4439,12 +4464,20 @@ function _selfProgresso(){
   return out;
 }
 
-function _profCadastrarSheet(refresh){
+// Página CHEIA de cadastro de aluno (substitui o antigo menu suspenso/wizard em sheet).
+function abrirCadastroAluno(){ DB.cadastroAlunoOpen=true; render(); window.scrollTo(0,0); }
+function renderCadastroAluno(){
+  const refresh = ()=>{};   // voltar já re-renderiza a lista de alunos (cache invalidado antes)
   let selFaixa='branca', selGraus=0, step=0; const selTurmas=new Set();
   const STEPS=['Dados do aluno','Endereço','Responsável','Graduação'];
-  const sheet=el(`<div class="sheet-overlay cad-wide"><div class="sheet" role="dialog" style="max-height:90vh;overflow-y:auto">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Cadastrar aluno</div>
+  const v = el(`<div class="view prof-page"></div>`);
+  v.innerHTML = `<div class="flow-head">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
+    <div class="ft"><div class="t">Cadastrar aluno</div><div class="s">Ficha cadastral · Gestão</div></div>
+  </div>`;
+  const body = el(`<div class="flow-body cad-wide" style="padding:0 20px 40px"></div>`);
+  const sheet = body;   // alias: preserva as referências sheet.querySelector/addEventListener abaixo
+  body.innerHTML = `
     <div class="cad-steps" id="ca-steps"></div>
     <div class="sheet-desc">Ficha cadastral da academia. O aluno entra com senha provisória e troca no 1º acesso. Estes dados ficam só na gestão.</div>
 
@@ -4509,12 +4542,13 @@ function _profCadastrarSheet(refresh){
     <div class="cad-nav">
       <button class="sheet-cancel" id="ca-back">Cancelar</button>
       <button class="btn-save" id="ca-next">Continuar</button>
-    </div>
-  </div></div>`);
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  let _caDirty=false; sheet.addEventListener('input',()=>{ _caDirty=true; });
-  const tryClose=()=>{ if(_caDirty) _confirmDescartar(close); else close(); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) tryClose(); };
+    </div>`;
+  const back=()=>{ DB.cadastroAlunoOpen=false; render(); window.scrollTo(0,0); };
+  const close=back;   // "Cancelar" no passo 0 e os fluxos de sucesso voltam pra lista
+  let _caDirty=false; body.addEventListener('input',()=>{ _caDirty=true; });
+  const tryClose=()=>{ if(_caDirty) _confirmDescartar(back); else back(); };
+  const _bk=v.querySelector('.back');
+  _bk.onclick=tryClose; _bk.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tryClose(); } };
   // Chips de turmas (matrícula) na etapa Graduação
   _turmaChips(sheet.querySelector('#ca-turmas'), selTurmas, ()=>{ _caDirty=true; });
   // Faixa filtrada por idade (CBJJ) — campo VISUAL de mini-faixas; reconstrói ao digitar o nascimento.
@@ -4543,7 +4577,7 @@ function _profCadastrarSheet(refresh){
   const stepsEl=sheet.querySelector('#ca-steps');
   const backBtn=sheet.querySelector('#ca-back');
   const nextBtn=sheet.querySelector('#ca-next');
-  const scroller=sheet.querySelector('.sheet');
+  const scroller=null;   // página cheia: o scroll é da janela (showStep usa window.scrollTo)
   const val=id=>{ const e=sheet.querySelector('#'+id); return e?e.value.trim():''; };
   const paintSteps=()=>{ stepsEl.innerHTML=STEPS.map((s,i)=>`<span class="cad-dot ${i===step?'on':''} ${i<step?'done':''}"></span>`).join(''); };
   const showStep=(n)=>{
@@ -4552,7 +4586,7 @@ function _profCadastrarSheet(refresh){
     backBtn.textContent = step===0 ? 'Cancelar' : 'Voltar';
     nextBtn.textContent = step===STEPS.length-1 ? 'Cadastrar e gerar senha' : 'Continuar';
     paintSteps();
-    if(scroller) scroller.scrollTop=0;
+    if(scroller) scroller.scrollTop=0; else window.scrollTo(0,0);
   };
   const validateStep=()=>{
     // Decisão do dono (2026-07-10): só nome + e-mail são obrigatórios (e-mail = login da conta).
@@ -4592,8 +4626,8 @@ function _profCadastrarSheet(refresh){
         if(turmas.length && novoId && sbProf.matricular){ try{ await sbProf.matricular(novoId, turmas); }catch(_){}}
         // Data completa de nascimento (opcional): a Edge não conhece a coluna — update pós-cadastro.
         if(nascData && novoId && sbProf.atualizarAluno){ try{ await sbProf.atualizarAluno(novoId, {nascimento_data:nascData}); }catch(_){}}
-        close(); _senhaProvisoriaSheet(email, (r&&r.senha_provisoria)||senha);
-        _profData=null; _profTs=0; _loadProfData(); refresh(); return; }   // M4: invalida o cache p/ o novo aluno aparecer
+        _profData=null; _profTs=0; _loadProfData();   // M4: invalida o cache ANTES de voltar p/ o novo aluno aparecer
+        back(); _senhaProvisoriaSheet(email, (r&&r.senha_provisoria)||senha); return; }
       catch(e){ toast('Erro ao cadastrar: '+(e.message||e)); return; }
     }
     // offline (mock): adiciona à lista com a ficha cadastral (vista no detalhe do aluno)
@@ -4609,8 +4643,8 @@ function _profCadastrarSheet(refresh){
     close(); _senhaProvisoriaSheet(email, senha); refresh();
   };
   showStep(0);
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
+  v.appendChild(body);
+  return v;
 }
 
 /* Cadastro de PROFESSOR (Fase B parte 3) — só o DONO vê o botão; a Edge Function
@@ -5440,7 +5474,7 @@ function _lesoesComAluno(){
   if(!_relData) return [];
   const alunos=_profAlunosArr();
   const byId={}; alunos.forEach(a=>{ byId[a.id]=a; if(a._self) byId['self']=a; });
-  return (_relData.lesoes||[]).map(l=>({ parte:l.parte, status:l.status, data:l.data, aluno:byId[l.user_id]||null }));
+  return (_relData.lesoes||[]).map(l=>({ parte:l.parte, status:l.status, data:l.data, nota:l.nota||'', aluno:byId[l.user_id]||null }));
 }
 
 /* Drill-down da distribuição de faixas: lista os alunos daquela faixa */
@@ -5567,7 +5601,8 @@ function _relDetLesoes(w, secTitle, note){
     const ativa=x.status==='recuperando';
     const row=el(`<div class="st-row" style="cursor:pointer">${avatarAluno(x.aluno)}
       <div class="st-mid"><div class="nm">${safeTxt(x.aluno?.nm||'Aluno')}</div>
-        <div class="meta"><span class="status-chip ${ativa?'red':'green'}">${ativa?safeTxt(x.parte):'recuperado'}</span> <span style="font-size:11px;color:var(--muted)">${ativa?'':safeTxt(x.parte)+' · '}${safeTxt(x.data||'')}</span></div></div>
+        <div class="meta"><span class="status-chip ${ativa?'red':'green'}">${ativa?safeTxt(x.parte):'recuperado'}</span> <span style="font-size:11px;color:var(--muted)">${ativa?'':safeTxt(x.parte)+' · '}${safeTxt(x.data||'')}</span></div>
+        ${x.nota?`<div class="les-nota">🩹 ${safeTxt(x.nota)}</div>`:''}</div>
       <div class="st-right"><span style="color:var(--muted)">›</span></div></div>`);
     if(x.aluno) row.onclick=()=>_profAlunoSheet(x.aluno);
     mw.appendChild(row);
@@ -6086,7 +6121,7 @@ function profLoja(){
   pedBtn.onclick=()=>goProf('pedidos');
   w.appendChild(pedBtn);
   const addBtn = el(`<div class="dt-add-wrap"><button class="btn-cad">＋ Novo produto</button></div>`);
-  addBtn.querySelector('button').onclick=()=>_profProdutoSheet(null);
+  addBtn.querySelector('button').onclick=()=>abrirProdutoForm(null);
   w.appendChild(addBtn);
   const list = el('<div class="list"></div>');
   prods.forEach(p=>{
@@ -6100,7 +6135,7 @@ function profLoja(){
       <div class="st-right" style="color:var(--muted);font-size:18px">›</div>
     </div>`);
     _mountProdImg(row.querySelector('.prod-mini'), p);   // nó cacheado → sem flash no re-render
-    row.onclick=()=>_profProdutoSheet(p);
+    row.onclick=()=>abrirProdutoForm(p);
     list.appendChild(row);
   });
   w.appendChild(list);
@@ -6110,7 +6145,10 @@ function profLoja(){
 
 // Tamanhos padrão por categoria — kimono usa medidas próprias (A0–A4 adulto, M0–M4 infantil)
 const CAT_TAMANHOS = { 'Kimonos':['A0','A1','A2','A3','A4'], 'Vestuário':['P','M','G','GG'], 'Acessórios':['Único'] };
-function _profProdutoSheet(p){
+// Abre a PÁGINA CHEIA de produto (novo ou edição). Substitui o antigo sheet suspenso.
+function abrirProdutoForm(p){ DB._produtoEdit = p || null; DB.produtoFormOpen = true; render(); window.scrollTo(0,0); }
+function renderProdutoForm(){
+  const p = DB._produtoEdit;
   const novo = !p;
   const cats = ['Kimonos','Vestuário','Acessórios'];
   let selCat = p ? p.cat : 'Kimonos';
@@ -6119,9 +6157,18 @@ function _profProdutoSheet(p){
   let sizesCustom = !novo;   // produto existente: nunca trocar os tamanhos ao mudar categoria
   let dirty = false;
   const est = {}; sizes.forEach(t=> est[t] = p ? (p.estoque?.[t] ?? 0) : 10);
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" style="max-height:88vh;overflow-y:auto">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">${novo?'Novo produto':safeTxt(p.nome)}</div>
+  const back=()=>{ DB.produtoFormOpen=false; DB._produtoEdit=null; render(); window.scrollTo(0,0); };
+  const tryBack=()=>{ dirty ? _confirmDescartar(back) : back(); };
+  const v = el(`<div class="view prof-page"></div>`);
+  v.innerHTML = `<div class="flow-head">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
+    <div class="ft"><div class="t">${novo?'Novo produto':'Editar produto'}</div>
+      <div class="s">Loja · Gestão</div></div>
+  </div>`;
+  const bk=v.querySelector('.back');
+  bk.onclick=tryBack; bk.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tryBack(); } };
+  const body = el(`<div class="flow-body" style="padding:0 20px 120px"></div>`);
+  body.innerHTML = `
     <label class="flbl">Nome</label>
     <input class="inp" id="pr-nome" value="${novo?'':safeAttr(p.nome)}" placeholder="Ex: Kimono Yama">
     <label class="flbl" style="margin-top:12px">Preço (R$)</label>
@@ -6134,11 +6181,8 @@ function _profProdutoSheet(p){
     <div id="pr-est"></div>
     <div class="est-add"><input class="inp" id="pr-newtam" placeholder="Novo tamanho (ex: A2, M3, Única)" maxlength="8"><button id="pr-addtam" aria-label="Adicionar tamanho">＋</button></div>
     <div class="cfg-row" id="pr-vis" style="margin-top:10px"><span>${ativo?'👁️ Visível na loja':'🚫 Oculto da loja'}</span></div>
-    <button class="btn-save" id="pr-save" style="margin-top:14px">${novo?'Criar produto':'Salvar'}</button>
-    ${novo?'':'<button class="cfg-row danger" id="pr-del" style="justify-content:center;margin-top:8px;font-weight:700"><span>🗑️ Excluir produto</span></button>'}
-    <button class="sheet-cancel" id="pr-cancel">Cancelar</button>
-  </div></div>`);
-  const estWrap=sheet.querySelector('#pr-est');
+    ${novo?'':'<button class="cfg-row danger" id="pr-del" style="justify-content:center;margin-top:14px;font-weight:700"><span>🗑️ Excluir produto</span></button>'}`;
+  const estWrap=body.querySelector('#pr-est');
   const paintEst=()=>{
     estWrap.innerHTML='';
     if(!sizes.length){ estWrap.appendChild(el('<div class="empty-line" style="padding:8px 2px;font-size:12px;color:var(--muted)">Sem tamanhos — adicione abaixo.</div>')); return; }
@@ -6154,30 +6198,27 @@ function _profProdutoSheet(p){
     });
   };
   paintEst();
-  sheet.querySelector('#pr-addtam').onclick=()=>{
-    const inp=sheet.querySelector('#pr-newtam'); const t=(inp.value||'').trim().toUpperCase();
+  body.querySelector('#pr-addtam').onclick=()=>{
+    const inp=body.querySelector('#pr-newtam'); const t=(inp.value||'').trim().toUpperCase();
     if(!t){ toast('Digite o tamanho'); return; }
     if(sizes.includes(t)){ toast('Tamanho já existe'); return; }
     dirty=true; sizesCustom=true; sizes.push(t); est[t]=10; inp.value=''; paintEst();
   };
-  const segC=sheet.querySelector('#pr-cat');
+  const segC=body.querySelector('#pr-cat');
   cats.forEach(c=>{ const b=el(`<button class="${c===selCat?'active':''}">${c}</button>`);
     b.onclick=()=>{ dirty=true; selCat=c; segC.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
       // produto novo sem tamanhos mexidos: troca para os tamanhos padrão da categoria
       if(novo && !sizesCustom){ sizes=(CAT_TAMANHOS[c]||['Único']).slice(); Object.keys(est).forEach(k=>delete est[k]); sizes.forEach(t=>est[t]=10); paintEst(); }
     }; segC.appendChild(b); });
-  const visRow=sheet.querySelector('#pr-vis');
+  const visRow=body.querySelector('#pr-vis');
   visRow.onclick=()=>{ dirty=true; ativo=!ativo; visRow.querySelector('span').textContent = ativo?'👁️ Visível na loja':'🚫 Oculto da loja'; };
-  sheet.addEventListener('input', ()=>{ dirty=true; });
-  const delRow=sheet.querySelector('#pr-del');
-  if(delRow) delRow.onclick=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); _profExcluirProdutoSheet(p, ()=>{ dirty=false; close(); render(); }); };
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet){ dirty?_confirmDescartar(close):close(); } };
-  sheet.querySelector('#pr-cancel').onclick=close;
-  sheet.querySelector('#pr-save').onclick=()=>{
-    const nome=sheet.querySelector('#pr-nome').value.trim();
-    const preco=parseFloat(sheet.querySelector('#pr-preco').value)||0;
-    const emoji=sheet.querySelector('#pr-emoji').value.trim()||'🥋';
+  body.addEventListener('input', ()=>{ dirty=true; });
+  const delRow=body.querySelector('#pr-del');
+  if(delRow) delRow.onclick=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); _profExcluirProdutoSheet(p, ()=>{ dirty=false; back(); }); };
+  const salvar=()=>{
+    const nome=body.querySelector('#pr-nome').value.trim();
+    const preco=parseFloat(body.querySelector('#pr-preco').value)||0;
+    const emoji=body.querySelector('#pr-emoji').value.trim()||'🥋';
     if(!nome){ toast('Informe o nome do produto'); return; }
     if(!sizes.length){ toast('Adicione pelo menos um tamanho'); return; }
     let alvo;
@@ -6197,11 +6238,14 @@ function _profProdutoSheet(p){
         if(realId && typeof realId==='string' && realId.length>=32){ alvo.id = realId; save(); }
       }).catch(e=>toast('Erro ao salvar produto: '+(e.message||e)));
     }
-    close(); render();
+    dirty=false; back();
     toast(novo?'Produto criado ✔':'Produto salvo ✔');
   };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
+  v.appendChild(body);
+  const saveBar=el(`<div class="save-bar"><button class="btn-save" id="pr-save">${novo?'Criar produto':'Salvar'}</button></div>`);
+  saveBar.querySelector('#pr-save').onclick=salvar;
+  v.appendChild(saveBar);
+  return v;
 }
 
 // Exclusão de produto (gestão). Backend: sbProf.deletarProduto (cascade apaga variantes/movimentos).
@@ -8137,7 +8181,7 @@ function _openActionSheet(title, actions){
 // Toast com botão Desfazer — promessa: chame undo() em até 5s
 function toastUndo(msg, onUndo){
   document.querySelectorAll('.toast-action').forEach(n=>n.remove());
-  const t = el(`<div class="toast-action"><span>${msg}</span><button class="ta-undo">Desfazer</button></div>`);
+  const t = el(`<div class="toast-action" role="status" aria-live="polite" aria-atomic="true"><span>${msg}</span><button class="ta-undo">Desfazer</button></div>`);
   document.body.appendChild(t);
   requestAnimationFrame(()=>t.classList.add('show'));
   let done = false;
