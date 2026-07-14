@@ -618,7 +618,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v220';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v221';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -6167,7 +6167,7 @@ function renderProdutoForm(){
   </div>`;
   const bk=v.querySelector('.back');
   bk.onclick=tryBack; bk.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tryBack(); } };
-  const body = el(`<div class="flow-body" style="padding:0 20px 120px"></div>`);
+  const body = el(`<div class="flow-body" style="padding:0 20px 40px"></div>`);
   body.innerHTML = `
     <label class="flbl">Nome</label>
     <input class="inp" id="pr-nome" value="${novo?'':safeAttr(p.nome)}" placeholder="Ex: Kimono Yama">
@@ -6180,8 +6180,7 @@ function renderProdutoForm(){
     <label class="flbl" style="margin-top:12px">Estoque por tamanho</label>
     <div id="pr-est"></div>
     <div class="est-add"><input class="inp" id="pr-newtam" placeholder="Novo tamanho (ex: A2, M3, Única)" maxlength="8"><button id="pr-addtam" aria-label="Adicionar tamanho">＋</button></div>
-    <div class="cfg-row" id="pr-vis" style="margin-top:10px"><span>${ativo?'👁️ Visível na loja':'🚫 Oculto da loja'}</span></div>
-    ${novo?'':'<button class="cfg-row danger" id="pr-del" style="justify-content:center;margin-top:14px;font-weight:700"><span>🗑️ Excluir produto</span></button>'}`;
+    <div class="cfg-row" id="pr-vis" style="margin-top:10px"><span>${ativo?'👁️ Visível na loja':'🚫 Oculto da loja'}</span></div>`;
   const estWrap=body.querySelector('#pr-est');
   const paintEst=()=>{
     estWrap.innerHTML='';
@@ -6213,8 +6212,6 @@ function renderProdutoForm(){
   const visRow=body.querySelector('#pr-vis');
   visRow.onclick=()=>{ dirty=true; ativo=!ativo; visRow.querySelector('span').textContent = ativo?'👁️ Visível na loja':'🚫 Oculto da loja'; };
   body.addEventListener('input', ()=>{ dirty=true; });
-  const delRow=body.querySelector('#pr-del');
-  if(delRow) delRow.onclick=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); _profExcluirProdutoSheet(p, ()=>{ dirty=false; back(); }); };
   const salvar=()=>{
     const nome=body.querySelector('#pr-nome').value.trim();
     const preco=parseFloat(body.querySelector('#pr-preco').value)||0;
@@ -6241,10 +6238,17 @@ function renderProdutoForm(){
     dirty=false; back();
     toast(novo?'Produto criado ✔':'Produto salvo ✔');
   };
+  // Botões inline no fim do formulário (mesmo padrão da página de cadastro de aluno):
+  // integrado ao fluxo, sem a barra branca flutuante da save-bar. Salvar antes de Excluir.
+  const saveBtn=el(`<button class="btn-save" id="pr-save" style="margin-top:18px">${novo?'Criar produto':'Salvar'}</button>`);
+  saveBtn.onclick=salvar;
+  body.appendChild(saveBtn);
+  if(!novo){
+    const delRow=el(`<button class="cfg-row danger" id="pr-del" style="justify-content:center;margin-top:10px;font-weight:700"><span>🗑️ Excluir produto</span></button>`);
+    delRow.onclick=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); _profExcluirProdutoSheet(p, ()=>{ dirty=false; back(); }); };
+    body.appendChild(delRow);
+  }
   v.appendChild(body);
-  const saveBar=el(`<div class="save-bar"><button class="btn-save" id="pr-save">${novo?'Criar produto':'Salvar'}</button></div>`);
-  saveBar.querySelector('#pr-save').onclick=salvar;
-  v.appendChild(saveBar);
   return v;
 }
 
