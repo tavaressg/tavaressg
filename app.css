@@ -784,15 +784,6 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 }
 .tb-btn:active{background:var(--hover)}
 
-/* ---------- Role switch ---------- */
-.role-seg{display:flex;background:var(--field);border-radius:11px;padding:3px;margin:0 20px 14px}
-.role-seg button{
-  flex:1;border:none;background:none;padding:8px 6px;font-size:12.5px;font-weight:800;
-  color:var(--muted);cursor:pointer;border-radius:8px;display:flex;align-items:center;
-  justify-content:center;gap:6px;transition:all .15s;
-}
-.role-seg button.active{background:var(--card);color:var(--red-strong);box-shadow:var(--shadow)}
-
 /* ---------- Saudação ---------- */
 .hello{padding:2px 20px 16px}
 .hello .greet{font-size:13px;color:var(--muted);font-weight:600}
@@ -1462,12 +1453,10 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .sheet-overlay.cad-wide .sheet{max-width:640px}
 }
 @media (min-width:768px){
-  /* páginas cheias do professor (novo produto / cadastro de aluno) não têm a sidebar:
-     centra o conteúdo e neutraliza o deslocamento left:208px da save-bar da gestão. */
-  body[data-role="professor"] .prof-page{max-width:680px;margin:0 auto;padding-left:0}
-  body[data-role="professor"] .prof-page .save-bar{left:50%;right:auto;transform:translateX(-50%);width:100%;max-width:680px}
-  /* sem sidebar nessas páginas: remove o padding-left da .phone p/ form e save-bar centrarem no mesmo eixo */
-  body.prof-fullpage[data-role="professor"] .phone{padding-left:0}
+  /* páginas cheias do professor (novo produto / cadastro de aluno) MANTÊM a sidebar:
+     conteúdo centrado dentro da área útil (à direita da sidebar); save-bar herda o
+     deslocamento left:208px/232px da gestão. */
+  body[data-role="professor"] .prof-page{max-width:680px;margin:0 auto}
 }
 @media (min-width:1024px){
   body[data-role="professor"] .phone{padding-left:232px}

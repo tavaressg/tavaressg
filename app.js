@@ -46,8 +46,6 @@ document.addEventListener('error', (e)=>{
 // data-click="nome" + delegação global (script-src 'self' proíbe handler inline).
 // Registro lazy (arrows resolvem os nomes no clique — funções globais definidas adiante).
 const _CLICK_ACTIONS = {
-  setRoleAluno: ()=>setRole('aluno'),
-  setRoleProf:  ()=>setRole('professor'),
   verHistorico: ()=>{ DB.jornadaTab='historico'; goAluno('jornada'); },
   verAlunos:    ()=>goProf('alunos'),
   fecharRetro:  ()=>fecharRetro(),
@@ -562,7 +560,6 @@ const DB = {
   onboarded: true,       // false força a tela de boas-vindas (1ª vez)
   sbUser:    null,       // { id, email } do usuário Supabase autenticado
   authOpen:  false,      // true → mostra tela de login (self-signup desabilitado — A4)
-  bootstrapOpen: false,  // true → wizard de 1º acesso do dono (auth.users sem public.profiles ainda)
 };
 window.DB = DB;   // expõe p/ o adapter (supabase.js lê global.DB; `const` não cria propriedade em window)
 
@@ -618,7 +615,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v221';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v229';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1067,7 +1064,6 @@ function rsAddFoco(){
    ROTEADOR
    ============================================================ */
 function _viewKey(){
-  if (DB.bootstrapOpen) return 'bootstrap';
   if (DB.trocarSenhaOpen) return 'trocarSenha';
   if (DB.onboardingOpen) return 'onb';
   if (DB.retroOpen) return 'retro';
@@ -1109,20 +1105,19 @@ function render(){
   if (!sameView) _announceRoute(curView);   // a11y: leitor de tela anuncia a troca de tela (SPA)
   document.body.setAttribute('data-role', DB.role||'aluno'); // hook do shell responsivo do professor (§7)
   // páginas cheias do professor não têm sidebar → zera o padding fantasma da .phone (desktop)
-  document.body.classList.toggle('prof-fullpage', !!(DB.produtoFormOpen || DB.cadastroAlunoOpen));
   root.classList.toggle('no-anim', sameView);
   root.innerHTML = '';
   // Login (Fase 0): só dispara quando o backend está ligado e não há sessão (authOpen).
   // Offline authOpen é sempre false → inerte. Sem este branch a tela de login nunca aparecia no cutover.
   if (DB.authOpen){ root.appendChild(renderAuth()); return; }
-  if (DB.bootstrapOpen){ root.appendChild(renderBootstrapAcademia()); return; }
   if (DB.trocarSenhaOpen){ root.appendChild(renderTrocarSenha()); return; }
   if (DB.onboardingOpen){ root.appendChild(renderOnboarding()); return; }
   if (DB.retroOpen){ root.appendChild(renderRetro()); return; }
   // renderPresenca removido do roteador — presença agora é parte do flow unificado
   if (DB.lojaOpen){ root.appendChild(renderLoja()); return; }
-  if (DB.produtoFormOpen){ root.appendChild(renderProdutoForm()); return; }
-  if (DB.cadastroAlunoOpen){ root.appendChild(renderCadastroAluno()); return; }
+  // Páginas cheias do professor: mantém a sidebar (tabbarProf vira sidebar no desktop via MQ).
+  if (DB.produtoFormOpen){ root.appendChild(renderProdutoForm()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
+  if (DB.cadastroAlunoOpen){ root.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
   if (DB.shareOpen){ root.appendChild(renderShare()); return; }
   if (DB.treinoAberto){ root.appendChild(renderTreinoDetalhe()); return; }
   if (DB.flow){ root.appendChild(renderFlow(DB.flow)); return; }
@@ -1136,12 +1131,6 @@ function topbar(sub){
     <div class="academy"><img src="brand/logo.png?v=2" data-fallback="logo" alt="${DB.academia.nome}"></div>
     <div class="tb-info"><div class="nm">${DB.academia.nome}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
     ${DB.sbUser?`<span id="sync-dot" class="sync-dot sync-ok" title="Sincronizado com a nuvem"></span>`:''}
-  </div>`;
-}
-function roleSeg(){
-  return `<div class="role-seg">
-    <button class="${DB.role==='aluno'?'active':''}" data-click="setRoleAluno">👤 Aluno</button>
-    <button class="${DB.role==='professor'?'active':''}" data-click="setRoleProf">🥋 Professor</button>
   </div>`;
 }
 
@@ -3077,13 +3066,17 @@ function alunoPerfil(){
     w.appendChild(lojaWrap);
   }
 
-  // Modo professor: só aparece para quem tem o papel (DB.eu.isProfessor — vem do backend; ?visaocompleta só em dev/demo, sem backend configurado)
+  // Alternar modo (só p/ quem tem o papel — DB.eu.isProfessor vem do backend;
+  // ?visaocompleta só em dev/demo, sem backend configurado). Ponto único de troca:
+  // o segment "Aluno/Professor" do topo saiu (v229).
   if(me.isProfessor){
-    const profRow = el(`<div class="pro-entry" role="button" tabindex="0" aria-label="Entrar no modo professor"><div class="pe-ic">🥋</div>
-      <div class="pe-tx"><div class="pe-t">Gerir academia</div><div class="pe-s">Modo professor — alunos, presenças, loja</div></div>
+    const goAluno = DB.role === 'professor';
+    const alvo = goAluno ? 'aluno' : 'professor';
+    const profRow = el(`<div class="pro-entry" role="button" tabindex="0" aria-label="${goAluno?'Entrar no modo aluno':'Entrar no modo professor'}"><div class="pe-ic">${goAluno?'👤':'🥋'}</div>
+      <div class="pe-tx"><div class="pe-t">${goAluno?'Modo aluno':'Gerir academia'}</div><div class="pe-s">${goAluno?'Voltar para o diário — treinos, jornada, revisão':'Modo professor — alunos, presenças, loja'}</div></div>
       <div class="pe-go">›</div></div>`);
-    profRow.onclick = ()=> setRole('professor');
-    profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole('professor'); } };
+    profRow.onclick = ()=> setRole(alvo);
+    profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole(alvo); } };
     w.appendChild(profRow);
   }
 
@@ -3878,60 +3871,6 @@ function renderTrocarSenha(){
   return v;
 }
 
-/* Wizard de 1º acesso do DONO (redesign gestão): dispara quando o login existe no
-   Auth mas ainda não tem public.profiles — só acontece com a conta criada direto no
-   painel Supabase, antes de rodar bootstrap_academia. RPC é gated (zero-academias +
-   caller-sem-profile), então só funciona uma vez. */
-function renderBootstrapAcademia(){
-  const v = el('<div class="view auth-view"></div>');
-  v.appendChild(el('<div class="auth-safe"></div>'));
-  v.appendChild(el(`<div class="auth-hero">
-    <img class="auth-logo" src="brand/logo.png?v=2" data-fallback="logo" alt="">
-    <div class="auth-title">Bem-vindo(a) 🥋</div>
-    <div class="auth-sub">Primeiro acesso — vamos criar a sua academia.</div>
-  </div>`));
-  const form = el('<div class="auth-form"></div>');
-  form.appendChild(el('<label class="flbl">Nome da academia</label>'));
-  const nome = el(`<input class="inp" id="bs-nome" placeholder="Ex.: Yama Jiu-Jitsu" autocomplete="off">`);
-  form.appendChild(nome);
-  form.appendChild(el('<label class="flbl" style="margin-top:12px">Kanji / símbolo (opcional)</label>'));
-  const kanji = el(`<input class="inp" id="bs-kanji" placeholder="山" autocomplete="off" style="margin-top:6px">`);
-  form.appendChild(kanji);
-  form.appendChild(el('<label class="flbl" style="margin-top:12px">Artes praticadas (opcional)</label>'));
-  const artes = el(`<input class="inp" id="bs-artes" placeholder="Ex.: Judô Kodokan · Jiu-Jitsu" autocomplete="off" style="margin-top:6px">`);
-  form.appendChild(artes);
-  form.appendChild(el('<label class="flbl" style="margin-top:12px">Como te chamam no tatame</label>'));
-  const apelido = el(`<input class="inp" id="bs-apelido" placeholder="Seu apelido" autocomplete="off" style="margin-top:6px">`);
-  form.appendChild(apelido);
-  const btn = el('<button class="btn-register auth-btn">Criar academia</button>');
-  btn.onclick = async ()=>{
-    const nm = nome.value.trim();
-    if(!nm){ toast('Digite o nome da academia'); return; }
-    btn.disabled = true; btn.textContent = 'Criando…';
-    try{
-      if(typeof sbProf === 'undefined' || !sbProf.bootstrapAcademia) throw new Error('adapter indisponível');
-      const ap = apelido.value.trim();
-      await sbProf.bootstrapAcademia(nm, kanji.value.trim(), artes.value.trim(), ap);
-      DB.bootstrapOpen = false;
-      DB.onboarded = true;    // dono não passa pelo onboarding de aluno (LGPD/consentimento)
-      DB.role = 'professor';  // dono opera a partir da visão de gestão
-      // reflete de imediato (substitui o seed) — o pullAll a seguir reconfirma do servidor
-      DB.academia = Object.assign({}, DB.academia, { nome:nm, kanji:kanji.value.trim()||DB.academia.kanji, artes:artes.value.trim()||DB.academia.artes });
-      if(ap){ DB.professor = Object.assign({}, DB.professor, { nome:ap }); DB.eu.apelido = ap; }
-      try{ await sbSync.pullAll(DB.sbUser.id); }catch(e){}   // refaz o overlay com o profile recém-criado
-      render(); toast('Academia criada ✔');
-    }catch(err){
-      btn.disabled = false; btn.textContent = 'Criar academia';
-      const msg = (err && err.message) || String(err);
-      toast(/academia_ja_existe|profile_ja_existe/.test(msg) ? 'Essa conta já tem academia — recarregue a página' : 'Erro: '+msg);
-    }
-  };
-  form.appendChild(btn);
-  form.appendChild(el('<div class="auth-note">🏠 Você é o dono desta conta — vai poder cadastrar professores e alunos depois, no menu de gestão.</div>'));
-  v.appendChild(form);
-  return v;
-}
-
 /* ============================================================
    PROFESSOR — cache de dados Supabase
    ============================================================ */
@@ -4060,7 +3999,7 @@ function _loadProfData(){
 function renderProfessor(){
   _loadProfData();
   const v = el(`<div class="view"></div>`);
-  v.innerHTML = topbar('Painel do professor') + roleSeg();
+  v.innerHTML = topbar('Painel do professor');
   const body = el('<div></div>');
   // Ficha do aluno em tela cheia tem precedência sobre as abas (voltar limpa DB.alunoAberto).
   if (DB.alunoAberto){ body.appendChild(profAlunoDetalhe(DB.alunoAberto)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
@@ -4103,6 +4042,7 @@ function profPainel(){
     const _aptos=_aptosGraduar().length, _risco=_emRisco().length, _baixos=_produtosBaixos();
     const _pend=_pedidosPendentesN();
     const alerts=[];
+    if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
     if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
     if(_aptos>0) alerts.push(['🥋', `${_aptos} apto${_aptos>1?'s':''} a graduar`, 'Ver relatórios ›', ()=>goProf('relatorios'), 'good']);
     if(_risco>0) alerts.push(['⚠️', `${_risco} em risco de evasão`, 'Ver relatórios ›', ()=>goProf('relatorios'), 'gold']);
@@ -4141,10 +4081,74 @@ function profPainel(){
       <div class="mt-row"><span>Alunos com treino</span><b>${kpis.ativos}</b></div>
       <div class="mt-row"><span>Total de treinos</span><b>${kpis.treinosTotal}</b></div>
       <div class="mt-row"><span>Stories compartilhados</span><b>${kpis.shares}</b></div>
-      <div class="mt-row"><span>Erros capturados</span><b>${kpis.erros}</b></div>
+      <div class="mt-row"><span>Erros de app (24h)</span><b>${kpis.erros}</b></div>
     </div>`));
   }
+
+  // Trilha administrativa (0008): quem fez o quê na gestão
+  if(d){
+    const aud = el(`<div class="list block"><div class="mt-row" role="button" tabindex="0" aria-label="Atividade da gestão" style="cursor:pointer"><span>📜 Atividade da gestão</span><b style="color:var(--muted)">›</b></div></div>`);
+    const row = aud.querySelector('.mt-row');
+    row.onclick = ()=>_profAuditSheet();
+    row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _profAuditSheet(); } };
+    w.appendChild(aud);
+  }
   return w;
+}
+
+// Trilha administrativa (admin_audit, 0008): quem fez o quê na gestão — sheet
+// aberto pela linha "📜 Atividade da gestão" do painel. Sem backend/demo: vazio.
+function _profAuditSheet(){
+  const L = { ficha_update:'editou a ficha de', aluno_create:'cadastrou', aluno_delete:'excluiu',
+              professor_create:'criou o professor', professor_promote:'promoveu a professor',
+              mensalidade_set:'marcou mensalidade de', presenca_remove:'removeu presença de' };
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Atividade da gestão" style="max-height:85vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">📜 Atividade da gestão</div>
+    <div class="list" id="aud-list"><div class="loading-center">Carregando…</div></div>
+    <button class="sheet-cancel" id="aud-close">Fechar</button>
+  </div></div>`);
+  openSheet(sheet, '#aud-close');
+  const list = sheet.querySelector('#aud-list');
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.getAuditoria){ list.innerHTML='<div class="empty-line">Sem registros (modo demo).</div>'; return; }
+  sbProf.getAuditoria().then(rows=>{
+    if(!rows.length){ list.innerHTML='<div class="empty-line">Nenhuma ação administrativa registrada ainda.</div>'; return; }
+    list.innerHTML = rows.map(r=>{
+      const q = new Date(r.criado_em);
+      const quando = `${String(q.getDate()).padStart(2,'0')} ${meses[q.getMonth()]} · ${String(q.getHours()).padStart(2,'0')}:${String(q.getMinutes()).padStart(2,'0')}`;
+      const d = r.detail || {};
+      const extra = d.campos ? d.campos.join(', ')
+                  : d.mes   ? `${d.mes}: ${d.de ? d.de+' → ' : ''}${d.para}`
+                  : d.data  ? d.data : (d.email || '');
+      return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;gap:2px">
+        <b style="font-size:12.5px;word-break:break-word">${safeTxt(r.actor_nome||'—')} ${safeTxt(L[r.action]||r.action)} ${safeTxt(r.alvo_nome||'')}</b>
+        <span style="font-size:11px;color:var(--muted)">${quando}${extra?' · '+safeTxt(String(extra)):''}</span></div>`;
+    }).join('');
+  }).catch(()=>{ list.innerHTML='<div class="empty-line">Falha ao carregar a trilha.</div>'; });
+}
+
+// Observabilidade: sheet com os erros de app das últimas 24h (client_errors) —
+// aberto pelo alerta "🐞 erros de app" do painel. Sem backend/demo: estado vazio.
+function _profErrosSheet(){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Erros de app" style="max-height:85vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🐞 Erros de app (24h)</div>
+    <div class="list" id="err-list"><div class="loading-center">Carregando…</div></div>
+    <button class="sheet-cancel" id="err-close">Fechar</button>
+  </div></div>`);
+  openSheet(sheet, '#err-close');
+  const list = sheet.querySelector('#err-list');
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.getErros){ list.innerHTML='<div class="empty-line">Sem erros registrados (modo demo).</div>'; return; }
+  sbProf.getErros().then(rows=>{
+    if(!rows.length){ list.innerHTML='<div class="empty-line">Nenhum erro nas últimas 24h. 👌</div>'; return; }
+    list.innerHTML = rows.map(r=>{
+      const q = new Date(r.criado_em);
+      const quando = `${String(q.getDate()).padStart(2,'0')} ${meses[q.getMonth()]} · ${String(q.getHours()).padStart(2,'0')}:${String(q.getMinutes()).padStart(2,'0')}`;
+      return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;gap:2px">
+        <b style="font-size:12.5px;word-break:break-word">${safeTxt(r.msg||'—')}</b>
+        <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · v'+safeTxt(r.app_version):''}</span></div>`;
+    }).join('');
+  }).catch(()=>{ list.innerHTML='<div class="empty-line">Falha ao carregar os erros.</div>'; });
 }
 
 /* DataTable de alunos: busca + filtros + seleção múltipla + ações em lote (§7).
@@ -6934,8 +6938,9 @@ function editarFotoPerfil(){
         cv.toBlob(async blob=>{
           if(!blob){ _finishBase64(); return; }
           try{
-            const publicUrl = await sbSync.uploadFoto(blob);
-            if(publicUrl){ DB.eu.foto = publicUrl + '?t=' + Date.now(); close(); scheduleSave(); render(); toast('Foto atualizada ✔'); return; }
+            // 0007: signed URL (única por assinatura — cache-bust natural; ?t= extra QUEBRARIA o token)
+            const url = await sbSync.uploadFoto(blob);
+            if(url){ DB.eu.foto = url; close(); scheduleSave(); render(); toast('Foto atualizada ✔'); return; }
             _finishBase64();
           }catch(_){ _finishBase64(); }
         }, 'image/jpeg', 0.85);
@@ -7953,16 +7958,21 @@ async function _cloudLogin(user){
     let overlay = { hasProfile: true };
     try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}   // overlay objetivo (perfil/graduação/checkin)
     if (!overlay.hasProfile){
-      // auth.users existe mas public.profiles não — só acontece com o login do
-      // dono criado direto no painel, antes do bootstrap_academia. Sem academia
-      // nenhuma outra tela faz sentido (RLS bloquearia tudo mesmo).
-      DB.bootstrapOpen = true; DB.trocarSenhaOpen = false; DB.onboardingOpen = false;
-      track('app_open'); render();
-      return;
+      // Single-tenant Yama: bootstrap automático (sem wizard). Só dispara com o
+      // login do dono criado direto no painel, antes da 1ª rodada de bootstrap_academia.
+      // A RPC é gated (zero academias + caller sem profile) — chamada extra levanta
+      // 'academia_ja_existe' e é ignorada; o pullAll a seguir reconfirma o profile.
+      try{ await sbProf.bootstrapAcademia('Yama Jiu-Jitsu', '山', 'Judô Kodokan · Kosen · Jiu-Jitsu', null); }catch(_){}
+      try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}
     }
     let mustChange = false;
     try{ mustChange = !!(sbAuth.mustChangePassword && await sbAuth.mustChangePassword()); }catch(e){}
     if (mustChange){ DB.trocarSenhaOpen = true; DB.onboardingOpen = false; }
+    else if (DB.eu.role === 'dono' || DB.eu.role === 'professor'){
+      // Onboarding é do ALUNO (consentimento LGPD do praticante). Dono/professor
+      // pulam sempre — mesmo que apelido esteja vazio (editam depois no Perfil).
+      DB.onboarded = true; scheduleSave();
+    }
     else if (!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen = true;
     try{ if(sbSync.pullLoja) await sbSync.pullLoja(); }catch(e){}
     try{ if(sbSync.pullTurmas) await sbSync.pullTurmas(); }catch(e){}   // grade p/ presença por sessão

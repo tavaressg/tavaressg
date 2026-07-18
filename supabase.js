@@ -26,8 +26,23 @@
   'use strict';
 
   // >>> EDITAR na Fase 0. Manter 'SEU_PROJETO' mantém o app em modo local.
-  const SUPABASE_URL = 'https://ckjggpudinmzyabxejlo.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_WC-_mRqEDgj7z5LFuxSg0g_ykp_YqYJ';
+  let SUPABASE_URL = 'https://ckjggpudinmzyabxejlo.supabase.co';
+  let SUPABASE_ANON_KEY = 'sb_publishable_WC-_mRqEDgj7z5LFuxSg0g_ykp_YqYJ';
+
+  // STAGING (dev-only): em localhost dá p/ apontar o app pro projeto de staging SEM
+  // editar este arquivo (editar credencial aqui arrisca deploy com env errado).
+  // Console:  localStorage['yama.env'] = JSON.stringify({url:'https://REF.supabase.co', key:'sb_publishable_...'})
+  // Voltar:   delete localStorage['yama.env']   — ver confidencial/supabase/STAGING.md.
+  // Inerte em produção: gate por hostname (localhost/127.0.0.1).
+  if (/^(localhost|127\.0\.0\.1)$/.test(global.location.hostname)) {
+    try {
+      const env = JSON.parse(global.localStorage.getItem('yama.env') || 'null');
+      if (env && env.url && env.key) {
+        SUPABASE_URL = env.url; SUPABASE_ANON_KEY = env.key;
+        console.warn('[supabase.js] ambiente OVERRIDE ativo (staging):', env.url);
+      }
+    } catch (_) {}
+  }
 
   const LIGADO = !SUPABASE_URL.includes('SEU_PROJETO');
 
@@ -55,6 +70,18 @@
   const _isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const HOJE = () => _isoLocal(new Date());
   const DB = () => global.DB; // estado do app (definido por app.js — expõe window.DB)
+
+  // ---- Fotos de perfil (0007: bucket PRIVADO, leitura via signed URL) ----
+  // profiles.foto_url guarda o PATH ('{uid}/profile.jpg'); URL legada é normalizada.
+  const FOTO_TTL = 86400;   // 24h — pullAll/getAlunos reassinam a cada boot/load
+  const _fotoPath = (v) => v ? String(v).replace(/^.*\/fotos\//, '').split('?')[0] : null;
+  async function signFoto(v) {
+    const path = _fotoPath(v); if (!path) return null;
+    try {
+      const { data } = await SB.storage.from('fotos').createSignedUrl(path, FOTO_TTL);
+      return (data && data.signedUrl) || null;
+    } catch (_) { return null; }
+  }
 
   // ---- helpers de erro padronizados (§6: try/catch → toast) ----
   function wrap(fn) {
@@ -197,13 +224,15 @@
         SB.from('technique_progress').select('*').eq('user_id', userId),
       ]);
       if (prof.data) {
+        // 0007: foto_url é PATH — assina p/ exibir (fallback: base64 legado no dump)
+        const fotoSigned = await signFoto(prof.data.foto_url);
         d.eu = Object.assign({}, d.eu, {
           apelido: prof.data.apelido || d.eu.apelido,
           nomeCompleto: prof.data.nome_completo || d.eu.nomeCompleto,
           faixa: prof.data.faixa || d.eu.faixa,
           graus: prof.data.graus ?? d.eu.graus,
           nascimento: prof.data.nascimento ?? d.eu.nascimento,
-          foto: prof.data.foto_url || d.eu.foto,
+          foto: fotoSigned || d.eu.foto,
           desde: prof.data.desde || d.eu.desde,
           role: prof.data.role,
           // capacidade do "Modo professor" (validada no servidor) — dono tem os mesmos
@@ -385,8 +414,9 @@
       void e; void props;
     }),
 
-    // Foto → Storage (bucket 'fotos'). Retorna URL pública (bucket público) ou signed URL.
-    // path: fotos/{user_id}/profile.jpg — permite policy self-only ("dono do prefixo").
+    // Foto → Storage (bucket 'fotos', PRIVADO desde a 0007). Grava o PATH em
+    // profiles.foto_url (o professor assina na leitura) e retorna uma signed URL
+    // (24h) p/ exibição imediata. path: {user_id}/profile.jpg — policy "dono do prefixo".
     // Se o bucket não existir, cai no catch → o app mantém base64 no dump como fallback.
     uploadFoto: wrap(async (blob) => {
       const d = DB(); if (!d || !d.sbUser || !blob) return null;
@@ -395,13 +425,16 @@
         contentType: 'image/jpeg', upsert: true, cacheControl: '3600',
       });
       if (error) throw error;
-      const pub = SB.storage.from('fotos').getPublicUrl(path);
-      return (pub && pub.data && pub.data.publicUrl) || null;
+      // 0007: persiste o PATH (URL assinada expira; path não). Best-effort — a foto
+      // já subiu; se o update falhar, o próximo upload corrige.
+      try { await SB.from('profiles').update({ foto_url: path }).eq('id', d.sbUser.id); } catch (_) {}
+      return await signFoto(path);
     }),
     deleteFoto: wrap(async () => {
       const d = DB(); if (!d || !d.sbUser) return;
       const path = `${d.sbUser.id}/profile.jpg`;
       await SB.storage.from('fotos').remove([path]);
+      try { await SB.from('profiles').update({ foto_url: null }).eq('id', d.sbUser.id); } catch (_) {}
     }),
 
     // Observabilidade mínima: registra erros do cliente na tabela client_errors
@@ -516,15 +549,29 @@
         } else { base.freq4 = 0; base.base4 = 0; }
         return base;
       });
+      // 0007: foto_url é PATH e o bucket é privado — assina em LOTE p/ o roster
+      // (policy fotos_prof_read). Nunca deixa path cru em a.foto (o <img> quebraria).
+      const paths = [...new Set(out.map(a => _fotoPath(a.foto)).filter(Boolean))];
+      if (paths.length) {
+        try {
+          const { data: signed } = await SB.storage.from('fotos').createSignedUrls(paths, FOTO_TTL);
+          const byPath = {}; (signed || []).forEach(s => { if (s.signedUrl) byPath[s.path] = s.signedUrl; });
+          out.forEach(a => { a.foto = a.foto ? (byPath[_fotoPath(a.foto)] || null) : null; });
+        } catch (_) { out.forEach(a => { a.foto = null; }); }
+      }
       _alunosMemo = { t: Date.now(), data: out };
       return out;
     }),
 
     getKPIs: wrap(async () => {
       const acad = await myAcademyId(); const mes = mesAtual();
-      const [alunos, ckMes] = await Promise.all([
+      const [alunos, ckMes, errs] = await Promise.all([
         sbProf.getAlunos(),   // memoizado (M6) — não refaz as 5 queries
         SB.from('checkins').select('id', { count: 'exact', head: true }).eq('academy_id', acad).gte('data', mes + '-01'),
+        // Observabilidade: erros de app nas últimas 24h (client_errors; a RLS já limita
+        // a leitura ao professor da academia). Timestamp completo → ISO/UTC (C1 só vale p/ data-calendário).
+        SB.from('client_errors').select('id', { count: 'exact', head: true })
+          .gte('criado_em', new Date(Date.now() - 86400000).toISOString()),
       ]);
       const soAlunos = alunos.filter(a => a.role === 'aluno');   // KPIs de negócio contam só alunos
       const presentes = soAlunos.filter(a => a.pres).length;
@@ -534,9 +581,28 @@
         total: soAlunos.length,
         ativos,
         treinosTotal: ckMes.count || 0,   // check-ins no mês (toda a academia)
-        shares: 0, erros: 0,
+        shares: 0, erros: errs.count || 0,
         receitaMes,
       };
+    }),
+
+    // Trilha administrativa (admin_audit, 0008) — quem fez o quê na gestão.
+    // RLS (admin_audit_prof_read) limita à academia do caller; append-only.
+    getAuditoria: wrap(async () => {
+      const { data } = await SB.from('admin_audit')
+        .select('actor_nome, action, alvo_nome, detail, criado_em')
+        .order('criado_em', { ascending: false }).limit(50);
+      return data || [];
+    }),
+
+    // Observabilidade: últimos erros de app (client_errors, 24h) — sheet do alerta no
+    // painel do professor. RLS (client_errors_prof_read) limita à academia do caller.
+    getErros: wrap(async () => {
+      const { data } = await SB.from('client_errors')
+        .select('msg, app_version, criado_em')
+        .gte('criado_em', new Date(Date.now() - 86400000).toISOString())
+        .order('criado_em', { ascending: false }).limit(50);
+      return data || [];
     }),
 
     getAlunoDetalhe: wrap(async (id) => {

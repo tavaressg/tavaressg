@@ -1,0 +1,25 @@
+# CI — roda a cada push/PR: sintaxe (node --check) + selfTest real (Chrome headless).
+# selfTest = os mesmos 150 asserts do ?test=1 manual (CLAUDE.md · "Como rodar"),
+# executados no Chrome pré-instalado do runner via .github/ci/selftest.mjs.
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sintaxe (node --check)
+        run: |
+          node --check app.js
+          node --check supabase.js
+          node --check sw.js
+
+      - name: selfTest headless (?test=1 no Chrome do runner)
+        run: |
+          python3 -m http.server 5179 &
+          npm install --no-fund --no-audit puppeteer-core@23
+          node .github/ci/selftest.mjs
