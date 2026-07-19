@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v249';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v250';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -3134,6 +3134,18 @@ function alunoPerfil(){
     w.appendChild(lojaWrap);
   }
 
+  // Modo professor — banner grande logo depois da Loja (posição original)
+  if(me.isProfessor){
+    const goAluno = DB.role === 'professor';
+    const alvo = goAluno ? 'aluno' : 'professor';
+    const profRow = el(`<div class="pro-entry" role="button" tabindex="0" aria-label="${goAluno?'Entrar no modo aluno':'Entrar no modo professor'}"><div class="pe-ic">${goAluno?'👤':'🥋'}</div>
+      <div class="pe-tx"><div class="pe-t">${goAluno?'Modo aluno':'Gerir academia'}</div><div class="pe-s">${goAluno?'Voltar para o diário — treinos, jornada, revisão':'Modo professor — alunos, presenças, loja'}</div></div>
+      <div class="pe-go">›</div></div>`);
+    profRow.onclick = ()=> setRole(alvo);
+    profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole(alvo); } };
+    w.appendChild(profRow);
+  }
+
   // Gestão da academia — atalhos que só o professor vê no menu "Mais"
   if(DB.role==='professor'){
     w.appendChild(el(`<div class="sec-title">Gestão da academia</div>`));
@@ -3197,18 +3209,6 @@ function alunoPerfil(){
   _bindRow('#row-install', ()=> abrirInstalarPWA());
   _bindRow('#row-config', ()=> abrirConfiguracoes());
   w.appendChild(app);
-
-  // Modo professor — banner grande (modelo antigo, mais visível e identificável)
-  if(me.isProfessor){
-    const goAluno = DB.role === 'professor';
-    const alvo = goAluno ? 'aluno' : 'professor';
-    const profRow = el(`<div class="pro-entry" role="button" tabindex="0" aria-label="${goAluno?'Entrar no modo aluno':'Entrar no modo professor'}"><div class="pe-ic">${goAluno?'👤':'🥋'}</div>
-      <div class="pe-tx"><div class="pe-t">${goAluno?'Modo aluno':'Gerir academia'}</div><div class="pe-s">${goAluno?'Voltar para o diário — treinos, jornada, revisão':'Modo professor — alunos, presenças, loja'}</div></div>
-      <div class="pe-go">›</div></div>`);
-    profRow.onclick = ()=> setRole(alvo);
-    profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole(alvo); } };
-    w.appendChild(profRow);
-  }
 
   // Sair — só se autenticado na nuvem (senão não há sessão pra encerrar)
   if(DB.sbUser){
