@@ -94,6 +94,40 @@ function diaRelativo(iso){
 const plural = (n,s,p)=> `${n} ${Math.abs(n)===1?s:p}`;   // 1 semana · 2 semanas
 const moneyBR = (n) => 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+
+// ---- ViaCEP: auto-preenche endereço a partir do CEP (API pública, sem chave) ----
+// Uso: bindViaCEP(cepInput, {logr, bairro, cidade, uf, num}) — busca no blur/enter.
+function _maskCEP(v){ const d=String(v||'').replace(/\D/g,'').slice(0,8); return d.length>5?d.slice(0,5)+'-'+d.slice(5):d; }
+function bindViaCEP(cepInp, fields){
+  if(!cepInp) return;
+  cepInp.addEventListener('input', ()=>{ const p=cepInp.selectionStart; cepInp.value=_maskCEP(cepInp.value); try{ cepInp.setSelectionRange(p,p); }catch(_){}});
+  const doFetch = async ()=>{
+    const cep = cepInp.value.replace(/\D/g,'');
+    if(cep.length !== 8) return;
+    cepInp.classList.add('cep-loading');
+    try{
+      const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const d = await r.json();
+      if(d && !d.erro){
+        const set=(sel,val)=>{ const e=typeof sel==='string'?document.querySelector(sel):sel; if(e && !e.value.trim()) e.value=val||''; };
+        set(fields.logr,   d.logradouro);
+        set(fields.bairro, d.bairro);
+        set(fields.cidade, d.localidade);
+        set(fields.uf,     d.uf);
+        if(fields.num){ const n=typeof fields.num==='string'?document.querySelector(fields.num):fields.num; if(n) n.focus(); }
+      }
+    }catch(_){/* offline/timeout: preenche manual */}
+    cepInp.classList.remove('cep-loading');
+  };
+  cepInp.addEventListener('blur', doFetch);
+  cepInp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doFetch(); }});
+}
+
+// ---- Densidade da tabela ERP (professor, desktop): compact | comfortable ----
+function _erpDensity(){ try{ return localStorage.getItem('yama.erpDensity')||'comfortable'; }catch(_){ return 'comfortable'; } }
+function _setErpDensity(v){ try{ localStorage.setItem('yama.erpDensity', v); }catch(_){ } document.body.dataset.erpDensity=v; }
+try{ document.body && (document.body.dataset.erpDensity=_erpDensity()); }catch(_){}
+
 // ---- Focus trap em sheets (acessibilidade): Tab cicla dentro, Esc fecha ----
 function _focusableInSheet(sheet){
   return [...sheet.querySelectorAll('button,input,select,textarea,[tabindex="0"],a[href]')]
@@ -615,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v229';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v249';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1127,9 +1161,10 @@ function render(){
 
 /* ---------------- topbar comum ---------------- */
 function topbar(sub){
+  const nome = (DB.academia && DB.academia.nome) || 'Yama Jiu-Jitsu';
   return `<div class="topbar">
-    <div class="academy"><img src="brand/logo.png?v=2" data-fallback="logo" alt="${DB.academia.nome}"></div>
-    <div class="tb-info"><div class="nm">${DB.academia.nome}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
+    <div class="academy"><img src="brand/logo.png?v=2" data-fallback="logo" alt="${safeAttr(nome)}"></div>
+    <div class="tb-info"><div class="nm">${safeTxt(nome)}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>
     ${DB.sbUser?`<span id="sync-dot" class="sync-dot sync-ok" title="Sincronizado com a nuvem"></span>`:''}
   </div>`;
 }
@@ -1246,8 +1281,29 @@ function alunoInicio(){
   prog.onclick = ()=>{ DB.jornadaTab='graduacao'; goAluno('jornada'); };
   w.appendChild(prog);
 
-  // ---- Selo de consistência (streak) leve, abaixo da faixa ----
-  w.appendChild(streakBadge());
+  // ---- Selo de consistência (streak) leve, abaixo da faixa (some pro aluno novo) ----
+  const _sb = streakBadge(); if(_sb) w.appendChild(_sb);
+
+  // ---- Onboarding: vídeos essenciais (some quando o aluno passa do 1º grau da branca) ----
+  const _onbVids = _alunoOnboardOn() ? _getOnboardVideos() : [];
+  if(_onbVids.length){
+    const sec = el(`<div class="onb-videos">
+      <div class="sec-title" style="display:flex;justify-content:space-between;align-items:baseline;padding:0 4px 6px">
+        <span>🥋 Antes do primeiro treino</span>
+        <span class="onb-hint">Assista com calma</span>
+      </div>
+      <div class="onb-strip"></div>
+    </div>`);
+    const strip = sec.querySelector('.onb-strip');
+    _onbVids.forEach(v=>{
+      const card = el(`<a class="onb-card" href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener" aria-label="Assistir: ${safeAttr(v.title)}">
+        <div class="onb-thumb"><img src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove"><span class="onb-play">▶</span></div>
+        <div class="onb-title">${safeTxt(v.title)}</div>
+      </a>`);
+      strip.appendChild(card);
+    });
+    w.appendChild(sec);
+  }
 
   // ---- Check-in na janela (±30 min de uma sessão de hoje) ----
   // Segue o padrão visual do .foco-card (branco simples com shadow). Clique NÃO faz check-in
@@ -1335,6 +1391,8 @@ function aulaDoDia(){
 
 // Selo de streak / consistência semanal
 function streakBadge(){
+  // Aluno novo (sem treinos ou sem estrutura de semana): não mostra o widget
+  if(!DB.semana || !(DB.treinos||[]).length) return null;
   const s = DB.semana;
   const meta = s.meta || 4;
   const labels = ['S','T','Q','Q','S','S','D'];
@@ -1597,7 +1655,7 @@ function retroStats(){
 }
 function jornadaFrequencia(){
   const w = el('<div></div>');
-  if(!DEMO && (DB.treinos||[]).length===0){
+  if((DB.treinos||[]).length===0){
     w.appendChild(emptyState('📊','Sua frequência aparece aqui','Com pelo menos 1 treino registrado, você verá presença por mês, dias da semana preferidos e seu ritmo semanal.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
     w.appendChild(el(`<div style="height:18px"></div>`));
     return w;
@@ -1707,7 +1765,9 @@ function metaSemanalTxt(){
     const dias=[1,2,3,4,5,6,0].filter(d=>s.metaDias.includes(d)).map(d=>_WD_LBL[d]);
     return 'Treina: '+dias.join(' · ');
   }
-  return 'Meta de '+(s.meta||4)+' treinos/sem';
+  // Aluno novo sem meta definida: label honesto (não empurra o default 4)
+  if(!s.meta) return 'Sem meta · toque para definir';
+  return 'Meta de '+s.meta+' treinos/sem';
 }
 // semana atual (seg→dom) + streak de semanas seguidas com treino — tudo dos dados reais
 function semanaStats(){
@@ -2359,7 +2419,7 @@ function evoluirProgresso(){
   const w = el('<div></div>');
   const focos = focoTecnicas();
   w.appendChild(el(`<div class="prog-head"><div class="ph-l"><span class="ph-t">Em treino</span><span class="ph-n">${focos.length}<span class="ph-m">/3</span></span></div>
-    <div class="ph-r">acerto · últimos 30 dias</div></div>`));
+    ${focos.length?'<div class="ph-r">acerto · últimos 30 dias</div>':''}</div>`));
   if(!focos.length){
     w.appendChild(el(`<div class="prog-empty">Nenhuma técnica em foco ainda.</div>`));
   }
@@ -3034,11 +3094,14 @@ function abrirCartaoPerfil(){
 function alunoPerfil(){
   const w = el('<div></div>');
   const me = DB.eu;
+  // Cabeçalho compacto: avatar + nome + faixa. Botão "Editar" discreto abre a ficha completa
+  // (nome, contato, endereço) — a seção "Meu perfil" foi removida por duplicar o cabeçalho.
   w.innerHTML = `<div class="profile-head">
     <span class="pf-version" aria-label="Versão do app">${safeTxt(APP_VERSION)}</span>
-    <button class="pf-edit">Editar</button>
+    <button class="pf-edit" aria-label="Editar meu perfil">Editar</button>
     <div class="pa">${me.foto?`<img src="${safeAttr(me.foto)}" alt="">`:safeTxt(me.iniciais)}</div>
     <div class="pn">${safeTxt(me.nome)}</div>
+    <div class="pf-belt">${beltPill(me.faixa, me.graus)}</div>
   </div>`;
   w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
   const _phPerf = w.querySelector('.pa');
@@ -3051,24 +3114,91 @@ function alunoPerfil(){
   if(_prodsAtivos.length){
     const lojaWrap = el(`<div class="loja-destaque">
       <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span><a class="ld-link">ver tudo ›</a></div>
-      <div class="ld-strip"></div>
+      <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
     lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
-    const strip = lojaWrap.querySelector('.ld-strip');
-    _prodsAtivos.slice(0,5).forEach(p=>{
+    const track = lojaWrap.querySelector('.ld-track');
+    // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.
+    // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
+    // appendChild MOVE o nó — clonar cada ocorrência mantém as fotos nos dois passes.
+    const _mkCard = (p)=>{
+      const imgHTML = p.img ? `<img src="${safeAttr(p.img)}" alt="" loading="lazy" data-fallback="remove">` : '';
       const card = el(`<div class="ld-card">
-        <div class="ld-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}</div>
+        <div class="ld-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${imgHTML}<span class="ld-emoji">${safeTxt(p.emoji)}</span></div>
         <div class="ld-nm">${safeTxt(p.nome)}</div><div class="ld-pr">${moneyBR(p.preco)}</div></div>`);
-      _mountProdImg(card.querySelector('.ld-img'), p);   // nó cacheado → sem flash no re-render
       card.onclick = ()=>{ openLoja(); abrirProduto(p.id); };
-      strip.appendChild(card);
-    });
+      return card;
+    };
+    _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
+    _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));   // clone p/ loop infinito
     w.appendChild(lojaWrap);
   }
 
-  // Alternar modo (só p/ quem tem o papel — DB.eu.isProfessor vem do backend;
-  // ?visaocompleta só em dev/demo, sem backend configurado). Ponto único de troca:
-  // o segment "Aluno/Professor" do topo saiu (v229).
+  // Gestão da academia — atalhos que só o professor vê no menu "Mais"
+  if(DB.role==='professor'){
+    w.appendChild(el(`<div class="sec-title">Gestão da academia</div>`));
+    const gestao = el(`<div class="info-list block">
+      <div class="info-row" id="row-videos" role="button" tabindex="0" aria-label="Vídeos de onboarding" style="cursor:pointer">
+        <div class="ii">🎬</div>
+        <div class="it"><div class="t">Vídeos de onboarding</div><div class="s">Aparece pro aluno faixa branca sem grau</div></div>
+        <div class="iv">›</div>
+      </div>
+    </div>`);
+    const _gv = gestao.querySelector('#row-videos');
+    const _goVids = ()=> goProf('videos');
+    _gv.onclick = _goVids;
+    _gv.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _goVids(); } };
+    w.appendChild(gestao);
+  }
+
+  w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
+  // Endereço vive dentro do "Editar" no header (não polui aqui). Meta e Turma bastam.
+  // Turma: lista APENAS as turmas em que o aluno está matriculado (não a grade inteira).
+  // Fonte: DB._minhasTurmasIds (populado por sbSync.pullMatricula) → resolve nomes em DB.turmas.
+  const _minhasIds = (DB._minhasTurmasIds && DB._minhasTurmasIds.length ? DB._minhasTurmasIds
+                    : (me.turmas || []));
+  const _turmasMap = Object.fromEntries((DB.turmas||[]).map(t=>[t.id, t.nome]));
+  const _minhasNomes = _minhasIds.map(id=>_turmasMap[id]).filter(Boolean);
+  // Fallback: se não há ids resolvíveis, cai no rótulo em academia.turma (compat com pullMatricula legado).
+  const _minhaTxt = _minhasNomes.length ? _minhasNomes.join(' · ')
+                  : (DB.academia?.turma || 'Sem matrícula · fale com o professor');
+  const _multi = _minhasNomes.length > 1;
+  const acadCard = el(`<div class="info-list block">
+    <div class="info-row" id="row-freq" role="button" tabindex="0" aria-label="Editar meta semanal" style="cursor:pointer"><div class="ii">📅</div><div class="it"><div class="t">Meta semanal</div>
+      <div class="s">${metaSemanalTxt()}</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-turma" role="button" tabindex="0" aria-label="Ver horários das minhas turmas" style="cursor:pointer"><div class="ii">🥋</div><div class="it"><div class="t">${_multi?'Minhas turmas':'Minha turma'}</div>
+      <div class="s">${safeTxt(_minhaTxt)}</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-lesoes" role="button" tabindex="0" aria-label="Lesões" style="cursor:pointer"><div class="ii">🤕</div><div class="it"><div class="t">Lesões</div><div class="s">Registrar e acompanhar</div></div><div class="iv">›</div></div>
+    <div class="info-row" id="row-wa" role="button" tabindex="0" aria-label="Falar com a Yama no WhatsApp" style="cursor:pointer"><div class="ii">💬</div><div class="it"><div class="t">Yama · WhatsApp</div><div class="s">Falar com o professor</div></div><div class="iv">›</div></div>
+  </div>`);
+  const _rowFreq = acadCard.querySelector('#row-freq');
+  if(_rowFreq){ const _go=()=>abrirMetaSemanal(); _rowFreq.onclick=_go; _rowFreq.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _go(); } }; }
+  const _rowTurma = acadCard.querySelector('#row-turma');
+  if(_rowTurma){ const _gt=()=>abrirMinhasTurmas(); _rowTurma.onclick=_gt; _rowTurma.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gt(); } }; }
+  const _rowLes = acadCard.querySelector('#row-lesoes');
+  if(_rowLes){ const _gl=()=>abrirLesoes(); _rowLes.onclick=_gl; _rowLes.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gl(); } }; }
+  const _rowWa = acadCard.querySelector('#row-wa');
+  if(_rowWa){ const _gw=()=>toast('Fale com o professor pelo WhatsApp da academia'); _rowWa.onclick=_gw; _rowWa.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gw(); } }; }
+  w.appendChild(acadCard);
+
+  // App — tema, notificações, backup, instalar, configurações
+  w.appendChild(el(`<div class="sec-title">App</div>`));
+  const app = el(`<div class="info-list block">
+    <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="${_isDark()?'Tema escuro ativado':'Tema claro ativado'}" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">${_isDark()?'Tema escuro':'Tema claro'}</div><div class="s">${_isDark()?'Toque para modo claro':'Toque para modo escuro'}</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
+    ${(()=>{
+      const isStandalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if (isStandalone) return '';
+      return `<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`;
+    })()}
+    <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
+  </div>`);
+  const _bindRow=(sel,fn)=>{ const r=app.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
+  _bindRow('#row-tema', ()=> toggleTheme());
+  _bindRow('#row-install', ()=> abrirInstalarPWA());
+  _bindRow('#row-config', ()=> abrirConfiguracoes());
+  w.appendChild(app);
+
+  // Modo professor — banner grande (modelo antigo, mais visível e identificável)
   if(me.isProfessor){
     const goAluno = DB.role === 'professor';
     const alvo = goAluno ? 'aluno' : 'professor';
@@ -3080,40 +3210,24 @@ function alunoPerfil(){
     w.appendChild(profRow);
   }
 
-  w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
-  const acadCard = el(`<div class="info-list block">
-    <div class="info-row" id="row-freq" role="button" tabindex="0" aria-label="Editar meta semanal" style="cursor:pointer"><div class="ii">📅</div><div class="it"><div class="t">Frequência (mês)</div>
-      <div class="s">${metaSemanalTxt()} · toque para editar</div></div><div class="iv">${new Set((DB.treinos||[]).filter(t=>t.data && t.data.slice(0,7)===HOJE_ISO.slice(0,7)).map(t=>t.data)).size}</div></div>
-    <div class="info-row" id="row-turma" role="button" tabindex="0" aria-label="Ver horários das turmas" style="cursor:pointer"><div class="ii">🥋</div><div class="it"><div class="t">Turma</div>
-      <div class="s">${DB.academia?.turma ? safeTxt(DB.academia.turma) : 'Sem turma definida'} · toque p/ horários</div></div><div class="iv">›</div></div>
-  </div>`);
-  const _rowFreq = acadCard.querySelector('#row-freq');
-  if(_rowFreq){ const _go=()=>abrirMetaSemanal(); _rowFreq.onclick=_go; _rowFreq.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _go(); } }; }
-  const _rowTurma = acadCard.querySelector('#row-turma');
-  if(_rowTurma){ const _gt=()=>abrirMinhasTurmas(); _rowTurma.onclick=_gt; _rowTurma.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gt(); } }; }
-  w.appendChild(acadCard);
+  // Sair — só se autenticado na nuvem (senão não há sessão pra encerrar)
+  if(DB.sbUser){
+    const sairBtn = el(`<button class="pro-switch-btn pro-logout" aria-label="Sair da conta">↩️ Sair</button>`);
+    sairBtn.onclick = async ()=>{
+      if(!confirm('Sair da sua conta? Você precisará fazer login novamente pra continuar treinando.')) return;
+      try{
+        if(DB.sbUser && _cloudReady && typeof sbSync!=='undefined'){ try{ await sbSync.pushState(buildDump()); }catch(_){} }
+        if(typeof sbAuth!=='undefined') await sbAuth.signOut();
+        DB.sbUser=null; _cloudReady=false; _lastPushed=''; DB.authOpen=true;
+        render(); toast('Até logo 👋');
+      }catch(e){ toast('Falha ao sair: '+(e.message||e)); }
+    };
+    w.appendChild(sairBtn);
+  }
 
-  w.appendChild(el(`<div class="sec-title">Conta</div>`));
-  const conta = el(`<div class="info-list">
-    <div class="info-row" id="row-lesoes" role="button" tabindex="0" aria-label="Lesões" style="cursor:pointer"><div class="ii">🤕</div><div class="it"><div class="t">Lesões</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-notif" role="button" tabindex="0" aria-label="Notificações" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Notificações</div></div><div class="iv">›</div></div>
-    <div class="info-row" id="row-tema" role="switch" tabindex="0" aria-label="${_isDark()?'Tema escuro ativado':'Tema claro ativado'}" aria-checked="${_isDark()}" style="cursor:pointer"><div class="ii">${_isDark()?'🌙':'☀️'}</div><div class="it"><div class="t">${_isDark()?'Tema escuro':'Tema claro'}</div><div class="s">${_isDark()?'Toque para modo claro':'Toque para modo escuro'}</div></div><div class="iv"><span class="switch ${_isDark()?'on':''}" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
-    <div class="info-row" id="row-backup" role="button" tabindex="0" aria-label="Backup do perfil" style="cursor:pointer"><div class="ii">💾</div><div class="it"><div class="t">Backup do perfil</div><div class="s">Exportar / importar dados</div></div><div class="iv">›</div></div>
-    ${(()=>{
-      const isStandalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-      if (isStandalone) return '';
-      return `<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`;
-    })()}
-    <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
-  </div>`);
-  const _bindRow=(sel,fn)=>{ const r=conta.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
-  _bindRow('#row-lesoes', ()=> abrirLesoes());
-  _bindRow('#row-notif', ()=> abrirNotificacoes());
-  _bindRow('#row-tema', ()=> toggleTheme());
-  _bindRow('#row-backup', ()=> abrirBackup());
-  _bindRow('#row-install', ()=> abrirInstalarPWA());
-  _bindRow('#row-config', ()=> abrirConfiguracoes());
-  w.appendChild(conta);
+  // Rodapé leve — versão + créditos
+  w.appendChild(el(`<div class="pf-footer">Yama · Jiu-Jitsu · ${safeTxt(APP_VERSION)}</div>`));
+
   return w;
 }
 
@@ -3123,7 +3237,7 @@ function tabbarAluno(){
     ['jogo','Tatame', icoChart()],
     ['__fab','Registrar', null],
     ['jornada','Jornada', icoBook()],
-    ['perfil','Perfil', icoUser()],
+    ['perfil','Mais', icoMore()],
   ];
   const bar = el(`<div class="tabbar" role="tablist"></div>`);
   tabs.forEach(([id,label,ico])=>{
@@ -4011,6 +4125,7 @@ function renderProfessor(){
   if (nav==='loja')      body.appendChild(profLoja());
   if (nav==='pedidos')   body.appendChild(profPedidos());
   if (nav==='financeiro')body.appendChild(profFinanceiro());
+  if (nav==='videos')    body.appendChild(profVideosOnboard());
   if (nav==='perfil')    body.appendChild(alunoPerfil());   // "Mais": o professor também é aluno (mesmo DB.eu)
   v.appendChild(body);
   v.appendChild(tabbarProf());
@@ -4041,11 +4156,19 @@ function profPainel(){
   if(d){
     const _aptos=_aptosGraduar().length, _risco=_emRisco().length, _baixos=_produtosBaixos();
     const _pend=_pedidosPendentesN();
+    const _nvFx=_aptosNovaFaixa().length;
+    const _anivHj=_aniversariantesHoje().length;
+    const _anivMes=_aniversariantes().length;
+    const _sem7 = alunos.filter(a=>(a.diasSem||0)>=7).length;
     const alerts=[];
     if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
     if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
-    if(_aptos>0) alerts.push(['🥋', `${_aptos} apto${_aptos>1?'s':''} a graduar`, 'Ver relatórios ›', ()=>goProf('relatorios'), 'good']);
-    if(_risco>0) alerts.push(['⚠️', `${_risco} em risco de evasão`, 'Ver relatórios ›', ()=>goProf('relatorios'), 'gold']);
+    if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante hoje`, 'Mandar parabéns ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'good']);
+    if(_nvFx>0)  alerts.push(['🎖️', `${_nvFx} apto${_nvFx>1?'s':''} a nova faixa`, 'Ver relatórios ›', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }, 'good']);
+    if(_aptos>0) alerts.push(['🥋', `${_aptos} apto${_aptos>1?'s':''} a graduar`, 'Ver relatórios ›', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }, 'good']);
+    if(_risco>0) alerts.push(['⚠️', `${_risco} em risco de evasão`, 'Ver risco ›', ()=>{ DB.relTab='risco'; goProf('relatorios'); }, 'gold']);
+    if(_sem7>0 && _sem7!==_risco) alerts.push(['👋', `${_sem7} aluno${_sem7>1?'s':''} há 7+ dias sem treinar`, 'Ver risco ›', ()=>{ DB.relTab='risco'; goProf('relatorios'); }, 'gold']);
+    if(_anivMes>_anivHj) alerts.push(['🗓️', `${_anivMes} aniversariante${_anivMes>1?'s':''} este mês`, 'Ver lista ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'gold']);
     if(_baixos>0) alerts.push(['📦', `${_baixos} produto${_baixos>1?'s':''} com estoque baixo`, 'Ver loja ›', ()=>goProf('loja'), 'gold']);
     if(alerts.length){
       w.appendChild(el(`<div class="sec-title" style="margin:4px 20px 8px">O que fazer hoje</div>`));
@@ -4163,7 +4286,12 @@ function profAlunos(){
   w.innerHTML = `<div class="hello"><div class="date">Alunos</div>
     <div class="greet">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div></div>`;
 
-  let filtro = 'todos', busca = '';
+  // Mapa turma_id → nome curto (pra coluna Turmas do modo ERP)
+  _loadTurmas();
+  const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
+
+  let filtro = 'todos', busca = '', filtroEt = 'todos';
+  let sortKey='nm', sortDir='asc';   // ERP: coluna clicada + sentido
   const PAGE = 20; let shown = PAGE;   // paginação: prepara p/ 200+ alunos
   const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar pessoa" placeholder="Buscar por nome…"></div>`);
   const seg = el(`<div class="filter-seg">
@@ -4172,10 +4300,29 @@ function profAlunos(){
     <button data-f="sumidos">Sumidos</button>
     <button data-f="vencidos">Vencidos</button>
   </div>`);
+  // Chip filter por faixa etária derivada (Kids 3-5, Kids 6-9, Juvenil, Adulto)
+  const chipsEt = el(`<div class="et-chips"></div>`);
+  const _mkChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
+    b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); refresh(); };
+    return b; };
+  chipsEt.appendChild(_mkChip('todos','Todas as idades'));
+  FAIXA_ETARIA_OPCOES.forEach(op=> chipsEt.appendChild(_mkChip(op,op)));
   const bulk = el(`<div class="bulk-bar" hidden></div>`);
-  const list = el('<div class="list"></div>');
+  // Header da tabela ERP — só aparece em desktop (CSS controla)
+  const head = el(`<div class="erp-head" role="row">
+    <div class="erp-c erp-c-check" aria-hidden="true"></div>
+    <div class="erp-c erp-c-avatar" aria-hidden="true"></div>
+    <button class="erp-c erp-c-name"   data-sort="nm">Nome</button>
+    <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
+    <div class="erp-c erp-c-turmas">Turmas</div>
+    <button class="erp-c erp-c-pres"   data-sort="pres">Últ. presença</button>
+    <button class="erp-c erp-c-days"   data-sort="diasSem">Dias sem</button>
+    <div class="erp-c erp-c-pay">Pgto</div>
+    <div class="erp-c erp-c-wa" aria-hidden="true"></div>
+  </div>`);
+  const list = el('<div class="list erp-tbl"></div>');
 
-  const refresh = ()=>{ renderList(); updateBulk(); };
+  const refresh = ()=>{ renderList(); updateBulk(); paintHead(); };
 
   const updateBulk = ()=>{
     const n = _selAlunos.size;
@@ -4190,29 +4337,65 @@ function profAlunos(){
     bulk.querySelector('[data-a="clear"]').onclick=()=>{ _selAlunos.clear(); refresh(); };
   };
 
+  const paintHead = ()=>{
+    head.querySelectorAll('[data-sort]').forEach(b=>{
+      const k=b.dataset.sort; b.classList.toggle('sort-on', sortKey===k);
+      b.classList.toggle('sort-desc', sortKey===k && sortDir==='desc');
+    });
+  };
+
+  const _cmp = (a,b)=>{
+    const dir = sortDir==='asc'?1:-1;
+    if(sortKey==='faixa'){
+      const ORD=['branca','cinza','amarela','laranja','verde','azul','roxa','marrom','preta','coral','vermelha'];
+      const ai=ORD.indexOf(a.faixa), bi=ORD.indexOf(b.faixa);
+      if(ai!==bi) return (ai-bi)*dir;
+      return ((a.graus||0)-(b.graus||0))*dir;
+    }
+    if(sortKey==='diasSem') return ((a.diasSem||0)-(b.diasSem||0))*dir;
+    if(sortKey==='pres'){
+      const ap=a.pres?1:0, bp=b.pres?1:0;
+      if(ap!==bp) return (bp-ap)*dir;   // presentes primeiro (asc)
+      return String(a.pres||'').localeCompare(String(b.pres||''))*dir;
+    }
+    return String(a.nm||'').localeCompare(String(b.nm||''))*dir;
+  };
+
   const renderList = ()=>{
     list.innerHTML='';
     if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>')); return; }
     // M4: lê os dados VIVOS de _profData — o array capturado no render ficava
     // desatualizado após um cadastro (o aluno novo não aparecia na lista)
     let arr = ((_profData?.alunos)||[]).filter(a=> filtro==='todos' ? true : filtro==='presentes' ? !!a.pres : filtro==='sumidos' ? (a.diasSem||0)>0 : a.pago==='late');
+    if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
     if(busca){ const q=busca.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q)); }
-    // "Sumidos": quem está há mais tempo sem treinar primeiro; demais filtros: alfabético
+    // "Sumidos" ignora o sort escolhido (contexto exige quem sumiu mais)
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
-    else arr.sort((a,b)=> (a.nm||'').localeCompare(b.nm||''));
+    else arr.sort(_cmp);
     if(!arr.length){ list.appendChild(el(`<div class="empty-line">Nenhum aluno encontrado.</div>`)); return; }
     const totalN = arr.length;
     arr.slice(0, shown).forEach(a=>{
       const payMap={ok:['pay-ok','Em dia'],late:['pay-late','Vencido'],soon:['pay-soon','A vencer']};
       const [cls,txt]=payMap[a.pago]||['pay-ok','—'];
       const sel=_selAlunos.has(_alunoKey(a));
+      const turmasTx = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', ') || '—';
+      const presTx = a.pres ? '✓ '+safeTxt(a.pres) : 'ausente';
+      const daysTx = (a.diasSem||0) > 0 ? (a.diasSem+'d') : '—';
+      const metaMobile = filtro==='sumidos' ? ((a.diasSem||0)+'d sem treinar') : (a.pres?'✓ '+safeTxt(a.pres):'ausente hoje');
       const row=el(`<div class="st-row dt-row${sel?' sel':''}${a._self?' dt-self':''}" style="cursor:pointer">
         <button class="row-check${sel?' on':''}" aria-label="Selecionar ${safeAttr(a.nm)}">${sel?'✓':''}</button>
         ${avatarAluno(a)}
         <div class="st-mid"><div class="nm">${safeTxt(a.nm)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
-          <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${filtro==='sumidos'?((a.diasSem||0)+'d sem treinar'):(a.pres?'✓ '+safeTxt(a.pres):'ausente hoje')}</span></div></div>
+          <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
+        <div class="erp-c erp-c-belt-cell">${beltPill(a.faixa,a.graus)}</div>
+        <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
+        <div class="erp-c erp-c-pres-cell">${presTx}</div>
+        <div class="erp-c erp-c-days-cell${(a.diasSem||0)>=7?' warn':''}">${daysTx}</div>
         <div class="st-right"><span class="pay-badge ${cls}">${txt}</span></div>
+        <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(a.nm)}" title="Mandar WhatsApp">💬</button>
       </div>`);
+      const waBtn = row.querySelector('.wa-ico');
+      if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
       const chk = row.querySelector('.row-check');
       // toggle incremental: atualiza só esta linha + a barra (não reconstrói a lista toda)
       chk.onclick=(e)=>{ e.stopPropagation(); const k=_alunoKey(a); const on=!_selAlunos.has(k);
@@ -4237,6 +4420,14 @@ function profAlunos(){
       b.classList.add('active'); renderList();
     };
   });
+  head.querySelectorAll('[data-sort]').forEach(b=>{
+    b.onclick=()=>{
+      const k=b.dataset.sort;
+      if(sortKey===k) sortDir = sortDir==='asc'?'desc':'asc';
+      else { sortKey=k; sortDir='asc'; }
+      refresh();
+    };
+  });
   // Ações de cadastro num toolbar único (botões sólidos, sem tracejado de protótipo).
   const actions = el(`<div class="dt-actions"></div>`);
   const addBtn = el(`<button class="btn-cad primary">＋ Cadastrar aluno</button>`);
@@ -4248,9 +4439,17 @@ function profAlunos(){
     addProfBtn.onclick=()=>_profCadastrarProfessorSheet(refresh);
     actions.appendChild(addProfBtn);
   }
+  // Toggle de densidade (só faz efeito no desktop; CSS ignora no mobile)
+  const dens = _erpDensity();
+  const densBtn = el(`<button class="btn-cad ghost erp-dens" aria-label="Densidade da tabela" title="Densidade">${dens==='compact'?'⇕ Confortável':'⇔ Compacto'}</button>`);
+  densBtn.onclick=()=>{
+    const cur=_erpDensity(); const next=cur==='compact'?'comfortable':'compact';
+    _setErpDensity(next); densBtn.textContent = next==='compact'?'⇕ Confortável':'⇔ Compacto';
+  };
+  actions.appendChild(densBtn);
 
   refresh();
-  w.appendChild(srch); w.appendChild(seg); w.appendChild(actions); w.appendChild(bulk); w.appendChild(list);
+  w.appendChild(srch); w.appendChild(seg); w.appendChild(chipsEt); w.appendChild(actions); w.appendChild(bulk); w.appendChild(head); w.appendChild(list);
   return w;
 }
 
@@ -4577,6 +4776,14 @@ function renderCadastroAluno(){
   };
   nascInp.addEventListener('input', _rebuildCadFaixas);
   _rebuildCadFaixas();
+  // ViaCEP: digita CEP → auto-preenche logradouro/bairro/cidade/UF, foca no número
+  bindViaCEP(sheet.querySelector('#ca-cep'), {
+    logr:   sheet.querySelector('#ca-logr'),
+    bairro: sheet.querySelector('#ca-bairro'),
+    cidade: sheet.querySelector('#ca-cidade'),
+    uf:     sheet.querySelector('#ca-uf'),
+    num:    sheet.querySelector('#ca-num'),
+  });
   // wizard: uma etapa por vez (Dados → Endereço → Responsável → Graduação)
   const stepsEl=sheet.querySelector('#ca-steps');
   const backBtn=sheet.querySelector('#ca-back');
@@ -5041,6 +5248,14 @@ function _profEditarFichaSheet(a, refresh){
   const selTurmas=new Set(a.turmas||[]);
   let _feDirty=false; sheet.addEventListener('input',()=>{ _feDirty=true; });
   _turmaChips(sheet.querySelector('#fe-turmas'), selTurmas, ()=>{ _feDirty=true; });
+  // ViaCEP no editar ficha (mesma lógica do cadastro)
+  bindViaCEP(sheet.querySelector('#fe-cep'), {
+    logr:   sheet.querySelector('#fe-logr'),
+    bairro: sheet.querySelector('#fe-bairro'),
+    cidade: sheet.querySelector('#fe-cidade'),
+    uf:     sheet.querySelector('#fe-uf'),
+    num:    sheet.querySelector('#fe-num'),
+  });
   sheet.onclick=(ev)=>{ if(ev.target===sheet){ _feDirty?_confirmDescartar(close):close(); } };
   sheet.querySelector('#fe-cancel').onclick=close;
   sheet.querySelector('#fe-save').onclick=()=>{
@@ -5177,7 +5392,7 @@ function _riscoMotivo(a){
 function _emRisco(){ return _profAlunosArr().filter(a=>_riscoMotivo(a)!=null); }
 
 /* ---- Contato em 1 toque: wa.me com o telefone da ficha (responsável p/ menores) ---- */
-function _waLink(a){
+function _waLink(a, msg){
   const c=a.cad||{}; const r=c.responsavel||{};
   const idade=idadeCBJJ(a.nascimento);
   const tel=(idade!=null && idade<18) ? (r.telefone||c.telefone) : (c.telefone||r.telefone);
@@ -5185,8 +5400,123 @@ function _waLink(a){
   let d=String(tel).replace(/\D/g,'');
   if(d.length<8) return null;
   if(d.length<=11) d='55'+d;   // sem DDI → assume Brasil
-  return 'https://wa.me/'+d;
+  return 'https://wa.me/'+d + (msg?('?text='+encodeURIComponent(msg)):'');
 }
+
+/* ---- Templates de WhatsApp: textos prontos por contexto (professor edita antes de enviar) ---- */
+const WA_TEMPLATES = {
+  sumido7:   { icon:'👋', label:'Sumido 1 semana',    body:(a)=>`Oi ${_waNome(a)}, senti sua falta no tatame essa semana. Tá tudo bem? Te espero na próxima aula 🥋` },
+  sumido30:  { icon:'💪', label:'Sumido 1 mês',       body:(a)=>`Oi ${_waNome(a)}, notei que faz um tempo que você não vem treinar. Vamos marcar sua volta? Se precisar de qualquer ajuda, chama aqui.` },
+  aniv:      { icon:'🎂', label:'Aniversário',        body:(a)=>`Oi ${_waNome(a)}, parabéns pelo seu dia! 🎂 Que venha mais um ano de tatame — a Yama torce por você.` },
+  gradProx:  { icon:'🥋', label:'Graduação próxima',  body:(a)=>`Oi ${_waNome(a)}, você tá quase pronto pra próxima graduação — continue firme, tá muito perto!` },
+  bemVindo:  { icon:'🙌', label:'Boas-vindas',        body:(a)=>`Oi ${_waNome(a)}, seja bem-vindo(a) à Yama Jiu-Jitsu! Qualquer dúvida sobre horários ou material, me chama aqui.` },
+};
+function _waNome(a){
+  const c=a.cad||{}; const r=c.responsavel||{};
+  const idade=idadeCBJJ(a.nascimento);
+  if(idade!=null && idade<18 && r.nome) return r.nome.split(/\s+/)[0];
+  return (a.nm||'').split(/\s+/)[0];
+}
+/* Abre wa.me com template pré-pronto e registra o envio (evita mandar 2× na mesma semana). */
+function _waSend(a, tplKey){
+  const tpl = WA_TEMPLATES[tplKey]; if(!tpl) return;
+  const url = _waLink(a, tpl.body(a));
+  if(!url){ toast('Sem telefone cadastrado na ficha'); return; }
+  a._waLast = { at: Date.now(), tpl: tplKey };
+  try{ window.open(url, '_blank', 'noopener'); }catch(_){ location.href=url; }
+  toast('WhatsApp aberto ✔');
+}
+/* dias desde o último WhatsApp enviado (null = nunca). Usado pra chip "já contatado". */
+function _waDiasDesde(a){ if(!a._waLast) return null; return Math.floor((Date.now()-a._waLast.at)/86400000); }
+
+/* Sheet de escolha de template (botão "WhatsApp" abre este sheet). */
+function _waSheet(a){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="WhatsApp">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">WhatsApp · ${safeTxt(a.nm||'')}</div>
+    <div class="sheet-desc">Escolha o texto — abre o seu WhatsApp com a mensagem pronta pra editar/enviar.</div>
+    <div class="wa-tpl-grid" id="wa-tpl"></div>
+    <button class="sheet-cancel" id="wa-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),200); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#wa-close').onclick=close;
+  const grid = sheet.querySelector('#wa-tpl');
+  Object.entries(WA_TEMPLATES).forEach(([k,t])=>{
+    const b = el(`<button class="wa-tpl"><span class="wa-tpl-ic">${t.icon}</span><span class="wa-tpl-lbl">${safeTxt(t.label)}</span></button>`);
+    b.onclick=()=>{ _waSend(a,k); close(); render(); };
+    grid.appendChild(b);
+  });
+  const last = _waDiasDesde(a);
+  if(last!=null) sheet.querySelector('.sheet-desc').insertAdjacentHTML('afterend',
+    `<div class="wa-last">✓ Último envio há ${last===0?'menos de 1 dia':last+' dia(s)'}</div>`);
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+/* ---- YouTube: id, thumb, watch url + storage local dos vídeos de onboarding ---- */
+function _ytIdFromUrl(v){
+  if(!v) return null;
+  const s = String(v).trim();
+  // ID puro (11 chars, letras/números/-_)
+  if(/^[a-zA-Z0-9_-]{11}$/.test(s)) return s;
+  const m = s.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+function _ytThumb(id){ return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : ''; }
+function _ytWatch(id){ return id ? `https://www.youtube.com/watch?v=${id}` : ''; }
+function _getOnboardVideos(){
+  try{ return JSON.parse(localStorage.getItem('yama.videos.onboard')||'[]'); }
+  catch(_){ return []; }
+}
+function _setOnboardVideos(arr){
+  try{ localStorage.setItem('yama.videos.onboard', JSON.stringify(arr||[])); }catch(_){}
+}
+/* Aluno ainda no onboarding? (faixa branca sem grau — some no 1º grau, decisão do dono) */
+function _alunoOnboardOn(){
+  const me=DB.eu; return me && me.faixa==='branca' && (me.graus||0) < 1;
+}
+
+/* Aniversariantes só de HOJE (subset de _aniversariantes) — usado no painel. */
+function _aniversariantesHoje(){
+  const hj = String(hoje.getDate()).padStart(2,'0');
+  return _aniversariantes().filter(a=> a.nascData && a.nascData.slice(8,10)===hj);
+}
+
+/* Rótulo de faixa etária derivado (Kids 3-5 / Kids 6-9 / Juvenil 10-15 / Adulto 16+). */
+function _faixaEtariaLbl(anoNasc){
+  const i = idadeCBJJ(anoNasc); if(i==null) return null;
+  if(i<=5)  return 'Kids 3-5';
+  if(i<=9)  return 'Kids 6-9';
+  if(i<=15) return 'Juvenil 10-15';
+  return 'Adulto 16+';
+}
+const FAIXA_ETARIA_OPCOES = ['Kids 3-5','Kids 6-9','Juvenil 10-15','Adulto 16+'];
+
+/* Aptos a nova FAIXA (não só grau): próxima faixa CBJJ existe, aluno tem 4º grau da atual
+   OU semáforo indica tempo/idade OK — filtro conservador. Alerta pedagógico. */
+function _aptosNovaFaixa(){
+  return _profAlunosArr().filter(a=>{
+    const s=_semaforoGrad(a); if(!s.next) return false;
+    // subir DE faixa exige 4º grau (adulto) ou concluir o ciclo infantil — heurística conservadora
+    if((a.graus||0) < 4) return false;
+    return (s.tempo?s.tempo.ok!==false:true) && (s.aulas?s.aulas.ok===true:false);
+  });
+}
+
+/* Nível de risco por dias sem treinar — Kanri buckets adaptados p/ 4 níveis. */
+function _riscoNivel(a){
+  const d = a.diasSem||0;
+  if(d >= 30) return 'critico';
+  if(d >= 15) return 'em_risco';
+  if(d >= 7)  return 'atencao';
+  return 'engajado';
+}
+const RISCO_NIVEIS = [
+  ['critico',  'Crítico',    '≥ 30 dias'],
+  ['em_risco', 'Em risco',   '15–29 dias'],
+  ['atencao',  'Atenção',    '7–14 dias'],
+  ['engajado', 'Engajados',  '< 7 dias'],
+];
 
 /* ---- Nível de um registro de technique_progress. O campo `estado` guarda o EIXO DE JOGO
    (foco/arma/guardada/aprendida); o nível de domínio segue a mesma régua do nivelDe():
@@ -5385,7 +5715,7 @@ function profRelatorios(){
   }
 
   // Sub-navegação dos relatórios
-  const TABS=[['visao','Visão geral'],['retencao','Retenção'],['tecnicas','Técnicas'],['graduacao','Graduação'],['loja','Loja']];
+  const TABS=[['visao','Visão geral'],['risco','Risco'],['alunos','Alunos (Excel)'],['retencao','Retenção'],['tecnicas','Técnicas'],['graduacao','Graduação'],['loja','Loja']];
   const seg=el('<div class="filter-seg rel-seg"></div>');
   TABS.forEach(([id,lbl])=>{
     const b=el(`<button class="${(DB.relTab||'visao')===id?'active':''}">${lbl}</button>`);
@@ -5396,12 +5726,265 @@ function profRelatorios(){
 
   const tab=DB.relTab||'visao';
   if(tab==='visao')          _relVisao(w, secTitle, note);
+  else if(tab==='risco')     _relRisco(w, secTitle, note);
+  else if(tab==='alunos')    _relAlunosExcel(w, secTitle, note);
   else if(tab==='retencao')  _relRetencao(w, secTitle, note, alunoRow);
   else if(tab==='tecnicas')  _relTecnicas(w, secTitle, note, alunoRow);
   else if(tab==='graduacao') _relGraduacao(w, secTitle, note, alunoRow);
   else                       _relLoja(w, secTitle, note);
   w.appendChild(el(`<div style="height:24px"></div>`));
   return w;
+}
+
+/* Relatórios · Risco de abandono — buckets Kanri-style com score por dias sem treinar.
+   Score = dias sem (proxy honesto; sem inventar fórmula composta). */
+function _relRisco(w, secTitle, note){
+  const alunos = _profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono'));
+  const buckets = { critico:[], em_risco:[], atencao:[], engajado:[] };
+  alunos.forEach(a=> buckets[_riscoNivel(a)].push(a));
+
+  // 4 tiles (contagem por nível)
+  const grid = el('<div class="stat-grid block" style="margin-top:12px"></div>');
+  RISCO_NIVEIS.forEach(([id,lbl,rng])=>{
+    grid.appendChild(el(`<div class="stat-card risco-tile risco-${id}"><div class="sv">${buckets[id].length}</div>
+      <div class="sl">${lbl}</div><div class="risco-rng">${rng}</div></div>`));
+  });
+  w.appendChild(grid);
+
+  // Listas por bucket (só as acionáveis: crítico + em risco + atenção)
+  ['critico','em_risco','atencao'].forEach(id=>{
+    const arr = buckets[id].sort((a,b)=>(b.diasSem||0)-(a.diasSem||0));
+    const [_id,lbl] = RISCO_NIVEIS.find(x=>x[0]===id);
+    w.appendChild(secTitle(`${lbl} (${arr.length})`));
+    if(!arr.length){ w.appendChild(note(id==='critico'?'Ninguém no Crítico. 🎉':'Vazio nesta faixa.')); return; }
+    const list = el(`<div class="list block risco-list risco-${id}-list"></div>`);
+    arr.forEach(a=>{
+      const wa = _waLink(a) ? true : false;
+      const row = el(`<div class="risco-row" role="button" tabindex="0" style="cursor:pointer">
+        ${avatarAluno(a)}
+        <div class="risco-mid">
+          <div class="nm">${safeTxt(a.nm)}</div>
+          <div class="meta">${beltPill(a.faixa,a.graus)} <span class="risco-motivo">${safeTxt(_riscoMotivo(a)||((a.diasSem||0)+'d sem treinar'))}</span></div>
+        </div>
+        <div class="risco-score">${a.diasSem||0}<small>d</small></div>
+        ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(a.nm)}">💬 WhatsApp</button>`:''}
+      </div>`);
+      const waBtn = row.querySelector('.risco-wa');
+      if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
+      row.onclick=()=>_profAlunoSheet(a);
+      row.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _profAlunoSheet(a); }};
+      list.appendChild(row);
+    });
+    w.appendChild(list);
+  });
+}
+
+/* Relatórios · Alunos (Excel) — tabela ampla estilo planilha, muitas colunas visíveis.
+   Sem paginação (500 alunos cabem numa scroll interna). Export CSV nativo. */
+function _relAlunosExcel(w, secTitle, note){
+  const alunos = _profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono'));
+  _loadTurmas(); const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
+
+  let busca='', filtroEt='todos', filtroRisco='todos';
+  const wrap = el('<div class="xls-wrap"></div>');
+
+  const bar = el(`<div class="xls-bar">
+    <div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" placeholder="Buscar por nome, e-mail, telefone…"></div>
+    <div class="xls-filters"></div>
+    <button class="btn-cad ghost" id="xls-csv">⬇ Exportar CSV</button>
+  </div>`);
+  const chips = bar.querySelector('.xls-filters');
+  const _chip=(lbl,cur,set,val)=>{ const b=el(`<button class="et-chip ${cur===val?'on':''}">${lbl}</button>`); b.onclick=()=>{ set(val); rebuild(); }; return b; };
+  const paintChips=()=>{
+    chips.innerHTML='';
+    chips.appendChild(_chip('Todas idades', filtroEt, v=>filtroEt=v, 'todos'));
+    FAIXA_ETARIA_OPCOES.forEach(op=> chips.appendChild(_chip(op, filtroEt, v=>filtroEt=v, op)));
+    chips.appendChild(el(`<span class="xls-sep"></span>`));
+    RISCO_NIVEIS.forEach(([id,lbl])=> chips.appendChild(_chip(lbl, filtroRisco, v=>filtroRisco=v, id)));
+    chips.appendChild(_chip('Todos', filtroRisco, v=>filtroRisco=v, 'todos'));
+  };
+  bar.querySelector('.dt-search-inp').oninput=(e)=>{ busca=e.target.value.trim().toLowerCase(); rebuild(); };
+  bar.querySelector('#xls-csv').onclick=()=>_xlsExportCSV(getRows());
+
+  const scroll = el('<div class="xls-scroll"></div>');
+  const table  = el('<table class="xls-tbl"></table>');
+  scroll.appendChild(table);
+
+  const COLS = [
+    ['Nome',        a => a.nm],
+    ['E-mail',      a => (a.cad&&a.cad.email)||''],
+    ['Telefone',    a => (a.cad&&a.cad.telefone)||''],
+    ['Nascimento',  a => (a.nascData ? a.nascData.split('-').reverse().join('/') : (a.nascimento||''))],
+    ['Idade',       a => (idadeCBJJ(a.nascimento)!=null?idadeCBJJ(a.nascimento):'')],
+    ['Faixa etária',a => _faixaEtariaLbl(a.nascimento)||''],
+    ['Faixa',       a => (BELTS[a.faixa]?BELTS[a.faixa].nome:a.faixa||'')+(a.graus?' · '+a.graus+'º':'')],
+    ['Turmas',      a => (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', ')],
+    ['Últ. presença',a => a.pres || 'ausente'],
+    ['Dias sem',    a => a.diasSem||0],
+    ['Nível risco', a => { const nv=_riscoNivel(a); return (RISCO_NIVEIS.find(x=>x[0]===nv)||[])[1]||''; }],
+    ['Pgto',        a => a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'—'],
+    ['Cidade',      a => (a.cad&&a.cad.endereco&&a.cad.endereco.cidade)||''],
+    ['Bairro',      a => (a.cad&&a.cad.endereco&&a.cad.endereco.bairro)||''],
+    ['UF',          a => (a.cad&&a.cad.endereco&&a.cad.endereco.uf)||''],
+    ['Responsável', a => (a.cad&&a.cad.responsavel&&a.cad.responsavel.nome)||''],
+    ['Tel. resp.',  a => (a.cad&&a.cad.responsavel&&a.cad.responsavel.telefone)||''],
+    ['Data início', a => (a.cad&&a.cad.dataInicio) || a.desde || ''],
+  ];
+
+  const getRows = ()=>{
+    let arr = alunos.slice();
+    if(filtroEt!=='todos')    arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===filtroEt);
+    if(filtroRisco!=='todos') arr = arr.filter(a=>_riscoNivel(a)===filtroRisco);
+    if(busca){
+      arr = arr.filter(a=>{
+        const bag = [a.nm, a.cad?.email, a.cad?.telefone, a.cad?.endereco?.cidade].join(' ').toLowerCase();
+        return bag.includes(busca);
+      });
+    }
+    return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
+  };
+
+  const rebuild = ()=>{
+    paintChips();
+    const rows = getRows();
+    const head = '<thead><tr>'+COLS.map(([lbl])=>`<th>${lbl}</th>`).join('')+'<th>Ação</th></tr></thead>';
+    const body = '<tbody>'+rows.map(a=>{
+      const cells = COLS.map(([,fn])=>`<td>${safeTxt(String(fn(a)))}</td>`).join('');
+      return `<tr data-id="${safeAttr(a.id||a.nm)}">${cells}<td class="xls-act"><button class="wa-ico" data-nm="${safeAttr(a.nm)}" title="WhatsApp">💬</button></td></tr>`;
+    }).join('')+'</tbody>';
+    table.innerHTML = head + body;
+    table.querySelectorAll('tbody tr').forEach(tr=>{
+      const id=tr.dataset.id; const a = alunos.find(x=>(x.id||x.nm)===id);
+      const wa = tr.querySelector('.wa-ico');
+      if(wa && a) wa.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
+      tr.onclick=()=>{ if(a) _profAlunoSheet(a); };
+    });
+    countLbl.textContent = `${rows.length} de ${alunos.length} aluno${alunos.length>1?'s':''}`;
+  };
+  const countLbl = el('<div class="xls-count">—</div>');
+
+  wrap.appendChild(bar); wrap.appendChild(countLbl); wrap.appendChild(scroll);
+  w.appendChild(wrap);
+  rebuild();
+}
+
+/* Vídeos de onboarding — CRUD simples pro professor (localStorage por academia).
+   Aluno faixa-branca-sem-grau vê os vídeos no INÍCIO; some ao ganhar o 1º grau. */
+function profVideosOnboard(){
+  const w = el('<div></div>');
+  w.innerHTML = `<div class="hello">
+    <div class="date">Vídeos de onboarding</div>
+    <div class="greet">Aparece no INÍCIO do aluno enquanto faixa branca sem grau · some no 1º grau</div>
+  </div>`;
+
+  const form = el(`<div class="onb-form block">
+    <div class="cad-sec" style="margin-top:0">Adicionar vídeo do YouTube</div>
+    <label class="flbl">URL do YouTube <span class="ca-opt">(watch, shorts ou youtu.be — cola aqui)</span></label>
+    <input class="inp" id="onb-url" type="url" placeholder="https://www.youtube.com/watch?v=…">
+    <label class="flbl" style="margin-top:10px">Título curto <span class="ca-opt">(ex: "Como amarrar a faixa")</span></label>
+    <input class="inp" id="onb-title" placeholder="Ex: Amarrar a faixa · Higiene das unhas · Lavagem do kimono">
+    <div id="onb-preview" hidden></div>
+    <button class="btn-save" id="onb-add" style="margin-top:10px">Adicionar vídeo</button>
+  </div>`);
+
+  const listWrap = el('<div class="onb-admin-list"></div>');
+  const secTitle = el(`<div class="sec-title" style="margin:16px 20px 8px">Vídeos publicados</div>`);
+  const hint     = el(`<div class="onb-hint-block">Reordene com ▲▼ · o topo aparece primeiro pro aluno. Exclua com ✕.</div>`);
+
+  const paint = ()=>{
+    const arr = _getOnboardVideos();
+    listWrap.innerHTML = '';
+    if(!arr.length){
+      listWrap.appendChild(el('<div class="empty-line" style="padding:14px 12px;text-align:center;color:var(--muted);font-size:13px">Nenhum vídeo cadastrado ainda. Cole a URL de um vídeo do YouTube acima.</div>'));
+      return;
+    }
+    arr.forEach((v,i)=>{
+      const row = el(`<div class="onb-admin-row">
+        <img class="onb-admin-thumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
+        <div class="onb-admin-mid">
+          <div class="nm">${safeTxt(v.title)}</div>
+          <div class="meta"><a href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">${safeTxt(v.id)}</a></div>
+        </div>
+        <div class="onb-admin-acts">
+          <button class="onb-mv" data-a="up"   ${i===0?'disabled':''} aria-label="Subir">▲</button>
+          <button class="onb-mv" data-a="down" ${i===arr.length-1?'disabled':''} aria-label="Descer">▼</button>
+          <button class="onb-del" aria-label="Excluir">✕</button>
+        </div>
+      </div>`);
+      row.querySelector('[data-a="up"]').onclick = ()=>{ if(i===0) return; const a=arr.slice(); [a[i-1],a[i]]=[a[i],a[i-1]]; _setOnboardVideos(a); paint(); };
+      row.querySelector('[data-a="down"]').onclick = ()=>{ if(i===arr.length-1) return; const a=arr.slice(); [a[i+1],a[i]]=[a[i],a[i+1]]; _setOnboardVideos(a); paint(); };
+      row.querySelector('.onb-del').onclick = ()=>{
+        if(!confirm('Excluir este vídeo?')) return;
+        const a=arr.slice(); a.splice(i,1); _setOnboardVideos(a); paint();
+        toast('Vídeo removido');
+      };
+      listWrap.appendChild(row);
+    });
+  };
+
+  // Preview ao digitar/colar URL
+  const urlInp = form.querySelector('#onb-url');
+  const prevEl = form.querySelector('#onb-preview');
+  const _updatePreview = ()=>{
+    const id = _ytIdFromUrl(urlInp.value);
+    if(!id){ prevEl.hidden=true; prevEl.innerHTML=''; return; }
+    prevEl.hidden=false;
+    prevEl.innerHTML = `<div class="onb-prev"><img src="${safeAttr(_ytThumb(id))}" alt="" data-fallback="remove"><span class="onb-prev-id">ID: ${safeTxt(id)}</span></div>`;
+  };
+  urlInp.addEventListener('input', _updatePreview);
+  urlInp.addEventListener('paste',  ()=>setTimeout(_updatePreview,50));
+
+  form.querySelector('#onb-add').onclick = ()=>{
+    const id = _ytIdFromUrl(urlInp.value);
+    const title = form.querySelector('#onb-title').value.trim();
+    if(!id){ toast('URL inválida — cole um link do YouTube'); return; }
+    if(!title){ toast('Dê um título curto ao vídeo'); return; }
+    const arr = _getOnboardVideos();
+    if(arr.some(v=>v.id===id)){ toast('Esse vídeo já está na lista'); return; }
+    arr.push({ id, title });
+    _setOnboardVideos(arr);
+    urlInp.value=''; form.querySelector('#onb-title').value=''; prevEl.hidden=true; prevEl.innerHTML='';
+    paint(); toast('Vídeo adicionado ✔');
+  };
+
+  w.appendChild(form);
+  w.appendChild(secTitle);
+  w.appendChild(hint);
+  w.appendChild(listWrap);
+  paint();
+  return w;
+}
+
+/* Exporta linhas visíveis do "Alunos (Excel)" pra CSV (UTF-8 BOM, aceita Excel/Sheets). */
+function _xlsExportCSV(rows){
+  const cols = ['Nome','E-mail','Telefone','Nascimento','Idade','Faixa etária','Faixa','Turmas','Últ. presença','Dias sem','Nível risco','Pgto','Cidade','Bairro','UF','Responsável','Tel. resp.','Data início'];
+  const _esc=(s)=>{ const t=String(s==null?'':s); return /[";,\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t; };
+  const linhas = [cols.join(';')];
+  _loadTurmas(); const turmaMap={}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
+  rows.forEach(a=>{
+    linhas.push([
+      a.nm, a.cad?.email||'', a.cad?.telefone||'',
+      a.nascData ? a.nascData.split('-').reverse().join('/') : (a.nascimento||''),
+      idadeCBJJ(a.nascimento)||'',
+      _faixaEtariaLbl(a.nascimento)||'',
+      (BELTS[a.faixa]?BELTS[a.faixa].nome:a.faixa||'')+(a.graus?' · '+a.graus+'º':''),
+      (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', '),
+      a.pres||'ausente', a.diasSem||0,
+      (RISCO_NIVEIS.find(x=>x[0]===_riscoNivel(a))||[])[1]||'',
+      a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'—',
+      a.cad?.endereco?.cidade||'', a.cad?.endereco?.bairro||'', a.cad?.endereco?.uf||'',
+      a.cad?.responsavel?.nome||'', a.cad?.responsavel?.telefone||'',
+      a.cad?.dataInicio||a.desde||'',
+    ].map(_esc).join(';'));
+  });
+  const csv = '﻿'+linhas.join('\r\n');   // BOM UTF-8 pro Excel abrir com acentos
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = `yama-alunos-${HOJE_ISO}.csv`;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast(`CSV exportado (${rows.length} linha${rows.length>1?'s':''})`);
 }
 // Abre a tela cheia de um painel da Visão geral (navegação, não bottom sheet).
 function _irRelDetalhe(tipo){ DB.relDetalhe=tipo; render(); window.scrollTo(0,0); }
@@ -6366,27 +6949,68 @@ function _gradeHorarios(turmas){
 function abrirMinhasTurmas(){
   const sh = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" style="max-height:88vh;overflow-y:auto">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">Horários das turmas</div>
+    <div class="sheet-title" id="mt-title">Minhas turmas</div>
     <div class="mt-sub" id="mt-sub"></div>
-    <div id="mt-body"><div class="empty-hint">Carregando grade…</div></div>
+    <div id="mt-body"><div class="empty-hint">Carregando…</div></div>
     <button class="btn-save sheet-cancel" style="margin-top:14px">Fechar</button></div></div>`);
   openSheet(sh, '.sheet-cancel');
   const DL = Object.fromEntries(DIAS_SEMANA);
   const paint = ()=>{
+    const meusIds = new Set(DB._minhasTurmasIds || (DB.eu && DB.eu.turmas) || []);
+    const todas = DB.turmas || [];
+    const minhas = todas.filter(t => meusIds.has(t.id));
+    const title = sh.querySelector('#mt-title');
+    if(title) title.textContent = minhas.length > 1 ? 'Minhas turmas' : 'Minha turma';
     const sub = sh.querySelector('#mt-sub');
-    if(sub) sub.innerHTML = (DB.academia && DB.academia.turma)
-      ? `Sua turma: <b>${safeTxt(DB.academia.turma)}</b>` : 'Grade da academia';
+    if(sub) sub.textContent = minhas.length
+      ? `${minhas.length} turma${minhas.length>1?'s':''} · seus horários`
+      : 'Você ainda não está matriculado em nenhuma turma. Fale com o professor.';
     const body = sh.querySelector('#mt-body'); if(!body) return;
     body.innerHTML = '';
-    const turmas = DB.turmas || [];
-    if(!turmas.length){ body.appendChild(el('<div class="empty-hint">A academia ainda não publicou a grade de horários.</div>')); return; }
-    body.appendChild(_gradeHorarios(turmas));
-    const minha = (DB.academia && DB.academia.turma) || '';
-    turmas.forEach(t=>{
-      const sou = !!minha && (minha===t.nome || minha.indexOf(t.nome+' ·')===0 || minha.split(' + ').indexOf(t.nome)>=0);
+    if(!todas.length){ body.appendChild(el('<div class="empty-hint">A academia ainda não publicou a grade de horários.</div>')); return; }
+    if(!minhas.length){ body.appendChild(el('<div class="empty-hint">Nenhuma turma na sua matrícula.</div>')); return; }
+
+    // Grid comparativo só faz sentido quando o aluno tem 2+ turmas
+    if(minhas.length > 1){
+      body.appendChild(_gradeHorarios(minhas));
+    }
+
+    // Card por turma — linha=dia, coluna=horário (alinhado como planilha)
+    const ORD_DIAS = ['seg','ter','qua','qui','sex','sab','dom'];
+    minhas.forEach(t=>{
       const card = el(`<div class="mt-turma" style="--tc:${safeAttr(t.cor||'#888')}">
-        <div class="mt-tnm">${safeTxt(t.nome)}${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}${sou?' <span class="mt-badge">sua turma</span>':''}</div>
-        <div class="mt-ses">${(t.sessoes||[]).map(s=>`<span class="mt-chip">${safeTxt(DL[s.dia]||s.dia)} ${safeTxt(s.hora)}${s.variacao?` · ${safeTxt(s.variacao)}`:''}${s.bilingue?' 🇺🇸':''}</span>`).join('')||'<span style="color:var(--muted);font-size:12px">Sem horários cadastrados</span>'}</div></div>`);
+        <div class="mt-tnm">${safeTxt(t.nome)}${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}</div>
+      </div>`);
+      const sess = t.sessoes||[];
+      if(!sess.length){
+        card.appendChild(el('<div style="color:var(--muted);font-size:12px;margin-top:10px">Sem horários cadastrados</div>'));
+        body.appendChild(card); return;
+      }
+      // Coleta horários únicos (colunas) e dias únicos (linhas) — ordenados
+      const horas = [...new Set(sess.map(s=>s.hora))].sort();
+      const diasComSess = ORD_DIAS.filter(d=> sess.some(s=>s.dia===d));
+      // Índice rápido: {dia|hora → sessão}
+      const idx = {};
+      sess.forEach(s=>{ idx[s.dia+'|'+s.hora]=s; });
+      const grid = el(`<div class="mt-grid"></div>`);
+      grid.style.gridTemplateColumns = `44px repeat(${horas.length}, minmax(0, 1fr))`;
+      // Cabeçalho de horários (canto vazio + colunas)
+      grid.appendChild(el('<div class="mt-gh mt-gh-corner"></div>'));
+      horas.forEach(h=> grid.appendChild(el(`<div class="mt-gh">${safeTxt(h)}</div>`)));
+      // Linhas por dia
+      diasComSess.forEach(d=>{
+        grid.appendChild(el(`<div class="mt-gd">${safeTxt(DL[d]||d)}</div>`));
+        horas.forEach(h=>{
+          const s = idx[d+'|'+h];
+          if(!s){ grid.appendChild(el('<div class="mt-gc empty"></div>')); return; }
+          // Ícone: logo Yama sem borda (t.logo custom quando a turma tiver seu próprio ícone)
+          const src = t.logo || 'brand/logo.png?v=2';
+          const logoHTML = `<img class="mt-gd-logo" src="${safeAttr(src)}" alt="" data-fallback="remove">`;
+          const extras = [s.variacao, s.bilingue?'🇺🇸':null].filter(Boolean).join(' · ');
+          grid.appendChild(el(`<div class="mt-gc">${logoHTML}${extras?`<i>${safeTxt(extras)}</i>`:''}</div>`));
+        });
+      });
+      card.appendChild(grid);
       body.appendChild(card);
     });
   };
@@ -7049,19 +7673,15 @@ function abrirEditarPerfil(){
 
 // ---- Configurações ----
 function abrirConfiguracoes(){
+  // Enxuto: só o essencial. Sair, Backup e "Sobre" saíram (duplicados/vazios).
+  // "Como usar" = Rever introdução (mesmo fluxo).
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Configurações</div>
     <div class="cfg-list">
-      <div class="cfg-row" id="cfg-ajuda"><span>📖 Como usar</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-metrics"><span>📈 Métricas do beta</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-feedback"><span>💬 Enviar feedback (beta)</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-backup"><span>💾 Backup do perfil (exportar/importar)</span><span class="cfg-go">›</span></div>
-      <div class="cfg-note">🔒 Seus dados ficam salvos na sua conta na nuvem e sincronizam entre aparelhos. O backup exportável segue disponível como segurança extra.</div>
+      <div class="cfg-row" id="cfg-ajuda"><span>📖 Como usar o Yama</span><span class="cfg-go">›</span></div>
       <div class="cfg-row" id="cfg-priv"><span>🔒 Privacidade & Termos</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-intro"><span>👋 Rever introdução</span><span class="cfg-go">›</span></div>
-      <div class="cfg-row" id="cfg-sobre"><span>ℹ️ Sobre o app</span><span class="cfg-go">›</span></div>
-      ${DB.sbUser?'<div class="cfg-row" id="cfg-sair"><span>🚪 Sair da conta</span><span class="cfg-go">›</span></div>':''}
+      <div class="cfg-row" id="cfg-feedback"><span>💬 Enviar feedback</span><span class="cfg-go">›</span></div>
       <div class="cfg-row danger" id="cfg-limpar"><span>🗑️ Apagar todos os dados</span><span class="cfg-go">›</span></div>
     </div>
     <button class="sheet-cancel" id="cfg-close">Fechar</button>
@@ -7069,15 +7689,10 @@ function abrirConfiguracoes(){
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#cfg-close').onclick=close;
-  sheet.querySelector('#cfg-ajuda').onclick=()=>{ close(); abrirAjuda(false); };
-  sheet.querySelector('#cfg-metrics').onclick=()=>{ close(); abrirMetricas(); };
-  sheet.querySelector('#cfg-feedback').onclick=()=>{ close(); abrirFeedback(); };
-  sheet.querySelector('#cfg-backup').onclick=()=>{ close(); abrirBackup(); };
+  sheet.querySelector('#cfg-ajuda').onclick=()=>{ close(); abrirOnboarding(); };
   sheet.querySelector('#cfg-priv').onclick=()=>{ close(); abrirPolitica(); };
-  sheet.querySelector('#cfg-intro').onclick=()=>{ close(); abrirOnboarding(); };
-  const _sairRow=sheet.querySelector('#cfg-sair'); if(_sairRow) _sairRow.onclick=()=>{ close(); _sairDaConta(); };
+  sheet.querySelector('#cfg-feedback').onclick=()=>{ close(); abrirFeedback(); };
   sheet.querySelector('#cfg-limpar').onclick=()=>{ close(); limparDados(); };
-  sheet.querySelector('#cfg-sobre').onclick=()=> toast('Yama Jiu-Jitsu · protótipo beta 🥋');
   document.body.appendChild(sheet);
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }

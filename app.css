@@ -1586,6 +1586,192 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .cad-row{display:flex;gap:10px;align-items:flex-end}
 .cad-row .inp{width:100%}
 .ca-opt{color:var(--muted);font-weight:600}
+/* ViaCEP: pulso sutil enquanto busca CEP */
+.inp.cep-loading{background-image:linear-gradient(90deg, var(--field) 0%, var(--hover) 50%, var(--field) 100%);
+  background-size:200% 100%;animation:cepShimmer 1s linear infinite}
+@keyframes cepShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ============================================================
+   TABELA ERP DENSA (professor · desktop ≥1024px)
+   Colunas .erp-c ficam ocultas no mobile; no desktop viram grid.
+   ============================================================ */
+.erp-head, .erp-c{display:none}
+.btn-cad.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);box-shadow:none;flex:none}
+.btn-cad.ghost:hover{background:var(--field)}
+@media (min-width:1024px){
+  body[data-role="professor"] .erp-head{
+    display:grid;
+    grid-template-columns: 32px 44px minmax(180px,1.4fr) 140px minmax(120px,1fr) 120px 78px 90px 36px;
+    gap:12px;align-items:center;
+    margin:0 20px 6px;padding:6px 15px;
+    font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
+  }
+  body[data-role="professor"] .erp-head .erp-c{display:block}
+  body[data-role="professor"] .erp-head button.erp-c{
+    background:none;border:none;padding:0;color:var(--muted);cursor:pointer;text-align:left;
+    font:inherit;letter-spacing:inherit;text-transform:inherit;
+  }
+  body[data-role="professor"] .erp-head button.erp-c:hover{color:var(--ink)}
+  body[data-role="professor"] .erp-head button.sort-on{color:var(--red-strong)}
+  body[data-role="professor"] .erp-head button.sort-on::after{content:" ▲";font-size:9px}
+  body[data-role="professor"] .erp-head button.sort-on.sort-desc::after{content:" ▼"}
+
+  /* linha vira grid com as mesmas colunas do header */
+  body[data-role="professor"] .erp-tbl .st-row.dt-row{
+    display:grid;
+    grid-template-columns: 32px 44px minmax(180px,1.4fr) 140px minmax(120px,1fr) 120px 78px 90px 36px;
+    gap:12px;align-items:center;
+    border-radius:12px;padding:10px 15px;
+  }
+  /* nome: some a "meta" mobile (belt+status inline) — colunas dedicadas exibem esses dados */
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .st-mid .meta{display:none}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .st-mid{min-width:0}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .st-mid .nm{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c{
+    display:block;font-size:12.5px;color:var(--ink);font-weight:600;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-days-cell{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:700}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-days-cell.warn{color:var(--red-strong)}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-pres-cell{color:var(--muted)}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{color:var(--muted)}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .st-right{justify-self:end}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .avatar{width:36px;height:36px;font-size:13px}
+
+  /* densidade compacta: menos padding + linhas mais estreitas */
+  body[data-role="professor"][data-erp-density="compact"] .erp-tbl .st-row.dt-row{padding:6px 12px}
+  body[data-role="professor"][data-erp-density="compact"] .erp-tbl .st-row.dt-row .avatar{width:28px;height:28px;font-size:11px}
+  body[data-role="professor"][data-erp-density="compact"] .erp-head{padding:4px 12px}
+  body[data-role="professor"][data-erp-density="compact"] .erp-tbl{gap:4px}
+}
+
+/* ---- Chips de filtro por faixa etária (Alunos + Excel) ---- */
+.et-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 12px}
+.et-chip{border:1.5px solid var(--line);background:var(--card);color:var(--muted);font-family:inherit;font-size:12px;
+  font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer}
+.et-chip.on{border-color:var(--red);color:var(--red-strong);background:var(--red-tint)}
+.et-chip:hover{color:var(--ink)}
+
+/* ---- Botão WhatsApp inline na tabela ERP ---- */
+.wa-ico{border:none;background:var(--green-tint);color:var(--green);font-size:14px;line-height:1;padding:6px 8px;
+  border-radius:8px;cursor:pointer;flex:none}
+.wa-ico:hover{background:var(--green);color:#fff}
+@media (max-width:1023px){ .erp-c-wa-btn{display:none !important} }
+
+/* ---- Sheet de templates de WhatsApp ---- */
+.wa-tpl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
+.wa-tpl{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 10px;
+  border:1.5px solid var(--line);background:var(--card);border-radius:14px;cursor:pointer;font-family:inherit;color:var(--ink)}
+.wa-tpl:hover{border-color:var(--green);background:var(--green-tint)}
+.wa-tpl-ic{font-size:22px}
+.wa-tpl-lbl{font-size:12px;font-weight:800;text-align:center}
+.wa-last{font-size:11.5px;font-weight:700;color:var(--muted);margin:4px 0 -4px;text-align:center}
+
+/* ---- Risco de abandono: tiles coloridos + linhas ---- */
+.risco-tile{position:relative;overflow:hidden}
+.risco-tile .risco-rng{font-size:10.5px;font-weight:700;color:var(--muted);margin-top:2px}
+.risco-tile.risco-critico   .sv{color:#c1121f}
+.risco-tile.risco-em_risco  .sv{color:#e07a13}
+.risco-tile.risco-atencao   .sv{color:#2f6fe5}
+.risco-tile.risco-engajado  .sv{color:#2fa86a}
+.risco-tile.risco-critico  { box-shadow:inset 4px 0 0 #c1121f, var(--shadow) }
+.risco-tile.risco-em_risco { box-shadow:inset 4px 0 0 #e07a13, var(--shadow) }
+.risco-tile.risco-atencao  { box-shadow:inset 4px 0 0 #2f6fe5, var(--shadow) }
+.risco-tile.risco-engajado { box-shadow:inset 4px 0 0 #2fa86a, var(--shadow) }
+.risco-list{padding:0 20px}
+.risco-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:13px;padding:10px 14px;
+  margin-bottom:6px;box-shadow:var(--shadow)}
+.risco-critico-list  .risco-row{background:linear-gradient(90deg, rgba(193,18,31,.10), var(--card) 40%)}
+.risco-em_risco-list .risco-row{background:linear-gradient(90deg, rgba(224,122,19,.10), var(--card) 40%)}
+.risco-atencao-list  .risco-row{background:linear-gradient(90deg, rgba(47,111,229,.08), var(--card) 40%)}
+.risco-row .risco-mid{flex:1;min-width:0}
+.risco-row .nm{font-size:14px;font-weight:700;color:var(--ink)}
+.risco-row .meta{display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap}
+.risco-row .risco-motivo{font-size:11.5px;font-weight:700;color:var(--muted)}
+.risco-row .risco-score{font-size:22px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;text-align:right}
+.risco-row .risco-score small{font-size:11px;font-weight:700;color:var(--muted);margin-left:2px}
+.risco-row .risco-wa{border:none;background:var(--green);color:#fff;font-family:inherit;font-size:12px;font-weight:800;
+  padding:8px 12px;border-radius:99px;cursor:pointer;white-space:nowrap;flex:none}
+.risco-row .risco-wa:hover{filter:brightness(1.05)}
+.risco-critico-list  .risco-row .risco-score{color:#c1121f}
+.risco-em_risco-list .risco-row .risco-score{color:#e07a13}
+.risco-atencao-list  .risco-row .risco-score{color:#2f6fe5}
+
+/* ---- Relatórios · Alunos (Excel) — tabela ampla scrollável ---- */
+.xls-wrap{padding:0 20px 12px}
+.xls-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.xls-bar .dt-search{margin:0;flex:1;min-width:220px}
+.xls-filters{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.xls-sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+.xls-count{font-size:11.5px;font-weight:700;color:var(--muted);margin:4px 2px 8px}
+.xls-scroll{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.xls-tbl{border-collapse:separate;border-spacing:0;font-size:12.5px;color:var(--ink);width:max-content;min-width:100%}
+.xls-tbl th,.xls-tbl td{padding:8px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+.xls-tbl thead th{position:sticky;top:0;background:var(--field);font-size:11px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.3px;color:var(--muted);z-index:2}
+.xls-tbl tbody tr{cursor:pointer}
+.xls-tbl tbody tr:hover{background:var(--hover)}
+.xls-tbl td.xls-act{padding:4px 8px}
+
+/* ---- Loja Yama · ticker: emoji só quando não tem foto ---- */
+.ld-img .ld-emoji{position:relative;z-index:1}
+.ld-img.has-img .ld-emoji{display:none}
+
+/* ---- Loja Yama · ticker rolante contínuo (aba Mais) ---- */
+.ld-ticker{overflow:hidden;position:relative;margin:6px -12px 0;padding:4px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.ld-track{display:flex;gap:12px;width:max-content;animation:ldMarquee 45s linear infinite;padding:0 12px}
+.ld-ticker:hover .ld-track, .ld-ticker:focus-within .ld-track{animation-play-state:paused}
+@keyframes ldMarquee{ from{ transform:translateX(0) } to{ transform:translateX(-50%) } }
+@media (prefers-reduced-motion: reduce){ .ld-track{ animation:none } }
+
+/* Botão discreto de troca de modo (rodapé do Mais) */
+.pro-switch-btn{display:block;margin:20px auto 12px;padding:11px 22px;background:none;border:1.5px dashed var(--line);
+  border-radius:99px;color:var(--muted);font-family:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.pro-switch-btn:hover{color:var(--ink);border-color:var(--ink)}
+.pro-logout{border-color:var(--red-tint);color:var(--red-strong)}
+.pro-logout:hover{color:#fff;background:var(--red-strong);border-color:var(--red-strong)}
+.pf-footer{text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin:18px 0 28px}
+
+/* Faixa no cabeçalho do Mais — centralizada abaixo do nome */
+.profile-head .pf-belt{display:flex;justify-content:center;margin-top:6px}
+
+/* ---- Onboarding: vídeos essenciais no INÍCIO do aluno (some no 1º grau) ---- */
+.onb-videos{margin:14px 20px 6px}
+.onb-videos .onb-hint{font-size:11px;font-weight:700;color:var(--muted)}
+.onb-strip{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:4px;margin:0 -4px;padding-left:4px;padding-right:4px}
+.onb-strip::-webkit-scrollbar{display:none}
+.onb-card{flex:none;width:170px;scroll-snap-align:start;background:var(--card);border-radius:14px;overflow:hidden;
+  box-shadow:var(--shadow);color:var(--ink);text-decoration:none;display:block}
+.onb-card:active{transform:scale(.98)}
+.onb-thumb{position:relative;aspect-ratio:16/9;background:#000;overflow:hidden}
+.onb-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.onb-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
+  font-size:24px;text-shadow:0 2px 8px rgba(0,0,0,.6);background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.35))}
+.onb-title{font-size:12.5px;font-weight:700;padding:8px 10px;line-height:1.3;color:var(--ink);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ---- Onboarding admin (professor) ---- */
+.onb-form{padding:14px 16px;margin:12px 20px 4px}
+.onb-hint-block{font-size:11.5px;font-weight:600;color:var(--muted);padding:0 24px 8px}
+.onb-prev{display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px;background:var(--field);border-radius:10px}
+.onb-prev img{width:96px;height:54px;object-fit:cover;border-radius:6px;background:#000;flex:none}
+.onb-prev-id{font-size:11.5px;font-weight:700;color:var(--muted)}
+.onb-admin-list{padding:0 20px 12px;display:flex;flex-direction:column;gap:8px}
+.onb-admin-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:13px;padding:8px 12px;box-shadow:var(--shadow)}
+.onb-admin-thumb{width:100px;height:56px;object-fit:cover;border-radius:8px;background:#000;flex:none}
+.onb-admin-mid{flex:1;min-width:0}
+.onb-admin-mid .nm{font-size:13.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.onb-admin-mid .meta{font-size:11px;font-weight:700;margin-top:2px}
+.onb-admin-mid .meta a{color:var(--muted);text-decoration:none}
+.onb-admin-mid .meta a:hover{color:var(--red-strong)}
+.onb-admin-acts{display:flex;align-items:center;gap:4px}
+.onb-mv,.onb-del{border:none;background:var(--field);color:var(--ink);width:30px;height:30px;border-radius:8px;
+  font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.onb-mv:disabled{opacity:.35;cursor:not-allowed}
+.onb-mv:not(:disabled):hover{background:var(--hover)}
+.onb-del{background:var(--red-tint);color:var(--red-strong)}
+.onb-del:hover{background:var(--red);color:#fff}
+
 /* ficha cadastral no detalhe do aluno */
 .ficha{background:var(--field);border-radius:14px;padding:12px 14px;margin:4px 0 14px}
 .ficha .ficha-h{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
@@ -1646,6 +1832,18 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .mt-badge{background:var(--green-tint);color:var(--good);font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:99px;margin-left:4px;vertical-align:1px}
 .mt-ses{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .mt-chip{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700}
+.mt-chip i{font-style:normal;color:var(--muted);font-weight:600}
+/* Grade linha=dia × coluna=horário (mini planilha). Colunas comprimem pra caber sem scroll. */
+.mt-grid{display:grid;gap:3px;margin-top:10px;width:100%}
+.mt-gh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;font-variant-numeric:tabular-nums;min-width:0}
+.mt-gh-corner{background:transparent}
+.mt-gd{font-size:12px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.3px;padding:8px 2px;display:flex;align-items:center;min-width:0}
+.mt-gc{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:52px;min-width:0}
+.mt-gc.empty{background:transparent;border:1px dashed transparent}
+.mt-gc .mt-gd-dot{width:8px;height:8px;border-radius:50%;background:var(--tc,#888);flex:none}
+.mt-gc .mt-gd-logo{width:34px;height:34px;object-fit:contain;flex:none;background:transparent;border-radius:0;box-shadow:none}
+.mt-gc .mt-gd-kanji{display:none}   /* obsoleto — usamos img da brand agora */
+.mt-gc i{font-style:normal;font-size:9.5px;font-weight:700;color:var(--muted);text-align:center;line-height:1.1;letter-spacing:.2px}
 
 /* === v200: tamanhos editáveis no produto + barras clicáveis === */
 .est-add{display:flex;gap:8px;margin-top:8px}

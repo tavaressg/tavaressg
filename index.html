@@ -9,7 +9,7 @@
      NOTA: frame-ancestors, HSTS e X-Content-Type-Options NÃO funcionam via <meta> — configure
      no HOST como HTTP headers: `Strict-Transport-Security`, `X-Frame-Options: DENY`
      (ou `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co https://img.youtube.com https://i.ytimg.com; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://viacep.com.br; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -31,7 +31,7 @@
 <link rel="manifest" href="manifest.json">
 <title>Yama · Jiu-Jitsu</title>
 <link rel="stylesheet" href="fonts.css?v=1">
-<link rel="stylesheet" href="app.css?v=146">
+<link rel="stylesheet" href="app.css?v=160">
 </head>
 <body>
 <!-- Splash screen -->
@@ -53,6 +53,6 @@
      regenere o hash com `node gen_sri.mjs` e atualize o integrity abaixo. -->
 <script src="vendor/supabase-js.min.js?v=1" integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
 <script src="supabase.js?v=27"></script>
-<script src="app.js?v=229"></script>
+<script src="app.js?v=249"></script>
 </body>
 </html>
