@@ -1826,8 +1826,9 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 
 /* === POPUP HORÁRIOS DAS TURMAS (aluno) === */
 .mt-sub{font-size:13px;color:var(--muted);margin:2px 0 10px}
-.mt-turma{border-left:4px solid var(--tc,#888);background:var(--field);border-radius:12px;padding:10px 12px;margin-top:10px}
-.mt-tnm{font-weight:800;font-size:14px}
+.mt-turma{border-left:5px solid var(--tc,#888);background:var(--field);border-radius:12px;padding:10px 12px;margin-top:10px}
+.mt-tnm{font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px}
+.mt-tnm .mt-tcolor{width:10px;height:10px;border-radius:50%;background:var(--tc,#888);flex:none;box-shadow:0 0 0 2px color-mix(in srgb, var(--tc,#888) 20%, transparent)}
 .mt-tid{color:var(--muted);font-weight:700;font-size:12px}
 .mt-badge{background:var(--green-tint);color:var(--good);font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:99px;margin-left:4px;vertical-align:1px}
 .mt-ses{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}

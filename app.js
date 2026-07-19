@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v250';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v251';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -6970,16 +6970,12 @@ function abrirMinhasTurmas(){
     if(!todas.length){ body.appendChild(el('<div class="empty-hint">A academia ainda não publicou a grade de horários.</div>')); return; }
     if(!minhas.length){ body.appendChild(el('<div class="empty-hint">Nenhuma turma na sua matrícula.</div>')); return; }
 
-    // Grid comparativo só faz sentido quando o aluno tem 2+ turmas
-    if(minhas.length > 1){
-      body.appendChild(_gradeHorarios(minhas));
-    }
-
     // Card por turma — linha=dia, coluna=horário (alinhado como planilha)
+    // Múltiplas turmas: cada card tem cor própria (border-left + chip no título)
     const ORD_DIAS = ['seg','ter','qua','qui','sex','sab','dom'];
     minhas.forEach(t=>{
       const card = el(`<div class="mt-turma" style="--tc:${safeAttr(t.cor||'#888')}">
-        <div class="mt-tnm">${safeTxt(t.nome)}${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}</div>
+        <div class="mt-tnm"><span class="mt-tcolor" aria-hidden="true"></span>${safeTxt(t.nome)}${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}</div>
       </div>`);
       const sess = t.sessoes||[];
       if(!sess.length){
