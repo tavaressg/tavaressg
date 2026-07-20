@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v251';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v252';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -6970,45 +6970,48 @@ function abrirMinhasTurmas(){
     if(!todas.length){ body.appendChild(el('<div class="empty-hint">A academia ainda não publicou a grade de horários.</div>')); return; }
     if(!minhas.length){ body.appendChild(el('<div class="empty-hint">Nenhuma turma na sua matrícula.</div>')); return; }
 
-    // Card por turma — linha=dia, coluna=horário (alinhado como planilha)
-    // Múltiplas turmas: cada card tem cor própria (border-left + chip no título)
+    // Card UNIFICADO — 1 grid pra todas as turmas (linha=dia, coluna=horário).
+    // Cada célula ocupada ganha cor da turma correspondente (borda + logo).
     const ORD_DIAS = ['seg','ter','qua','qui','sex','sab','dom'];
+    const allSess = [];
+    minhas.forEach(t=> (t.sessoes||[]).forEach(s=> allSess.push({...s, _t:t})));
+    if(!allSess.length){
+      body.appendChild(el('<div class="empty-hint">Suas turmas ainda não têm horários cadastrados.</div>'));
+      return;
+    }
+    // Legenda no topo: cor + nome de cada turma (só faz sentido pra 2+; pra 1 turma vira título)
+    const legenda = el(`<div class="mt-legenda"></div>`);
     minhas.forEach(t=>{
-      const card = el(`<div class="mt-turma" style="--tc:${safeAttr(t.cor||'#888')}">
-        <div class="mt-tnm"><span class="mt-tcolor" aria-hidden="true"></span>${safeTxt(t.nome)}${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}</div>
-      </div>`);
-      const sess = t.sessoes||[];
-      if(!sess.length){
-        card.appendChild(el('<div style="color:var(--muted);font-size:12px;margin-top:10px">Sem horários cadastrados</div>'));
-        body.appendChild(card); return;
-      }
-      // Coleta horários únicos (colunas) e dias únicos (linhas) — ordenados
-      const horas = [...new Set(sess.map(s=>s.hora))].sort();
-      const diasComSess = ORD_DIAS.filter(d=> sess.some(s=>s.dia===d));
-      // Índice rápido: {dia|hora → sessão}
-      const idx = {};
-      sess.forEach(s=>{ idx[s.dia+'|'+s.hora]=s; });
-      const grid = el(`<div class="mt-grid"></div>`);
-      grid.style.gridTemplateColumns = `44px repeat(${horas.length}, minmax(0, 1fr))`;
-      // Cabeçalho de horários (canto vazio + colunas)
-      grid.appendChild(el('<div class="mt-gh mt-gh-corner"></div>'));
-      horas.forEach(h=> grid.appendChild(el(`<div class="mt-gh">${safeTxt(h)}</div>`)));
-      // Linhas por dia
-      diasComSess.forEach(d=>{
-        grid.appendChild(el(`<div class="mt-gd">${safeTxt(DL[d]||d)}</div>`));
-        horas.forEach(h=>{
-          const s = idx[d+'|'+h];
-          if(!s){ grid.appendChild(el('<div class="mt-gc empty"></div>')); return; }
-          // Ícone: logo Yama sem borda (t.logo custom quando a turma tiver seu próprio ícone)
-          const src = t.logo || 'brand/logo.png?v=2';
-          const logoHTML = `<img class="mt-gd-logo" src="${safeAttr(src)}" alt="" data-fallback="remove">`;
-          const extras = [s.variacao, s.bilingue?'🇺🇸':null].filter(Boolean).join(' · ');
-          grid.appendChild(el(`<div class="mt-gc">${logoHTML}${extras?`<i>${safeTxt(extras)}</i>`:''}</div>`));
-        });
-      });
-      card.appendChild(grid);
-      body.appendChild(card);
+      const chip = el(`<span class="mt-legenda-item" style="--tc:${safeAttr(t.cor||'#888')}">
+        <span class="mt-tcolor" aria-hidden="true"></span>
+        <b>${safeTxt(t.nome)}</b>${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}
+      </span>`);
+      legenda.appendChild(chip);
     });
+    body.appendChild(legenda);
+    // Coleta horários (colunas) e dias (linhas) do UNIÃO das turmas
+    const horas = [...new Set(allSess.map(s=>s.hora))].sort();
+    const diasComSess = ORD_DIAS.filter(d=> allSess.some(s=>s.dia===d));
+    // Índice: {dia|hora → sessão} — se houver conflito, mantém o 1º (raro)
+    const idx = {};
+    allSess.forEach(s=>{ const k=s.dia+'|'+s.hora; if(!idx[k]) idx[k]=s; });
+    const grid = el(`<div class="mt-grid"></div>`);
+    grid.style.gridTemplateColumns = `44px repeat(${horas.length}, minmax(0, 1fr))`;
+    grid.appendChild(el('<div class="mt-gh mt-gh-corner"></div>'));
+    horas.forEach(h=> grid.appendChild(el(`<div class="mt-gh">${safeTxt(h)}</div>`)));
+    diasComSess.forEach(d=>{
+      grid.appendChild(el(`<div class="mt-gd">${safeTxt(DL[d]||d)}</div>`));
+      horas.forEach(h=>{
+        const s = idx[d+'|'+h];
+        if(!s){ grid.appendChild(el('<div class="mt-gc empty"></div>')); return; }
+        const t = s._t; const cor = t.cor||'#888';
+        const src = t.logo || 'brand/logo.png?v=2';
+        const logoHTML = `<img class="mt-gd-logo" src="${safeAttr(src)}" alt="" data-fallback="remove">`;
+        const extras = [s.variacao, s.bilingue?'🇺🇸':null].filter(Boolean).join(' · ');
+        grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">${logoHTML}${extras?`<i>${safeTxt(extras)}</i>`:''}</div>`));
+      });
+    });
+    body.appendChild(grid);
   };
   paint();
   if(!DEMO && typeof sbSync!=='undefined' && DB.sbUser){
