@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v254';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v255';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1296,16 +1296,18 @@ function alunoInicio(){
         <span>Boas-vindas ao tatame</span>
         ${hasMore ? `<a class="onb-all" role="button" tabindex="0">Ver todos (${_onbVids.length}) ›</a>` : ''}
       </div>
-      <a class="onb-card onb-card-hero" href="${safeAttr(_ytWatch(nextVid.id))}" target="_blank" rel="noopener" aria-label="Assistir: ${safeAttr(nextVid.title)}">
+      <button class="onb-card onb-card-hero" type="button" aria-label="Assistir: ${safeAttr(nextVid.title)}">
         <div class="onb-thumb"><img src="${safeAttr(_ytThumb(nextVid.id))}" alt="" data-fallback="remove"><span class="onb-play">▶</span></div>
         <div class="onb-title">${safeTxt(nextVid.title)}</div>
-      </a>
+      </button>
     </div>`);
-    // Marca visto ao clicar (client-only; sync futuro quando migrar pra Supabase)
+    // Play inline no app + marca visto
     sec.querySelector('.onb-card').addEventListener('click', ()=>{
-      if(_seen.includes(nextVid.id)) return;
-      _seen.push(nextVid.id);
-      try{ localStorage.setItem('yama.videos.seen', JSON.stringify(_seen)); }catch(_){}
+      if(!_seen.includes(nextVid.id)){
+        _seen.push(nextVid.id);
+        try{ localStorage.setItem('yama.videos.seen', JSON.stringify(_seen)); }catch(_){}
+      }
+      _abrirPlayerYT(nextVid.id, nextVid.title);
     });
     const _all = sec.querySelector('.onb-all');
     if(_all){
@@ -5474,6 +5476,28 @@ function _ytIdFromUrl(v){
 }
 function _ytThumb(id){ return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : ''; }
 function _ytWatch(id){ return id ? `https://www.youtube.com/watch?v=${id}` : ''; }
+function _ytEmbed(id){ return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1` : ''; }
+/* Player em sheet: abre o vídeo dentro do app (iframe YouTube-nocookie) */
+function _abrirPlayerYT(id, titulo){
+  if(!id) return;
+  const sheet = el(`<div class="sheet-overlay yt-player-overlay"><div class="sheet yt-player-sheet" role="dialog" aria-label="Vídeo">
+    <div class="sheet-grip"></div>
+    <div class="yt-frame-wrap"><iframe class="yt-frame" src="${safeAttr(_ytEmbed(id))}" title="${safeAttr(titulo||'YouTube')}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+    ${titulo?`<div class="yt-title">${safeTxt(titulo)}</div>`:''}
+    <div class="yt-actions">
+      <a class="yt-open" href="${safeAttr(_ytWatch(id))}" target="_blank" rel="noopener">Abrir no YouTube ↗</a>
+      <button class="sheet-cancel" id="yt-close">Fechar</button>
+    </div>
+  </div></div>`);
+  const close=()=>{
+    // limpa src pra parar o vídeo (senão continua tocando ao fechar)
+    const f = sheet.querySelector('.yt-frame'); if(f) f.src = 'about:blank';
+    sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),200);
+  };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#yt-close').onclick=close;
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
 function _getOnboardVideos(){
   try{ return JSON.parse(localStorage.getItem('yama.videos.onboard')||'[]'); }
   catch(_){ return []; }
@@ -5500,15 +5524,17 @@ function _abrirOnbSheet(vids, seen){
   const list = sheet.querySelector('#onb-list');
   vids.forEach(v=>{
     const visto = seen.includes(v.id);
-    const item = el(`<a class="onb-lrow ${visto?'seen':''}" href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">
+    const item = el(`<button class="onb-lrow ${visto?'seen':''}" type="button">
       <img class="onb-lthumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
       <div class="onb-lmid"><div class="nm">${safeTxt(v.title)}</div>${visto?'<div class="meta">✓ assistido</div>':''}</div>
       <span class="onb-lgo">▶</span>
-    </a>`);
+    </button>`);
     item.addEventListener('click', ()=>{
-      if(seen.includes(v.id)) return;
-      seen.push(v.id);
-      try{ localStorage.setItem('yama.videos.seen', JSON.stringify(seen)); }catch(_){}
+      if(!seen.includes(v.id)){
+        seen.push(v.id);
+        try{ localStorage.setItem('yama.videos.seen', JSON.stringify(seen)); }catch(_){}
+      }
+      _abrirPlayerYT(v.id, v.title);
     });
     list.appendChild(item);
   });

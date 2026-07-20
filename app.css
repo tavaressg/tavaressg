@@ -1739,7 +1739,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .onb-videos{margin:14px 20px 6px}
 .onb-videos .sec-title{text-transform:uppercase;letter-spacing:.3px;color:var(--muted);font-size:11px;font-weight:800}
 .onb-all{font-size:11.5px;font-weight:800;color:var(--red-strong);cursor:pointer;text-decoration:none}
-.onb-card{background:var(--card);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);color:var(--ink);text-decoration:none;display:block}
+.onb-card{background:var(--card);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);color:var(--ink);text-decoration:none;display:block;text-align:left;border:none;padding:0;font:inherit;cursor:pointer;width:100%}
 .onb-card:active{transform:scale(.99)}
 .onb-card-hero{max-width:280px;margin:0 auto}
 .onb-thumb{position:relative;aspect-ratio:16/9;background:#000;overflow:hidden}
@@ -1751,7 +1751,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 
 /* Sheet "Ver todos" — lista compacta */
 .onb-list{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.onb-lrow{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;text-decoration:none;color:var(--ink)}
+.onb-lrow{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;text-decoration:none;color:var(--ink);text-align:left;font:inherit;cursor:pointer;width:100%}
 .onb-lrow:hover{background:var(--hover)}
 .onb-lrow.seen{opacity:.55}
 .onb-lthumb{width:96px;height:54px;object-fit:cover;border-radius:8px;background:#000;flex:none}
@@ -1759,6 +1759,17 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .onb-lmid .nm{font-size:13.5px;font-weight:700;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .onb-lmid .meta{font-size:11px;font-weight:700;color:var(--good);margin-top:3px}
 .onb-lgo{color:var(--red-strong);font-size:16px;font-weight:800;flex:none}
+
+/* Player YouTube embutido (iframe nocookie) — sheet centralizada */
+.yt-player-overlay{align-items:center}
+.yt-player-sheet{max-width:640px;width:calc(100% - 24px);border-radius:16px;padding:14px}
+.yt-frame-wrap{position:relative;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;margin-top:6px}
+.yt-frame{position:absolute;inset:0;width:100%;height:100%;border:0}
+.yt-title{font-size:14px;font-weight:800;color:var(--ink);margin:10px 4px 0;line-height:1.3}
+.yt-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.yt-open{font-size:12px;font-weight:800;color:var(--muted);text-decoration:none;padding:8px 4px}
+.yt-open:hover{color:var(--red-strong)}
+.yt-actions .sheet-cancel{margin:0}
 
 /* ---- Onboarding admin (professor) ---- */
 .onb-form{padding:14px 16px;margin:12px 20px 4px}
