@@ -1741,7 +1741,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .onb-all{font-size:11.5px;font-weight:800;color:var(--red-strong);cursor:pointer;text-decoration:none}
 .onb-card{background:var(--card);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);color:var(--ink);text-decoration:none;display:block}
 .onb-card:active{transform:scale(.99)}
-.onb-card-hero{width:100%}
+.onb-card-hero{max-width:280px;margin:0 auto}
 .onb-thumb{position:relative;aspect-ratio:16/9;background:#000;overflow:hidden}
 .onb-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .onb-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
