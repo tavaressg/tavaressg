@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v253';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v254';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1284,24 +1284,34 @@ function alunoInicio(){
   // ---- Selo de consistência (streak) leve, abaixo da faixa (some pro aluno novo) ----
   const _sb = streakBadge(); if(_sb) w.appendChild(_sb);
 
-  // ---- Onboarding: vídeos essenciais (some quando o aluno passa do 1º grau da branca) ----
+  // ---- Onboarding: 1 vídeo destacado + link "Ver todos" pra biblioteca completa ----
   const _onbVids = _alunoOnboardOn() ? _getOnboardVideos() : [];
   if(_onbVids.length){
+    // Escolhe o próximo não-assistido (ou o primeiro, se todos visto/nenhum log)
+    const _seen = (()=>{ try{ return JSON.parse(localStorage.getItem('yama.videos.seen')||'[]'); }catch(_){ return []; } })();
+    const nextVid = _onbVids.find(v=>!_seen.includes(v.id)) || _onbVids[0];
+    const hasMore = _onbVids.length > 1;
     const sec = el(`<div class="onb-videos">
       <div class="sec-title" style="display:flex;justify-content:space-between;align-items:baseline;padding:0 4px 6px">
-        <span>🥋 Antes do primeiro treino</span>
-        <span class="onb-hint">Assista com calma</span>
+        <span>Boas-vindas ao tatame</span>
+        ${hasMore ? `<a class="onb-all" role="button" tabindex="0">Ver todos (${_onbVids.length}) ›</a>` : ''}
       </div>
-      <div class="onb-strip"></div>
+      <a class="onb-card onb-card-hero" href="${safeAttr(_ytWatch(nextVid.id))}" target="_blank" rel="noopener" aria-label="Assistir: ${safeAttr(nextVid.title)}">
+        <div class="onb-thumb"><img src="${safeAttr(_ytThumb(nextVid.id))}" alt="" data-fallback="remove"><span class="onb-play">▶</span></div>
+        <div class="onb-title">${safeTxt(nextVid.title)}</div>
+      </a>
     </div>`);
-    const strip = sec.querySelector('.onb-strip');
-    _onbVids.forEach(v=>{
-      const card = el(`<a class="onb-card" href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener" aria-label="Assistir: ${safeAttr(v.title)}">
-        <div class="onb-thumb"><img src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove"><span class="onb-play">▶</span></div>
-        <div class="onb-title">${safeTxt(v.title)}</div>
-      </a>`);
-      strip.appendChild(card);
+    // Marca visto ao clicar (client-only; sync futuro quando migrar pra Supabase)
+    sec.querySelector('.onb-card').addEventListener('click', ()=>{
+      if(_seen.includes(nextVid.id)) return;
+      _seen.push(nextVid.id);
+      try{ localStorage.setItem('yama.videos.seen', JSON.stringify(_seen)); }catch(_){}
     });
+    const _all = sec.querySelector('.onb-all');
+    if(_all){
+      _all.onclick = ()=> _abrirOnbSheet(_onbVids, _seen);
+      _all.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _abrirOnbSheet(_onbVids, _seen); } };
+    }
     w.appendChild(sec);
   }
 
@@ -5474,6 +5484,35 @@ function _setOnboardVideos(arr){
 /* Aluno ainda no onboarding? (faixa branca sem grau — some no 1º grau, decisão do dono) */
 function _alunoOnboardOn(){
   const me=DB.eu; return me && me.faixa==='branca' && (me.graus||0) < 1;
+}
+/* Sheet com a biblioteca completa de vídeos de onboarding (aberta pelo "Ver todos"). */
+function _abrirOnbSheet(vids, seen){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Vídeos de boas-vindas" style="max-height:90vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Boas-vindas ao tatame</div>
+    <div class="sheet-desc">${vids.length} vídeo${vids.length>1?'s':''} do professor. Toque num pra assistir no YouTube.</div>
+    <div class="onb-list" id="onb-list"></div>
+    <button class="sheet-cancel" id="onb-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),200); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#onb-close').onclick=close;
+  const list = sheet.querySelector('#onb-list');
+  vids.forEach(v=>{
+    const visto = seen.includes(v.id);
+    const item = el(`<a class="onb-lrow ${visto?'seen':''}" href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">
+      <img class="onb-lthumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
+      <div class="onb-lmid"><div class="nm">${safeTxt(v.title)}</div>${visto?'<div class="meta">✓ assistido</div>':''}</div>
+      <span class="onb-lgo">▶</span>
+    </a>`);
+    item.addEventListener('click', ()=>{
+      if(seen.includes(v.id)) return;
+      seen.push(v.id);
+      try{ localStorage.setItem('yama.videos.seen', JSON.stringify(seen)); }catch(_){}
+    });
+    list.appendChild(item);
+  });
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* Aniversariantes só de HOJE (subset de _aniversariantes) — usado no painel. */
