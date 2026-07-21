@@ -1900,6 +1900,64 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* Grade linha=dia × coluna=horário (mini planilha). Colunas comprimem pra caber sem scroll. */
 .mt-grid{display:grid;gap:3px;margin-top:10px;width:100%}
 .mt-gh{font-size:13px;font-weight:800;color:var(--ink);text-align:center;padding:8px 2px 10px;font-variant-numeric:tabular-nums;min-width:0;border-bottom:2px solid var(--line);letter-spacing:.3px}
+
+/* ============================================================
+   ERP — tela do aluno (protótipo v274). Layout de 3 colunas em
+   desktop, coluna única no mobile. Substitui a pilha vertical
+   antiga por navegação em abas + KPIs fixos à esquerda.
+   ============================================================ */
+.erp-aluno{padding:0;max-width:100%;background:var(--bg,#f4f4f6);min-height:100vh}
+.erp-hd{display:flex;align-items:center;gap:12px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.erp-back{border:none;background:transparent;color:var(--red-strong);font-weight:800;font-size:14px;cursor:pointer;padding:6px 4px}
+.erp-hd-main{flex:1;min-width:0}
+.erp-hd-nome{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+.erp-hd-sub{margin-top:2px;font-size:12px;color:var(--muted)}
+.erp-belt-pill{display:inline-flex;align-items:center;gap:6px;background:var(--field);border-left:3px solid var(--bc,#888);border-radius:6px;padding:3px 10px;font-weight:700;color:var(--ink);font-size:12px}
+.erp-hd-acts{display:flex;gap:8px}
+.erp-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.erp-btn.primary{background:var(--red);color:#fff;border-color:var(--red)}
+.erp-btn.sm{padding:5px 10px;font-size:11px;font-weight:700}
+.erp-tabs{display:flex;gap:2px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.erp-tabs::-webkit-scrollbar{display:none}
+.erp-tab{flex:none;border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:12px 14px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+.erp-tab.on{color:var(--ink);border-bottom-color:var(--red)}
+.erp-grid{display:grid;grid-template-columns:220px 1fr 220px;gap:16px;padding:16px 20px 40px}
+@media (max-width:800px){ .erp-grid{grid-template-columns:1fr;gap:12px} .erp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px} .erp-actions{display:flex;flex-wrap:wrap;gap:8px} }
+.erp-kpi{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);margin-bottom:8px}
+.erp-kpi-v{font-size:18px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.erp-kpi-l{font-size:10.5px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.3px;margin-top:2px}
+.erp-kpi.warn .erp-kpi-v{color:var(--red-strong)}
+.erp-main{min-width:0}
+.erp-card{background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px}
+.erp-card-h{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.erp-fld{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.erp-fld:last-child{border-bottom:none}
+.erp-fld label{font-size:12px;color:var(--muted);font-weight:600;flex:none}
+.erp-fld-v{font-size:13px;color:var(--ink);font-weight:600;text-align:right;word-break:break-word}
+.erp-fld-v i{color:var(--muted);font-style:normal}
+.erp-actions .erp-act{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:10px 12px;font-weight:600;font-size:12.5px;cursor:pointer;margin-bottom:6px}
+.erp-actions .erp-act.danger{color:var(--red-strong)}
+.erp-actions .erp-act:hover{background:var(--field)}
+/* Timeline */
+.erp-tl{margin:0 -4px}
+.erp-tl-empty{color:var(--muted);font-size:13px;padding:20px 8px;text-align:center}
+.erp-tl-item{display:flex;gap:12px;padding:6px 0}
+.erp-tl-rail{width:14px;flex:none;display:flex;flex-direction:column;align-items:center}
+.erp-tl-dot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 3px var(--card),0 0 0 4px var(--line);margin-top:4px;flex:none}
+.erp-tl-line{flex:1;width:2px;background:var(--line);margin-top:4px}
+.erp-tl-bd{flex:1;padding-bottom:14px;min-width:0}
+.erp-tl-t{font-size:14px;font-weight:800;color:var(--ink)}
+.erp-tl-dt{font-size:11px;color:var(--muted);margin-top:2px;font-weight:600}
+.erp-tl-dt i{font-style:normal;color:var(--muted);opacity:.75}
+.erp-tl-nt{font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;padding:6px 10px;background:var(--field);border-radius:6px}
+.erp-tl-acts{margin-top:6px;display:flex;gap:6px;opacity:0;transition:opacity .15s}
+.erp-tl-item:hover .erp-tl-acts, .erp-tl-item:focus-within .erp-tl-acts{opacity:1}
+.erp-mini{border:none;background:var(--field);color:var(--muted);width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:12px}
+.erp-mini.danger{color:var(--red-strong)}
+.erp-mini:hover{background:var(--line);color:var(--ink)}
+.erp-tl-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);font-weight:600;text-align:center}
+.erp-tl-stats b{display:block;color:var(--ink);font-size:14px;font-weight:800;margin-bottom:2px}
+@media (max-width:600px){ .erp-tl-acts{opacity:1} }
 .mt-gh-corner{background:transparent}
 .mt-gd{font-size:12px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.3px;padding:8px 2px;display:flex;align-items:center;min-width:0}
 /* Chip 2 linhas — MESMO design do professor (.g-chip): cor sólida da turma no fundo,

@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v273';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v274';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -5023,6 +5023,16 @@ function _bulkGraduar(alunos, refresh){
 
 // Ficha do aluno em TELA CHEIA (navegação via DB.alunoAberto), não bottom sheet.
 // _profAlunoSheet(a) (usado em todo o app) vira um atalho que navega para cá.
+/* ============================================================
+   ALUNO — Detalhe estilo ERP (protótipo visual, v274)
+   Layout 3 colunas em desktop (KPIs | conteúdo aba | ações),
+   colapsa em coluna única no mobile. Abas: Ficha, Graduação,
+   Presenças, Lesões, Técnicas.
+   ATENÇÃO: aba Graduação com CRUD IN-MEMORY (não persiste no
+   backend ainda — é protótipo pra aprovação visual). Depois:
+   ligar sbProf.salvarGraduacao / removerGraduacao no _addGrad,
+   _editGrad, _delGrad.
+   ============================================================ */
 function profAlunoDetalhe(a){
   const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   // Ficha cadastral (gestão) — só quando há dados (alunos cadastrados via formulário completo).
@@ -5042,95 +5052,265 @@ function profAlunoDetalhe(a){
       ${c.obs?`<div class="ficha-obs">📝 ${safeTxt(c.obs)}</div>`:''}
     </div>`;
   }
-  const sheet = el(`<div class="aluno-full">
-    <div class="rel-back" role="button" tabindex="0" id="pa-back"><span>‹ Voltar</span></div>
-    <div class="rel-det-h">${safeTxt(a.nm)}</div>
-    <div class="sheet-desc" style="margin:0 20px 12px">${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${safeTxt(a.graus)}º grau</div>
-    <div class="aluno-full-body">
-    ${ficha}
-    <div class="grad-tl-sec">
-      <div class="ficha-h">Linha do tempo de graduação</div>
-      <div id="pa-grad-tl"><div class="tl-empty">Carregando…</div></div>
+  // Aba ativa (persistida na navegação da sessão). Default: Ficha.
+  const tab = DB._alunoTab || 'ficha';
+  const tabs = [
+    ['ficha','📋 Ficha'],['grad','🥋 Graduação'],['pres','✅ Presenças'],
+    ['les','🩹 Lesões'],['tec','📖 Técnicas'],
+  ];
+  const beltInfo = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
+  const sheet = el(`<div class="erp-aluno">
+    <div class="erp-hd">
+      <button class="erp-back" id="pa-back" aria-label="Voltar">‹ Voltar</button>
+      <div class="erp-hd-main">
+        <div class="erp-hd-nome">${safeTxt(a.nm)}</div>
+        <div class="erp-hd-sub"><span class="erp-belt-pill" style="--bc:${beltInfo.cor}">${safeTxt(beltInfo.nome)}${a.graus?' · '+a.graus+'º grau':''}</span></div>
+      </div>
+      <div class="erp-hd-acts">
+        <button class="erp-btn primary" id="pa-grad-quick">🥋 Graduar</button>
+      </div>
     </div>
-    <div class="grad-tl-sec">
-      <div class="ficha-h">Lesões</div>
-      <div id="pa-lesoes"><div class="tl-empty">Carregando…</div></div>
+    <div class="erp-tabs">
+      ${tabs.map(([k,l])=>`<button class="erp-tab${k===tab?' on':''}" data-t="${k}">${l}</button>`).join('')}
     </div>
-    <div class="grad-tl-sec">
-      <div class="ficha-h">Progresso de técnica</div>
-      <div id="pa-prog"><div class="tl-empty">Carregando…</div></div>
+    <div class="erp-grid">
+      <aside class="erp-kpis" id="pa-kpis"></aside>
+      <main class="erp-main" id="pa-main"></main>
+      <aside class="erp-actions" id="pa-actions"></aside>
     </div>
-    <div class="grad-tl-sec">
-      <div class="ficha-h">Perfil de treino</div>
-      <div id="pa-perfil"><div class="tl-empty">Carregando…</div></div>
-    </div>
-    <div class="grad-tl-sec">
-      <div class="ficha-h">Observações do professor</div>
-      <div id="pa-obs"></div>
-    </div>
-    <div class="cfg-list">
-      ${a.pres
-        ?'<div class="cfg-row danger" id="pa-rem"><span>❌ Remover presença</span></div>'
-        :'<div class="cfg-row" id="pa-add"><span>✓ Lançar presença agora</span></div>'}
-      ${a.pago==='late'
-        ?'<div class="cfg-row" id="pa-pago"><span>💰 Marcar como pago</span></div>'
-        :'<div class="cfg-row danger" id="pa-late"><span>⚠️ Marcar como vencido</span></div>'}
-      ${_waLink(a)?'<div class="cfg-row" id="pa-wa"><span>💬 Chamar no WhatsApp</span></div>':''}
-      <div class="cfg-row" id="pa-grad"><span>🥋 Graduar</span></div>
-      <div class="cfg-row" id="pa-retro"><span>🕰️ Registrar graduação retroativa</span></div>
-      <div class="cfg-row" id="pa-ficha"><span>✏️ Editar ficha cadastral</span></div>
-      ${(DB.eu && DB.eu.role==='dono' && !a._self)?'<div class="cfg-row" id="pa-promo"><span>⬆️ Promover a professor</span></div>':''}
-      ${(a._self||a.role==='professor'||a.role==='dono')?'':'<div class="cfg-row danger" id="pa-del"><span>🗑️ Excluir aluno</span></div>'}
-    </div>
-  </div></div>`);
-  const close=()=>{ DB.alunoAberto=null; render(); window.scrollTo(0,0); };
+  </div>`);
+  const close=()=>{ DB.alunoAberto=null; DB._alunoTab=null; render(); window.scrollTo(0,0); };
   const refresh=()=>{ _profData=null; _profTs=0; _loadProfData(); };
-  const backBtn=sheet.querySelector('#pa-back');
-  if(backBtn){ backBtn.onclick=close; backBtn.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); close(); } }; }
-  const waRow=sheet.querySelector('#pa-wa');
-  if(waRow) waRow.onclick=()=>{ const u=_waLink(a); if(u) window.open(u,'_blank','noopener'); };
-  const retroRow=sheet.querySelector('#pa-retro');
-  if(retroRow) retroRow.onclick=()=>{ _gradRetroSheet(a); };
-  // Painéis gerenciais: graduação (timeline) + lesões + progresso de técnica.
-  // Reusa uma única chamada getAlunoDetalhe (backend); self usa dados locais; senão fallback ao mock.
-  const tlBox=sheet.querySelector('#pa-grad-tl'), lesBox=sheet.querySelector('#pa-lesoes'), progBox=sheet.querySelector('#pa-prog');
-  const perfBox=sheet.querySelector('#pa-perfil'), obsBox=sheet.querySelector('#pa-obs');
-  const fillAll=(grads, lesoes, prog, freq)=>{
-    if(tlBox){ tlBox.innerHTML=''; tlBox.appendChild(_gradTimelineNode(grads)); }
-    if(lesBox){ lesBox.innerHTML=''; lesBox.appendChild(_lesoesPanelNode(lesoes)); }
-    if(progBox){ progBox.innerHTML=''; progBox.appendChild(_progressoPanelNode(prog)); }
-    if(perfBox){ perfBox.innerHTML=''; perfBox.appendChild(_perfilTreinoNode(freq)); }
-    if(obsBox){ obsBox.innerHTML=''; obsBox.appendChild(_obsPanelNode(a)); }
+  sheet.querySelector('#pa-back').onclick=close;
+  sheet.querySelector('#pa-grad-quick').onclick=()=>{ _profGraduarSheet(a, ()=>{ refresh(); render(); }); };
+  // troca de aba
+  sheet.querySelectorAll('.erp-tab').forEach(b=> b.onclick=()=>{ DB._alunoTab=b.dataset.t; render(); });
+  // Carrega dados do backend (idem versão anterior) e re-renderiza colunas.
+  const kpisBox=sheet.querySelector('#pa-kpis');
+  const mainBox=sheet.querySelector('#pa-main');
+  const actsBox=sheet.querySelector('#pa-actions');
+  const paint=()=>{
+    kpisBox.innerHTML=''; kpisBox.appendChild(_erpKpis(a));
+    mainBox.innerHTML=''; mainBox.appendChild(_erpMain(a, tab, refresh, paint, c, hora));
+    actsBox.innerHTML=''; actsBox.appendChild(_erpActions(a, tab, refresh, paint, hora));
   };
   const selfFreq=()=> (DB.treinos||[]).filter(t=>t.data).map(t=>({data:t.data, hora:null, tipo:t.tipo||null}));
-  if(a._self) fillAll(DB.graduacoes||[], DB.lesoes||[], _selfProgresso(), selfFreq());
-  else if(Array.isArray(a.graduacoes)||Array.isArray(a.lesoes)||Array.isArray(a.progresso))
-    fillAll(a.graduacoes||[], a.lesoes||[], a.progresso||[], a.frequencia||[]);
-  else if(!DEMO && typeof sbProf!=='undefined' && sbProf.getAlunoDetalhe){
+  if(a._self){
+    a.graduacoes=DB.graduacoes||[]; a.lesoes=DB.lesoes||[]; a.progresso=_selfProgresso(); a.frequencia=selfFreq();
+    paint();
+  } else if(Array.isArray(a.graduacoes)||Array.isArray(a.lesoes)||Array.isArray(a.progresso)){
+    paint();
+  } else if(!DEMO && typeof sbProf!=='undefined' && sbProf.getAlunoDetalhe){
+    paint();   // esqueleto imediato
     sbProf.getAlunoDetalhe(a.id).then(d=>{
       a.graduacoes=(d&&d.graduacoes)||[]; a.lesoes=(d&&d.lesoes)||[]; a.progresso=(d&&d.progresso)||[];
       a.frequencia=(d&&d.frequencia)||[]; a.notas=(d&&d.notas)||[];
-      fillAll(a.graduacoes, a.lesoes, a.progresso, a.frequencia);
-    }).catch(()=>fillAll([],[],[],[]));
-  } else fillAll([],[],[],[]);
-  const r1=sheet.querySelector('#pa-add');
-  const r2=sheet.querySelector('#pa-rem');
-  const r3=sheet.querySelector('#pa-pago');
-  const r4=sheet.querySelector('#pa-late');
-  // _self → escreve nos dados reais do aluno (DB.checkinHoje/mensalidade); senão no mock. Ver _profSet*.
-  // Presença/pagamento: muta e re-renderiza a própria tela do aluno (fica nela).
-  if(r1) r1.onclick=()=>{ _profSetPresenca(a,hora); refresh(); render(); toast('Presença lançada ✔'); };
-  if(r2) r2.onclick=()=>{ _profSetPresenca(a,null); refresh(); render(); toast('Presença removida'); };
-  if(r3) r3.onclick=()=>{ _profSetPago(a,'ok');   refresh(); render(); toast('Marcado como pago ✔'); };
-  if(r4) r4.onclick=()=>{ _profSetPago(a,'late'); refresh(); render(); toast('Marcado como vencido'); };
-  // Graduar/editar ficha/promover: abrem sheet POR CIMA da tela cheia (sem sair dela).
-  sheet.querySelector('#pa-grad').onclick=()=>{ _profGraduarSheet(a, refresh); };
-  sheet.querySelector('#pa-ficha').onclick=()=>{ _profEditarFichaSheet(a, refresh); };
-  const rPromo=sheet.querySelector('#pa-promo');
-  if(rPromo) rPromo.onclick=()=>{ _profPromoverSheet(a, refresh); };
-  const rDel=sheet.querySelector('#pa-del');
-  if(rDel) rDel.onclick=()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; refresh(); render(); }); };   // excluiu → volta à lista
+      paint();
+    }).catch(()=> paint());
+  } else { a.graduacoes=a.graduacoes||[]; a.lesoes=a.lesoes||[]; a.progresso=a.progresso||[]; a.frequencia=a.frequencia||[]; paint(); }
   return sheet;
+}
+
+/* --- ERP: KPIs (coluna esquerda) --- */
+function _erpKpis(a){
+  const wrap=el('<div></div>');
+  const grads=(a.graduacoes||[]).filter(g=>g&&g.data);
+  const les=(a.lesoes||[]);
+  const lesAtivas=les.filter(l=>l.status==='recuperando').length;
+  const freq=(a.frequencia||[]).length;
+  const desde = grads.length ? grads.slice().sort((x,y)=>x.data.localeCompare(y.data))[0].data : (a.cad&&a.cad.dataInicio) || null;
+  const [dy,dm,dd] = (desde||'').split('-');
+  const desdeFmt = desde ? `${dd}/${dm}/${dy}` : '—';
+  const kpi=(v,l,cls='')=>`<div class="erp-kpi ${cls}"><div class="erp-kpi-v">${v}</div><div class="erp-kpi-l">${l}</div></div>`;
+  wrap.innerHTML = kpi(freq, 'Check-ins')
+    + kpi(les.length, 'Lesões')
+    + kpi(lesAtivas, 'Em recuperação', lesAtivas?'warn':'')
+    + kpi(grads.length, 'Graduações')
+    + kpi(desdeFmt, 'Desde');
+  return wrap;
+}
+
+/* --- ERP: coluna central (varia por aba) --- */
+function _erpMain(a, tab, refresh, paint, c, hora){
+  const box=el('<div></div>');
+  if(tab==='ficha'){
+    const e=(c&&c.endereco)||{}, r=(c&&c.responsavel)||{};
+    const endTxt=[e.logradouro, e.numero, e.bairro, e.cidade, e.uf].filter(Boolean).join(', ') + (e.cep?(' · '+e.cep):'');
+    const linha=(lbl,val)=> `<div class="erp-fld"><label>${lbl}</label><div class="erp-fld-v">${val?safeTxt(val):'<i>—</i>'}</div></div>`;
+    box.innerHTML=`<div class="erp-card"><div class="erp-card-h">Ficha cadastral</div>
+      ${linha('Telefone', c?c.telefone:'')}
+      ${linha('E-mail', c?c.email:'')}
+      ${linha('Endereço', endTxt.trim().replace(/^·\s*/,''))}
+      ${linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'')}
+      ${linha('Início', c?c.dataInicio:'')}
+      ${c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:''}
+    </div>`;
+  } else if(tab==='grad'){
+    box.appendChild(_erpTimelineGrad(a, paint));
+  } else if(tab==='les'){
+    box.appendChild(_lesoesPanelNode(a.lesoes||[]));
+  } else if(tab==='tec'){
+    box.appendChild(_progressoPanelNode(a.progresso||[]));
+  } else if(tab==='pres'){
+    box.appendChild(_perfilTreinoNode(a.frequencia||[]));
+  }
+  return box;
+}
+
+/* --- ERP: coluna direita (ações contextuais + globais) --- */
+function _erpActions(a, tab, refresh, paint, hora){
+  const box=el('<div></div>');
+  const rows=[];
+  if(!a.pres) rows.push(['pa-add','✓ Lançar presença', ()=>{ _profSetPresenca(a,hora); refresh(); paint(); toast('Presença lançada ✔'); }]);
+  else rows.push(['pa-rem','❌ Remover presença','danger', ()=>{ _profSetPresenca(a,null); refresh(); paint(); toast('Presença removida'); }]);
+  if(a.pago==='late') rows.push(['pa-pago','💰 Marcar como pago','', ()=>{ _profSetPago(a,'ok'); refresh(); paint(); toast('Pago ✔'); }]);
+  else rows.push(['pa-late','⚠️ Marcar vencido','danger', ()=>{ _profSetPago(a,'late'); refresh(); paint(); toast('Vencido'); }]);
+  if(_waLink(a)) rows.push(['pa-wa','💬 WhatsApp','', ()=>{ const u=_waLink(a); if(u) window.open(u,'_blank','noopener'); }]);
+  rows.push(['pa-grad-r','🥋 Graduar','', ()=>{ _profGraduarSheet(a, ()=>{ refresh(); paint(); }); }]);
+  rows.push(['pa-retro','🕰️ Graduação retroativa','', ()=>{ _gradRetroSheet(a); }]);
+  rows.push(['pa-ficha','✏️ Editar ficha','', ()=>{ _profEditarFichaSheet(a, ()=>{ refresh(); paint(); }); }]);
+  if(DB.eu && DB.eu.role==='dono' && !a._self) rows.push(['pa-promo','⬆️ Promover a professor','', ()=>{ _profPromoverSheet(a, ()=>{ refresh(); paint(); }); }]);
+  if(!(a._self||a.role==='professor'||a.role==='dono')) rows.push(['pa-del','🗑️ Excluir','danger', ()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; DB._alunoTab=null; refresh(); render(); }); }]);
+  rows.forEach(([id,lbl,cls,fn])=>{
+    if(typeof cls==='function'){ fn=cls; cls=''; }
+    const b=el(`<button class="erp-act ${cls||''}" id="${id}">${lbl}</button>`);
+    b.onclick=fn; box.appendChild(b);
+  });
+  return box;
+}
+
+/* --- ERP: Timeline de graduação editável (protótipo — CRUD in-memory) --- */
+function _erpTimelineGrad(a, paint){
+  const box=el('<div class="erp-card"></div>');
+  box.appendChild(el(`<div class="erp-card-h">Linha do tempo de graduação
+    <button class="erp-btn sm" id="tl-add">+ Novo evento</button></div>`));
+  const grads = (a.graduacoes||[]).filter(g=>g&&g.data);
+  // Estatísticas embaixo
+  const stats = _erpGradStats(grads);
+  const list = el('<div class="erp-tl"></div>');
+  const arr = [...grads].sort((x,y)=>y.data.localeCompare(x.data));
+  if(!arr.length){
+    list.appendChild(el('<div class="erp-tl-empty">Sem graduações registradas. Clique em "+ Novo evento" pra começar.</div>'));
+  } else {
+    arr.forEach((g,i)=>{
+      const x=BELTS[g.faixa]||{cor:'#888',nome:g.faixa};
+      const titulo = g.tipo==='faixa' ? `Faixa ${x.nome}` : (g.tipo==='inicio' ? `Início · Faixa ${x.nome}` : `${g.graus||0}º grau · ${x.nome}`);
+      const [y,m,d]=g.data.split('-'); const dataFmt=`${d}/${m}/${y}`;
+      const rel=_tempoRelativo(g.data);
+      const it=el(`<div class="erp-tl-item">
+        <div class="erp-tl-rail"><span class="erp-tl-dot" style="background:${x.cor}"></span>${i<arr.length-1?'<span class="erp-tl-line"></span>':''}</div>
+        <div class="erp-tl-bd">
+          <div class="erp-tl-t">${safeTxt(titulo)}</div>
+          <div class="erp-tl-dt">${dataFmt} · <i>${rel}</i>${g.por?' · por '+safeTxt(g.por):''}</div>
+          ${g.nota?`<div class="erp-tl-nt">${safeTxt(g.nota)}</div>`:''}
+          <div class="erp-tl-acts">
+            <button class="erp-mini" data-i="${i}" data-act="edit" aria-label="Editar">✎</button>
+            <button class="erp-mini danger" data-i="${i}" data-act="del" aria-label="Excluir">🗑</button>
+          </div>
+        </div>
+      </div>`);
+      list.appendChild(it);
+    });
+  }
+  box.appendChild(list);
+  // Stats footer
+  if(arr.length){
+    box.appendChild(el(`<div class="erp-tl-stats">
+      <div><b>${arr.length}</b> evento${arr.length>1?'s':''}</div>
+      <div><b>${stats.mediaEntreGraus||'—'}</b> tempo médio entre graus</div>
+      <div><b>${stats.proxima||'—'}</b> próxima janela sugerida</div>
+    </div>`));
+  }
+  // Handlers CRUD (in-memory) — TROCAR por sbProf.* na integração
+  box.querySelector('#tl-add').onclick=()=>_erpGradForm(a, null, paint);
+  list.querySelectorAll('button.erp-mini').forEach(b=>{
+    b.onclick=()=>{
+      const i=+b.dataset.i, act=b.dataset.act;
+      const item = arr[i];
+      if(act==='edit') _erpGradForm(a, item, paint);
+      else if(act==='del'){
+        if(!confirm('Excluir esse evento da linha do tempo?')) return;
+        a.graduacoes = (a.graduacoes||[]).filter(g=> !(g.data===item.data && g.faixa===item.faixa && (g.graus||0)===(item.graus||0)));
+        toast('Evento removido (protótipo — não persistido)');
+        paint();
+      }
+    };
+  });
+  return box;
+}
+
+// Form inline pra adicionar/editar evento — sheet simples, in-memory
+function _erpGradForm(a, existing, paint){
+  const sh=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${existing?'Editar evento':'Novo evento'}</div>
+    <label class="flbl">Tipo</label>
+    <select class="inp" id="gf-tipo">
+      <option value="inicio">Início na academia</option>
+      <option value="faixa">Nova faixa</option>
+      <option value="grau" selected>Novo grau</option>
+    </select>
+    <label class="flbl">Faixa</label>
+    <select class="inp" id="gf-faixa">${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select>
+    <label class="flbl">Grau (0-4)</label>
+    <input class="inp" id="gf-graus" type="number" min="0" max="4" value="0">
+    <label class="flbl">Data</label>
+    <input class="inp" id="gf-data" type="date">
+    <label class="flbl">Nota (opcional)</label>
+    <input class="inp" id="gf-nota" placeholder="Motivo, cerimônia, etc.">
+    <button class="btn-save" id="gf-save">${existing?'Salvar':'Adicionar'}</button>
+    <button class="sheet-cancel" id="gf-cancel">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sh.classList.remove('open'); setTimeout(()=>sh.remove(),260); };
+  const tSel=sh.querySelector('#gf-tipo'), fSel=sh.querySelector('#gf-faixa'), gInp=sh.querySelector('#gf-graus'), dInp=sh.querySelector('#gf-data'), nInp=sh.querySelector('#gf-nota');
+  if(existing){
+    tSel.value=existing.tipo||'grau'; fSel.value=existing.faixa||'branca';
+    gInp.value=existing.graus||0; dInp.value=existing.data||''; nInp.value=existing.nota||'';
+  } else { dInp.value = new Date().toISOString().slice(0,10); fSel.value = a.faixa||'branca'; gInp.value = (a.graus||0)+1; }
+  sh.querySelector('#gf-cancel').onclick=close;
+  sh.onclick=(e)=>{ if(e.target===sh) close(); };
+  sh.querySelector('#gf-save').onclick=()=>{
+    if(!dInp.value){ toast('Informe a data'); return; }
+    const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: dInp.value, nota: nInp.value.trim() };
+    if(existing){
+      const idx=(a.graduacoes||[]).findIndex(g=> g.data===existing.data && g.faixa===existing.faixa && (g.graus||0)===(existing.graus||0));
+      if(idx>=0) a.graduacoes[idx]=novo;
+    } else {
+      a.graduacoes = (a.graduacoes||[]).concat([novo]);
+    }
+    toast(existing?'Evento atualizado (protótipo)':'Evento adicionado (protótipo)');
+    close(); paint();
+  };
+  document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
+}
+
+// Estatísticas da timeline: tempo médio entre graus + próxima janela sugerida
+function _erpGradStats(grads){
+  const graus = grads.filter(g=>g.tipo==='grau').sort((a,b)=>a.data.localeCompare(b.data));
+  if(graus.length<2) return { mediaEntreGraus: null, proxima: null };
+  let totalDias=0;
+  for(let i=1;i<graus.length;i++){
+    totalDias += (new Date(graus[i].data) - new Date(graus[i-1].data)) / 86400000;
+  }
+  const mediaDias = Math.round(totalDias/(graus.length-1));
+  const mediaFmt = mediaDias>365 ? (Math.round(mediaDias/365*10)/10)+' anos' : (mediaDias>30 ? Math.round(mediaDias/30)+' meses' : mediaDias+' dias');
+  const ultimo = new Date(graus[graus.length-1].data);
+  const prox = new Date(ultimo.getTime() + mediaDias*86400000);
+  const pd = String(prox.getDate()).padStart(2,'0'), pm=String(prox.getMonth()+1).padStart(2,'0');
+  return { mediaEntreGraus: mediaFmt, proxima: `${pd}/${pm}/${prox.getFullYear()}` };
+}
+
+// "há 8 meses", "há 2 anos", "ontem"
+function _tempoRelativo(iso){
+  const d = new Date(iso), agora = new Date();
+  const diff = Math.floor((agora - d)/86400000);
+  if(diff<0) return 'no futuro';
+  if(diff===0) return 'hoje';
+  if(diff===1) return 'ontem';
+  if(diff<30) return `há ${diff} dias`;
+  if(diff<365){ const m=Math.round(diff/30); return `há ${m} ${m===1?'mês':'meses'}`; }
+  const y=Math.round(diff/365*10)/10;
+  return `há ${y} ${y<=1?'ano':'anos'}`;
 }
 // Atalho: todo o app chama _profAlunoSheet(a) — agora navega para a tela cheia.
 function _profAlunoSheet(a){ DB.alunoAberto=a; render(); window.scrollTo(0,0); }
