@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v270';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v271';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -3146,28 +3146,26 @@ function alunoPerfil(){
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));   // clone p/ loop infinito
     w.appendChild(lojaWrap);
-    // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa no toque/hover
-    // e retoma 2.5s depois do último gesto. Loop: quando passa da metade (cards
-    // duplicados), volta scrollLeft pra 0 sem behavior. Respeita reduced-motion.
+    // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa só enquanto o
+    // dedo/mouse está PRESSIONADO; retoma imediato ao soltar. Loop: quando passa
+    // da metade (cards duplicados), volta scrollLeft. Respeita reduced-motion.
     const ticker = lojaWrap.querySelector('.ld-ticker');
     if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
-      let paused=false, resumeAt=0, raf=0;
-      const step = (ts)=>{
-        if(!paused && ts >= resumeAt){
+      let held=false;
+      const step = ()=>{
+        if(!held){
           const half = track.scrollWidth/2;
           if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
           else ticker.scrollLeft += 0.4;
         }
-        raf = requestAnimationFrame(step);
+        requestAnimationFrame(step);
       };
-      const bump = ()=>{ paused=true; resumeAt = performance.now()+2500; };
-      const release = ()=>{ paused=false; };
-      ticker.addEventListener('pointerdown', bump, { passive:true });
-      ticker.addEventListener('pointerup', release, { passive:true });
-      ticker.addEventListener('pointercancel', release, { passive:true });
-      ticker.addEventListener('mouseenter', bump);
-      ticker.addEventListener('mouseleave', release);
-      raf = requestAnimationFrame(step);
+      ticker.addEventListener('pointerdown', ()=>{ held=true; }, { passive:true });
+      const rel = ()=>{ held=false; };
+      ticker.addEventListener('pointerup', rel, { passive:true });
+      ticker.addEventListener('pointercancel', rel, { passive:true });
+      ticker.addEventListener('pointerleave', rel, { passive:true });
+      requestAnimationFrame(step);
     }
   }
 
