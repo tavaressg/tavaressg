@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v274';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v275';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4590,7 +4590,9 @@ function _progressoPanelNode(prog){
     const acerto = (p.acerto_pct!=null) ? p.acerto_pct+'%' : (p.acertoPct!=null?p.acertoPct+'%':'—');
     const treinos = p.treinos||0;
     const ultima = p.ultima || p.ultimaPratica || null;
-    const ultimaFmt = ultima ? (()=>{ const [y,m,d]=(''+ultima).split('-'); return `${d}/${m}`; })() : '—';
+    // Só formata se for string ISO YYYY-MM-DD; senão evita "undefined/undefined"
+    const ultimaFmt = (typeof ultima==='string' && /^\d{4}-\d{2}-\d{2}/.test(ultima))
+      ? ultima.slice(8,10)+'/'+ultima.slice(5,7) : '—';
     list.appendChild(el(`<div class="prog-row">
       <span class="prog-dot" style="background:${estCor}"></span>
       <div class="prog-mid"><div class="nm">${safeTxt(nome)}</div>
@@ -5055,19 +5057,22 @@ function profAlunoDetalhe(a){
   // Aba ativa (persistida na navegação da sessão). Default: Ficha.
   const tab = DB._alunoTab || 'ficha';
   const tabs = [
-    ['ficha','📋 Ficha'],['grad','🥋 Graduação'],['pres','✅ Presenças'],
-    ['les','🩹 Lesões'],['tec','📖 Técnicas'],
+    ['ficha','Ficha'],['grad','Graduação'],['pres','Presenças'],
+    ['les','Lesões'],['tec','Técnicas'],
   ];
   const beltInfo = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
+  const isBranca = (a.faixa||'branca')==='branca';
+  const selfBadge = a._self ? '<span class="erp-self-badge">Você</span>' : '';
   const sheet = el(`<div class="erp-aluno">
     <div class="erp-hd">
       <button class="erp-back" id="pa-back" aria-label="Voltar">‹ Voltar</button>
       <div class="erp-hd-main">
-        <div class="erp-hd-nome">${safeTxt(a.nm)}</div>
-        <div class="erp-hd-sub"><span class="erp-belt-pill" style="--bc:${beltInfo.cor}">${safeTxt(beltInfo.nome)}${a.graus?' · '+a.graus+'º grau':''}</span></div>
+        <div class="erp-crumb">Alunos › <b>${safeTxt(a.nm)}</b></div>
+        <div class="erp-hd-nome">${safeTxt(a.nm)} ${selfBadge}</div>
+        <div class="erp-hd-sub"><span class="erp-belt-pill${isBranca?' branca':''}" style="--bc:${beltInfo.cor}">${safeTxt(beltInfo.nome)} · ${a.graus||0}º grau</span></div>
       </div>
       <div class="erp-hd-acts">
-        <button class="erp-btn primary" id="pa-grad-quick">🥋 Graduar</button>
+        <button class="erp-btn primary" id="pa-grad-quick">Graduar</button>
       </div>
     </div>
     <div class="erp-tabs">
@@ -5111,7 +5116,7 @@ function profAlunoDetalhe(a){
   return sheet;
 }
 
-/* --- ERP: KPIs (coluna esquerda) --- */
+/* --- ERP: KPIs (coluna esquerda) — KPI "Desde" some quando não há data --- */
 function _erpKpis(a){
   const wrap=el('<div></div>');
   const grads=(a.graduacoes||[]).filter(g=>g&&g.data);
@@ -5119,41 +5124,108 @@ function _erpKpis(a){
   const lesAtivas=les.filter(l=>l.status==='recuperando').length;
   const freq=(a.frequencia||[]).length;
   const desde = grads.length ? grads.slice().sort((x,y)=>x.data.localeCompare(y.data))[0].data : (a.cad&&a.cad.dataInicio) || null;
-  const [dy,dm,dd] = (desde||'').split('-');
-  const desdeFmt = desde ? `${dd}/${dm}/${dy}` : '—';
   const kpi=(v,l,cls='')=>`<div class="erp-kpi ${cls}"><div class="erp-kpi-v">${v}</div><div class="erp-kpi-l">${l}</div></div>`;
-  wrap.innerHTML = kpi(freq, 'Check-ins')
+  let html = kpi(freq, 'Check-ins')
     + kpi(les.length, 'Lesões')
     + kpi(lesAtivas, 'Em recuperação', lesAtivas?'warn':'')
-    + kpi(grads.length, 'Graduações')
-    + kpi(desdeFmt, 'Desde');
+    + kpi(grads.length, 'Graduações');
+  if(desde){ const [dy,dm,dd]=desde.split('-'); html += kpi(`${dd}/${dm}/${dy}`, 'Desde'); }
+  wrap.innerHTML = html;
   return wrap;
 }
 
 /* --- ERP: coluna central (varia por aba) --- */
 function _erpMain(a, tab, refresh, paint, c, hora){
   const box=el('<div></div>');
-  if(tab==='ficha'){
-    const e=(c&&c.endereco)||{}, r=(c&&c.responsavel)||{};
+  if(tab==='ficha'){ box.appendChild(_erpFicha(a, c, paint, refresh)); }
+  else if(tab==='grad'){ box.appendChild(_erpTimelineGrad(a, paint)); }
+  else if(tab==='les'){ box.appendChild(_lesoesPanelNode(a.lesoes||[])); }
+  else if(tab==='tec'){ box.appendChild(_progressoPanelNode(a.progresso||[])); }
+  else if(tab==='pres'){ box.appendChild(_erpPresencas(a.frequencia||[])); }
+  return box;
+}
+
+/* --- ERP: Ficha cadastral com edição inline (view/edit toggle) --- */
+function _erpFicha(a, c, paint, refresh){
+  const editing = !!DB._alunoFichaEdit;
+  const box = el('<div class="erp-card"></div>');
+  box.appendChild(el(`<div class="erp-card-h">Ficha cadastral
+    <button class="erp-btn sm" id="fc-toggle">${editing?'Cancelar':'Editar'}</button></div>`));
+  const e=(c&&c.endereco)||{}, r=(c&&c.responsavel)||{};
+  if(!editing){
     const endTxt=[e.logradouro, e.numero, e.bairro, e.cidade, e.uf].filter(Boolean).join(', ') + (e.cep?(' · '+e.cep):'');
     const linha=(lbl,val)=> `<div class="erp-fld"><label>${lbl}</label><div class="erp-fld-v">${val?safeTxt(val):'<i>—</i>'}</div></div>`;
-    box.innerHTML=`<div class="erp-card"><div class="erp-card-h">Ficha cadastral</div>
-      ${linha('Telefone', c?c.telefone:'')}
-      ${linha('E-mail', c?c.email:'')}
-      ${linha('Endereço', endTxt.trim().replace(/^·\s*/,''))}
-      ${linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'')}
-      ${linha('Início', c?c.dataInicio:'')}
-      ${c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:''}
-    </div>`;
-  } else if(tab==='grad'){
-    box.appendChild(_erpTimelineGrad(a, paint));
-  } else if(tab==='les'){
-    box.appendChild(_lesoesPanelNode(a.lesoes||[]));
-  } else if(tab==='tec'){
-    box.appendChild(_progressoPanelNode(a.progresso||[]));
-  } else if(tab==='pres'){
-    box.appendChild(_perfilTreinoNode(a.frequencia||[]));
+    const body = el('<div></div>');
+    body.innerHTML =
+      linha('Telefone', c?c.telefone:'') +
+      linha('E-mail', c?c.email:'') +
+      linha('Endereço', endTxt.trim().replace(/^·\s*/,'')) +
+      linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'') +
+      linha('Início', c?c.dataInicio:'') +
+      (c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:'');
+    box.appendChild(body);
+    box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=true; paint(); };
+    return box;
   }
+  // modo edit — inputs inline, sem sheet
+  const inp=(id,lbl,val,type='text',ph='')=>`<div class="erp-fld erp-fld-edit"><label>${lbl}</label>
+    <input class="inp" id="${id}" type="${type}" value="${val?safeAttr(val):''}" placeholder="${ph}"></div>`;
+  const form = el('<div></div>');
+  form.innerHTML =
+    inp('fc-tel','Telefone', c?c.telefone:'', 'tel', '(11) 99999-0000') +
+    inp('fc-email','E-mail', c?c.email:'', 'email') +
+    inp('fc-cep','CEP', e.cep, 'text', '00000-000') +
+    inp('fc-log','Logradouro', e.logradouro) +
+    inp('fc-num','Número', e.numero) +
+    inp('fc-bairro','Bairro', e.bairro) +
+    inp('fc-cid','Cidade', e.cidade) +
+    inp('fc-uf','UF', e.uf) +
+    inp('fc-rnm','Responsável (nome)', r.nome) +
+    inp('fc-rtel','Responsável (telefone)', r.telefone, 'tel') +
+    inp('fc-inicio','Início', c?c.dataInicio:'', 'date') +
+    `<div class="erp-fld erp-fld-edit"><label>Observações</label>
+      <textarea class="inp" id="fc-obs" rows="3">${c&&c.obs?safeTxt(c.obs):''}</textarea></div>` +
+    `<div class="erp-fld-acts"><button class="erp-btn primary" id="fc-save">Salvar</button></div>`;
+  box.appendChild(form);
+  box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=false; paint(); };
+  box.querySelector('#fc-save').onclick=()=>{
+    const g=(id)=> form.querySelector('#'+id).value.trim();
+    a.cad = a.cad || {};
+    a.cad.telefone = g('fc-tel'); a.cad.email = g('fc-email');
+    a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf') };
+    a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:(a.cad.responsavel&&a.cad.responsavel.parentesco)||'' };
+    a.cad.dataInicio = g('fc-inicio'); a.cad.obs = g('fc-obs');
+    DB._alunoFichaEdit=false;
+    toast('Ficha atualizada (protótipo — não persistido)');
+    paint();
+  };
+  return box;
+}
+
+/* --- ERP: Presenças — histórico cronológico de check-ins, não KPIs --- */
+function _erpPresencas(freq){
+  const box=el('<div class="erp-card"></div>');
+  box.appendChild(el(`<div class="erp-card-h">Histórico de presenças</div>`));
+  const arr=(freq||[]).filter(c=>c&&c.data).slice().sort((a,b)=>{
+    if(b.data!==a.data) return b.data.localeCompare(a.data);
+    return (b.hora||'').localeCompare(a.hora||'');
+  });
+  if(!arr.length){ box.appendChild(el('<div class="erp-tl-empty">Sem presenças registradas.</div>')); return box; }
+  const list=el('<div class="erp-pres-list"></div>');
+  const DIA=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  arr.forEach(c=>{
+    const [y,m,d]=c.data.split('-');
+    const dt = new Date(c.data+'T12:00:00');
+    const dow = DIA[dt.getDay()];
+    const hora = c.hora ? String(c.hora).slice(0,5) : '—';
+    const tipo = c.tipo || 'Aula';
+    list.appendChild(el(`<div class="erp-pres-row">
+      <div class="erp-pres-dt"><b>${d}/${m}</b><span>${dow}</span></div>
+      <div class="erp-pres-tp">${safeTxt(tipo)}</div>
+      <div class="erp-pres-hr">${safeTxt(hora)}</div>
+    </div>`));
+  });
+  box.appendChild(list);
   return box;
 }
 
@@ -5166,9 +5238,7 @@ function _erpActions(a, tab, refresh, paint, hora){
   if(a.pago==='late') rows.push(['pa-pago','💰 Marcar como pago','', ()=>{ _profSetPago(a,'ok'); refresh(); paint(); toast('Pago ✔'); }]);
   else rows.push(['pa-late','⚠️ Marcar vencido','danger', ()=>{ _profSetPago(a,'late'); refresh(); paint(); toast('Vencido'); }]);
   if(_waLink(a)) rows.push(['pa-wa','💬 WhatsApp','', ()=>{ const u=_waLink(a); if(u) window.open(u,'_blank','noopener'); }]);
-  rows.push(['pa-grad-r','🥋 Graduar','', ()=>{ _profGraduarSheet(a, ()=>{ refresh(); paint(); }); }]);
   rows.push(['pa-retro','🕰️ Graduação retroativa','', ()=>{ _gradRetroSheet(a); }]);
-  rows.push(['pa-ficha','✏️ Editar ficha','', ()=>{ _profEditarFichaSheet(a, ()=>{ refresh(); paint(); }); }]);
   if(DB.eu && DB.eu.role==='dono' && !a._self) rows.push(['pa-promo','⬆️ Promover a professor','', ()=>{ _profPromoverSheet(a, ()=>{ refresh(); paint(); }); }]);
   if(!(a._self||a.role==='professor'||a.role==='dono')) rows.push(['pa-del','🗑️ Excluir','danger', ()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; DB._alunoTab=null; refresh(); render(); }); }]);
   rows.forEach(([id,lbl,cls,fn])=>{
