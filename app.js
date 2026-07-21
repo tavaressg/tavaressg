@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v271';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v272';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -7204,11 +7204,16 @@ function abrirMinhasTurmas(){
       horas.forEach(h=>{
         const s = idx[d+'|'+h];
         if(!s){ grid.appendChild(el('<div class="mt-gc empty"></div>')); return; }
+        // Chip 2 linhas (mesmo design do professor em _gradeHorarios): NOME em cima,
+        // VARIAÇÃO ou FAIXA ETÁRIA embaixo. Bandeira 🇺🇸 vai INLINE no nome (HTML cru),
+        // NÃO junto de texto — safeTxt escaparia o SVG e mostraria a tag como texto.
         const t = s._t; const cor = t.cor||'#888';
-        const src = t.logo || 'brand/logo.png?v=2';
-        const logoHTML = `<img class="mt-gd-logo" src="${safeAttr(src)}" alt="" data-fallback="remove">`;
-        const extras = [s.variacao, s.bilingue?icoUSFlag():null].filter(Boolean).join(' · ');
-        grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">${logoHTML}${extras?`<i>${safeTxt(extras)}</i>`:''}</div>`));
+        const sub = s.variacao || t.faixaEtaria || '';
+        const flag = s.bilingue ? ' '+icoUSFlag() : '';
+        grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">
+          <b class="g-nm">${safeTxt(t.nome)}${flag}</b>
+          ${sub?`<i class="g-sub">${safeTxt(sub)}</i>`:''}
+        </div>`));
       });
     });
     body.appendChild(grid);

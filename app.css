@@ -1902,12 +1902,12 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .mt-gh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;font-variant-numeric:tabular-nums;min-width:0}
 .mt-gh-corner{background:transparent}
 .mt-gd{font-size:12px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.3px;padding:8px 2px;display:flex;align-items:center;min-width:0}
-.mt-gc{background:var(--card);border:2px solid var(--tc, var(--line));border-radius:8px;padding:6px 1px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:64px;min-width:0;overflow:hidden}
-.mt-gc.empty{background:transparent;border:1px dashed transparent}
-.mt-gc .mt-gd-dot{width:8px;height:8px;border-radius:50%;background:var(--tc,#888);flex:none}
-.mt-gc .mt-gd-logo{width:32px;height:32px;object-fit:contain;flex:none;background:transparent;border-radius:0;box-shadow:none;max-width:100%}
-.mt-gc .mt-gd-kanji{display:none}   /* obsoleto — usamos img da brand agora */
-.mt-gc i{font-style:normal;font-size:9px;font-weight:700;color:var(--muted);text-align:center;line-height:1.05;letter-spacing:.1px;max-width:100%;padding:0 1px;word-break:break-word;overflow-wrap:anywhere}
+/* Chip 2 linhas — MESMO design do professor (.g-chip): cor sólida da turma no fundo,
+   NOME em cima (uppercase, branco), VARIAÇÃO/FAIXA embaixo. Bandeira 🇺🇸 inline no nome. */
+.mt-gc{background:var(--tc,#888);color:#fff;border-radius:8px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:64px;min-width:0;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);text-align:center}
+.mt-gc.empty{background:transparent;box-shadow:none}
+.mt-gc .g-nm{font-size:10.5px;font-weight:800;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;font-style:normal;line-height:1.1;color:#fff}
+.mt-gc .g-sub{font-style:normal;font-weight:700;font-size:8px;letter-spacing:.2px;text-transform:uppercase;opacity:.92;line-height:1;color:#fff}
 
 /* === v200: tamanhos editáveis no produto + barras clicáveis === */
 .est-add{display:flex;gap:8px;margin-top:8px}
