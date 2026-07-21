@@ -1399,6 +1399,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .streak-badge.compact .sb-dots{margin-left:auto}
 .sb-meta{font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
 
+/* Mobile-first: itens "wide-only" ficam escondidos em portrait <768px
+   (Vídeos e Loja no professor). Aparecem em tablet/desktop/landscape amplo. */
+.tab.tab-wide{display:none}
+@media (min-width:768px){ .tab.tab-wide{display:flex} }
+
 /* ============================================================
    SHELL RESPONSIVO DO PROFESSOR (PROFESSOR.md §7)
    Escopado em body[data-role="professor"]: NÃO afeta o aluno
@@ -1766,10 +1771,15 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .yt-frame-wrap{position:relative;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;margin-top:6px}
 .yt-frame{position:absolute;inset:0;width:100%;height:100%;border:0}
 .yt-title{font-size:14px;font-weight:800;color:var(--ink);margin:10px 4px 0;line-height:1.3}
-.yt-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
-.yt-open{font-size:12px;font-weight:800;color:var(--muted);text-decoration:none;padding:8px 4px}
-.yt-open:hover{color:var(--red-strong)}
-.yt-actions .sheet-cancel{margin:0}
+
+/* Short (vertical 9:16) — sheet ocupa quase toda a tela, aspect vertical */
+.yt-player-overlay.is-short{align-items:center;background:rgba(0,0,0,.92)}
+.yt-player-sheet.is-short{max-width:none;width:100%;height:100dvh;max-height:100dvh;margin:0;
+  border-radius:0;padding:12px;display:flex;flex-direction:column;background:#000}
+.yt-player-sheet.is-short .sheet-grip{background:rgba(255,255,255,.3);margin:0 auto 8px}
+.yt-frame-wrap.is-short{aspect-ratio:9/16;width:min(96vw, calc(85dvh * 9 / 16));height:auto;margin:auto;border-radius:14px}
+.yt-player-sheet.is-short .yt-title{color:#fff;text-align:center;margin:8px 8px 0}
+.yt-player-sheet.is-short .sheet-cancel{background:rgba(255,255,255,.15);color:#fff;border:none;margin-top:10px}
 
 /* ---- Onboarding admin (professor) ---- */
 .onb-form{padding:14px 16px;margin:12px 20px 4px}

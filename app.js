@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v255';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v263';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1285,6 +1285,8 @@ function alunoInicio(){
   const _sb = streakBadge(); if(_sb) w.appendChild(_sb);
 
   // ---- Onboarding: 1 vídeo destacado + link "Ver todos" pra biblioteca completa ----
+  // Boot em background: se com backend, puxa lista da nuvem e re-renderiza se veio novidade
+  if(_alunoOnboardOn()) _kickOnboardVideosSync();
   const _onbVids = _alunoOnboardOn() ? _getOnboardVideos() : [];
   if(_onbVids.length){
     // Escolhe o próximo não-assistido (ou o primeiro, se todos visto/nenhum log)
@@ -1307,7 +1309,7 @@ function alunoInicio(){
         _seen.push(nextVid.id);
         try{ localStorage.setItem('yama.videos.seen', JSON.stringify(_seen)); }catch(_){}
       }
-      _abrirPlayerYT(nextVid.id, nextVid.title);
+      _abrirPlayerYT(nextVid.id, nextVid.title, nextVid.isShort);
     });
     const _all = sec.querySelector('.onb-all');
     if(_all){
@@ -3156,23 +3158,6 @@ function alunoPerfil(){
     profRow.onclick = ()=> setRole(alvo);
     profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole(alvo); } };
     w.appendChild(profRow);
-  }
-
-  // Gestão da academia — atalhos que só o professor vê no menu "Mais"
-  if(DB.role==='professor'){
-    w.appendChild(el(`<div class="sec-title">Gestão da academia</div>`));
-    const gestao = el(`<div class="info-list block">
-      <div class="info-row" id="row-videos" role="button" tabindex="0" aria-label="Vídeos de onboarding" style="cursor:pointer">
-        <div class="ii">🎬</div>
-        <div class="it"><div class="t">Vídeos de onboarding</div><div class="s">Aparece pro aluno faixa branca sem grau</div></div>
-        <div class="iv">›</div>
-      </div>
-    </div>`);
-    const _gv = gestao.querySelector('#row-videos');
-    const _goVids = ()=> goProf('videos');
-    _gv.onclick = _goVids;
-    _gv.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _goVids(); } };
-    w.appendChild(gestao);
   }
 
   w.appendChild(el(`<div class="sec-title">Minha academia</div>`));
@@ -5474,36 +5459,76 @@ function _ytIdFromUrl(v){
   const m = s.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : null;
 }
+/* Short (9:16) → URL contém /shorts/ */
+function _ytIsShort(v){ return !!String(v||'').match(/\/shorts\//); }
 function _ytThumb(id){ return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : ''; }
 function _ytWatch(id){ return id ? `https://www.youtube.com/watch?v=${id}` : ''; }
-function _ytEmbed(id){ return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1` : ''; }
+function _ytEmbed(id){ return id ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&showinfo=0&color=white&fs=1` : ''; }
 /* Player em sheet: abre o vídeo dentro do app (iframe YouTube-nocookie) */
-function _abrirPlayerYT(id, titulo){
+function _abrirPlayerYT(id, titulo, isShort){
   if(!id) return;
-  const sheet = el(`<div class="sheet-overlay yt-player-overlay"><div class="sheet yt-player-sheet" role="dialog" aria-label="Vídeo">
+  const shortCls = isShort ? ' is-short' : '';
+  const sheet = el(`<div class="sheet-overlay yt-player-overlay${shortCls}"><div class="sheet yt-player-sheet${shortCls}" role="dialog" aria-label="Vídeo">
     <div class="sheet-grip"></div>
-    <div class="yt-frame-wrap"><iframe class="yt-frame" src="${safeAttr(_ytEmbed(id))}" title="${safeAttr(titulo||'YouTube')}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
-    ${titulo?`<div class="yt-title">${safeTxt(titulo)}</div>`:''}
-    <div class="yt-actions">
-      <a class="yt-open" href="${safeAttr(_ytWatch(id))}" target="_blank" rel="noopener">Abrir no YouTube ↗</a>
-      <button class="sheet-cancel" id="yt-close">Fechar</button>
+    <div class="yt-frame-wrap${shortCls}">
+      <iframe class="yt-frame" src="${safeAttr(_ytEmbed(id))}" title="${safeAttr(titulo||'YouTube')}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
     </div>
+    ${titulo?`<div class="yt-title">${safeTxt(titulo)}</div>`:''}
+    <button class="sheet-cancel" id="yt-close" style="margin-top:10px">Fechar</button>
   </div></div>`);
   const close=()=>{
     // limpa src pra parar o vídeo (senão continua tocando ao fechar)
     const f = sheet.querySelector('.yt-frame'); if(f) f.src = 'about:blank';
     sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),200);
+    // sai do fullscreen se ainda estiver ativo
+    if(document.fullscreenElement) { try{ document.exitFullscreen(); }catch(_){} }
   };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#yt-close').onclick=close;
-  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  // Fecha o sheet ao sair do fullscreen (ex.: usuário pressiona Esc)
+  const onFsChange = ()=>{ if(!document.fullscreenElement && sheet.dataset.fsWasActive){ sheet.dataset.fsWasActive=''; close(); document.removeEventListener('fullscreenchange', onFsChange); } };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>{
+    sheet.classList.add('open');
+    // Tenta fullscreen automático (funciona em desktop/Android; iOS Safari ignora silenciosamente)
+    const target = sheet.querySelector('.yt-frame-wrap');
+    const req = target && (target.requestFullscreen || target.webkitRequestFullscreen);
+    if(req){ try{ req.call(target); sheet.dataset.fsWasActive='1'; }catch(_){} }
+  });
 }
+/* Vídeos: cache local em memória + localStorage. Fonte da verdade em prod = sbVideos (nuvem).
+   Demo/offline: só localStorage. Boot puxa da nuvem 1x e atualiza cache. */
+let _onbVidsCache = null, _onbVidsTs = 0;
 function _getOnboardVideos(){
+  if(_onbVidsCache) return _onbVidsCache;
   try{ return JSON.parse(localStorage.getItem('yama.videos.onboard')||'[]'); }
   catch(_){ return []; }
 }
 function _setOnboardVideos(arr){
+  _onbVidsCache = arr || [];
   try{ localStorage.setItem('yama.videos.onboard', JSON.stringify(arr||[])); }catch(_){}
+}
+/* Puxa da nuvem (sbVideos.list) e atualiza cache. Retorna array sempre — offline fallback = local. */
+async function _loadOnboardVideosCloud(force){
+  if(DEMO || typeof sbVideos==='undefined') return _getOnboardVideos();
+  if(!force && _onbVidsCache && Date.now()-_onbVidsTs < 60000) return _onbVidsCache;
+  try{
+    const rows = await sbVideos.list();
+    _onbVidsCache = rows.map(r => ({ id: r.ytId, dbId: r.id, title: r.title, isShort: r.isShort, ordem: r.ordem }));
+    _onbVidsTs = Date.now();
+    try{ localStorage.setItem('yama.videos.onboard', JSON.stringify(_onbVidsCache)); }catch(_){}
+    return _onbVidsCache;
+  }catch(_){ return _getOnboardVideos(); }
+}
+/* Boot: se aluno com nuvem, puxa em background e re-renderiza se veio algo novo. */
+function _kickOnboardVideosSync(){
+  if(DEMO || typeof sbVideos==='undefined' || !DB.sbUser) return;
+  _loadOnboardVideosCloud(true).then(rows=>{
+    if(rows && rows.length !== (JSON.parse(localStorage.getItem('yama.videos.onboard')||'[]').length)){
+      try{ render(); }catch(_){}
+    }
+  });
 }
 /* Aluno ainda no onboarding? (faixa branca sem grau — some no 1º grau, decisão do dono) */
 function _alunoOnboardOn(){
@@ -5534,7 +5559,7 @@ function _abrirOnbSheet(vids, seen){
         seen.push(v.id);
         try{ localStorage.setItem('yama.videos.seen', JSON.stringify(seen)); }catch(_){}
       }
-      _abrirPlayerYT(v.id, v.title);
+      _abrirPlayerYT(v.id, v.title, v.isShort);
     });
     list.appendChild(item);
   });
@@ -5937,9 +5962,13 @@ function _relAlunosExcel(w, secTitle, note){
    Aluno faixa-branca-sem-grau vê os vídeos no INÍCIO; some ao ganhar o 1º grau. */
 function profVideosOnboard(){
   const w = el('<div></div>');
+  const cloudOn = !DEMO && typeof sbVideos!=='undefined' && DB.sbUser;
+  const subtitulo = cloudOn
+    ? 'Compartilhado com outros professores · aparece no INÍCIO do aluno faixa branca sem grau'
+    : 'Aparece no INÍCIO do aluno enquanto faixa branca sem grau · some no 1º grau';
   w.innerHTML = `<div class="hello">
     <div class="date">Vídeos de onboarding</div>
-    <div class="greet">Aparece no INÍCIO do aluno enquanto faixa branca sem grau · some no 1º grau</div>
+    <div class="greet">${subtitulo}</div>
   </div>`;
 
   const form = el(`<div class="onb-form block">
@@ -5956,8 +5985,10 @@ function profVideosOnboard(){
   const secTitle = el(`<div class="sec-title" style="margin:16px 20px 8px">Vídeos publicados</div>`);
   const hint     = el(`<div class="onb-hint-block">Reordene com ▲▼ · o topo aparece primeiro pro aluno. Exclua com ✕.</div>`);
 
+  // Estado local — sincronizado com nuvem (se disponível) ou localStorage
+  let arr = [];
+
   const paint = ()=>{
-    const arr = _getOnboardVideos();
     listWrap.innerHTML = '';
     if(!arr.length){
       listWrap.appendChild(el('<div class="empty-line" style="padding:14px 12px;text-align:center;color:var(--muted);font-size:13px">Nenhum vídeo cadastrado ainda. Cole a URL de um vídeo do YouTube acima.</div>'));
@@ -5968,7 +5999,7 @@ function profVideosOnboard(){
         <img class="onb-admin-thumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
         <div class="onb-admin-mid">
           <div class="nm">${safeTxt(v.title)}</div>
-          <div class="meta"><a href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">${safeTxt(v.id)}</a></div>
+          <div class="meta"><a href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">${safeTxt(v.id)}${v.isShort?' · SHORT':''}</a></div>
         </div>
         <div class="onb-admin-acts">
           <button class="onb-mv" data-a="up"   ${i===0?'disabled':''} aria-label="Subir">▲</button>
@@ -5976,16 +6007,37 @@ function profVideosOnboard(){
           <button class="onb-del" aria-label="Excluir">✕</button>
         </div>
       </div>`);
-      row.querySelector('[data-a="up"]').onclick = ()=>{ if(i===0) return; const a=arr.slice(); [a[i-1],a[i]]=[a[i],a[i-1]]; _setOnboardVideos(a); paint(); };
-      row.querySelector('[data-a="down"]').onclick = ()=>{ if(i===arr.length-1) return; const a=arr.slice(); [a[i+1],a[i]]=[a[i],a[i+1]]; _setOnboardVideos(a); paint(); };
-      row.querySelector('.onb-del').onclick = ()=>{
+      row.querySelector('[data-a="up"]').onclick = async()=>{
+        if(i===0) return;
+        [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; _setOnboardVideos(arr); paint();
+        if(cloudOn){ try{ await sbVideos.reorder(arr.map(v=>v.dbId).filter(Boolean)); }catch(_){ toast('Ordem não sincronizada'); } }
+      };
+      row.querySelector('[data-a="down"]').onclick = async()=>{
+        if(i===arr.length-1) return;
+        [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; _setOnboardVideos(arr); paint();
+        if(cloudOn){ try{ await sbVideos.reorder(arr.map(v=>v.dbId).filter(Boolean)); }catch(_){ toast('Ordem não sincronizada'); } }
+      };
+      row.querySelector('.onb-del').onclick = async()=>{
         if(!confirm('Excluir este vídeo?')) return;
-        const a=arr.slice(); a.splice(i,1); _setOnboardVideos(a); paint();
+        const removed = arr[i]; arr.splice(i,1); _setOnboardVideos(arr); paint();
         toast('Vídeo removido');
+        if(cloudOn && removed.dbId){ try{ await sbVideos.delete(removed.dbId); }catch(_){ toast('Exclusão não sincronizada'); } }
       };
       listWrap.appendChild(row);
     });
   };
+
+  // Boot: puxa lista atual (nuvem se possível; senão localStorage)
+  const _initList = async()=>{
+    if(cloudOn){
+      listWrap.innerHTML = '<div class="loading-center">Carregando lista…</div>';
+      try{ arr = await _loadOnboardVideosCloud(true); }catch(_){ arr = _getOnboardVideos(); }
+    } else {
+      arr = _getOnboardVideos();
+    }
+    paint();
+  };
+  _initList();
 
   // Preview ao digitar/colar URL
   const urlInp = form.querySelector('#onb-url');
@@ -5993,21 +6045,37 @@ function profVideosOnboard(){
   const _updatePreview = ()=>{
     const id = _ytIdFromUrl(urlInp.value);
     if(!id){ prevEl.hidden=true; prevEl.innerHTML=''; return; }
+    const isShort = _ytIsShort(urlInp.value);
     prevEl.hidden=false;
-    prevEl.innerHTML = `<div class="onb-prev"><img src="${safeAttr(_ytThumb(id))}" alt="" data-fallback="remove"><span class="onb-prev-id">ID: ${safeTxt(id)}</span></div>`;
+    prevEl.innerHTML = `<div class="onb-prev"><img src="${safeAttr(_ytThumb(id))}" alt="" data-fallback="remove"><span class="onb-prev-id">ID: ${safeTxt(id)}${isShort?' · SHORT':''}</span></div>`;
   };
   urlInp.addEventListener('input', _updatePreview);
   urlInp.addEventListener('paste',  ()=>setTimeout(_updatePreview,50));
 
-  form.querySelector('#onb-add').onclick = ()=>{
+  const addBtn = form.querySelector('#onb-add');
+  addBtn.onclick = async()=>{
     const id = _ytIdFromUrl(urlInp.value);
     const title = form.querySelector('#onb-title').value.trim();
     if(!id){ toast('URL inválida — cole um link do YouTube'); return; }
     if(!title){ toast('Dê um título curto ao vídeo'); return; }
-    const arr = _getOnboardVideos();
     if(arr.some(v=>v.id===id)){ toast('Esse vídeo já está na lista'); return; }
-    arr.push({ id, title });
-    _setOnboardVideos(arr);
+    const isShort = _ytIsShort(urlInp.value);
+    if(cloudOn){
+      addBtn.disabled = true; addBtn.textContent = 'Enviando…';
+      try{
+        const row = await sbVideos.add(id, title, isShort);
+        arr.push({ id, dbId: row.id, title, isShort });
+        _setOnboardVideos(arr);
+      }catch(e){
+        toast('Falha ao salvar na nuvem: '+(e.message||e));
+        addBtn.disabled = false; addBtn.textContent = 'Adicionar vídeo';
+        return;
+      }
+      addBtn.disabled = false; addBtn.textContent = 'Adicionar vídeo';
+    } else {
+      arr.push({ id, title, isShort });
+      _setOnboardVideos(arr);
+    }
     urlInp.value=''; form.querySelector('#onb-title').value=''; prevEl.hidden=true; prevEl.innerHTML='';
     paint(); toast('Vídeo adicionado ✔');
   };
@@ -6016,7 +6084,6 @@ function profVideosOnboard(){
   w.appendChild(secTitle);
   w.appendChild(hint);
   w.appendChild(listWrap);
-  paint();
   return w;
 }
 
@@ -7251,17 +7318,21 @@ function _turmaMatricularSheet(t, done){
 }
 
 function tabbarProf(){
+  // Mobile-first: 5 tabs essenciais visíveis por padrão. Loja e Vídeos são
+  // "gerenciamento" — só aparecem em tablet/desktop (≥768px) via .tab-wide.
   const tabs = [
-    ['painel','Painel', icoHome()],
-    ['alunos','Alunos', icoUsers()],
-    ['turmas','Turmas', icoCalendar()],
-    ['relatorios','Relatórios', icoChart()],
-    ['loja','Loja', icoStore()],
-    ['perfil','Mais', icoUser()],
+    ['painel','Painel', icoHome(), false],
+    ['alunos','Alunos', icoUsers(), false],
+    ['turmas','Turmas', icoCalendar(), false],
+    ['relatorios','Relatórios', icoChart(), false],
+    ['videos','Vídeos', icoVideo(), true],   // wide-only
+    ['loja','Loja', icoStore(), true],       // wide-only
+    ['perfil','Mais', icoMore(), false],
   ];
   const bar = el(`<div class="tabbar"></div>`);
-  tabs.forEach(([id,label,ico])=>{
-    const t = el(`<div class="tab ${DB.navProf===id?'active':''}">${ico||icoMore()}<span class="tl">${label}</span></div>`);
+  tabs.forEach(([id,label,ico,wideOnly])=>{
+    const cls = `tab ${DB.navProf===id?'active':''}${wideOnly?' tab-wide':''}`;
+    const t = el(`<div class="${cls}">${ico||icoMore()}<span class="tl">${label}</span></div>`);
     t.onclick=()=> goProf(id);
     bar.appendChild(t);
   });
@@ -8075,6 +8146,7 @@ function icoAlert(){return `<svg viewBox="0 0 24 24" fill="none" stroke="current
 function icoBelt(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><path d="M9 13.3 7.5 21l4.5-2.6L16.5 21 15 13.3"/></svg>`;}
 function icoBox(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>`;}
 function icoCalendar(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>`;}
+function icoVideo(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M17 10l4-2v8l-4-2z"/></svg>`;}
 
 /* ============================================================
    SELF-TEST (smoke) — rode com ?test=1 ou selfTest() no console.

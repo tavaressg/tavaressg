@@ -879,7 +879,54 @@
   }
   function mesAtual() { return HOJE().slice(0, 7); } // 'YYYY-MM' — C1: mês local, não UTC
 
+  // Vídeos de onboarding — leitura/escrita da tabela academy_videos (0009).
+  // Compartilhado entre professores da mesma academia (RLS na tabela).
+  const sbVideos = {
+    list: wrap(async () => {
+      const { data } = await SB.from('academy_videos')
+        .select('id, yt_id, title, is_short, ordem, publico_alvo')
+        .eq('publico_alvo', 'branca_0')
+        .order('ordem', { ascending: true });
+      return (data || []).map(v => ({
+        id: v.id, ytId: v.yt_id, title: v.title,
+        isShort: !!v.is_short, ordem: v.ordem,
+      }));
+    }),
+    add: wrap(async (ytId, title, isShort) => {
+      // ordem = topo + 1 (aparece no fim; professor reordena depois)
+      const { data: max } = await SB.from('academy_videos')
+        .select('ordem').eq('publico_alvo', 'branca_0').order('ordem', { ascending: false }).limit(1);
+      const ordem = ((max && max[0] && max[0].ordem) || 0) + 1;
+      const { data, error } = await SB.from('academy_videos')
+        .insert({ yt_id: ytId, title, is_short: !!isShort, ordem })
+        .select().single();
+      if (error) throw error;
+      return { id: data.id, ytId: data.yt_id, title: data.title, isShort: !!data.is_short, ordem: data.ordem };
+    }),
+    update: wrap(async (id, patch) => {
+      const p = {};
+      if (patch.title != null) p.title = patch.title;
+      if (patch.isShort != null) p.is_short = !!patch.isShort;
+      if (patch.ordem != null) p.ordem = patch.ordem;
+      const { error } = await SB.from('academy_videos').update(p).eq('id', id);
+      if (error) throw error;
+    }),
+    delete: wrap(async (id) => {
+      const { error } = await SB.from('academy_videos').delete().eq('id', id);
+      if (error) throw error;
+    }),
+    // Reordenar em lote: recebe array de ids na ordem desejada; grava ordem 0..N-1.
+    reorder: wrap(async (ids) => {
+      if (!Array.isArray(ids) || !ids.length) return;
+      // upsert em lote via patch individual (evita conflitos com unique/RLS)
+      for (let i = 0; i < ids.length; i++) {
+        await SB.from('academy_videos').update({ ordem: i }).eq('id', ids[i]);
+      }
+    }),
+  };
+
   global.sbAuth = sbAuth;
   global.sbSync = sbSync;
   global.sbProf = sbProf;
+  global.sbVideos = sbVideos;
 })(window);
