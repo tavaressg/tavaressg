@@ -1899,7 +1899,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .mt-chip i{font-style:normal;color:var(--muted);font-weight:600}
 /* Grade linha=dia × coluna=horário (mini planilha). Colunas comprimem pra caber sem scroll. */
 .mt-grid{display:grid;gap:3px;margin-top:10px;width:100%}
-.mt-gh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;font-variant-numeric:tabular-nums;min-width:0}
+.mt-gh{font-size:13px;font-weight:800;color:var(--ink);text-align:center;padding:8px 2px 10px;font-variant-numeric:tabular-nums;min-width:0;border-bottom:2px solid var(--line);letter-spacing:.3px}
 .mt-gh-corner{background:transparent}
 .mt-gd{font-size:12px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.3px;padding:8px 2px;display:flex;align-items:center;min-width:0}
 /* Chip 2 linhas — MESMO design do professor (.g-chip): cor sólida da turma no fundo,
