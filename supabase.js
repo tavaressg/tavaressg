@@ -504,7 +504,7 @@
       const acad = await myAcademyId(); if (!acad) return [];
       // 120d: cobre as 16 semanas do cálculo de tendência de queda (freq4 vs base4)
       const hojeISO = HOJE(), mes = mesAtual(), d120 = _diasAtras(120);
-      const [profs, hoje, mens, ckAll, grads] = await Promise.all([
+      const [profs, hoje, mens, ckAll, grads, enrolls] = await Promise.all([
         // Todos os usuários da academia (aluno + professor + dono). O papel vai no
         // campo `role` de cada linha; os KPIs (getKPIs) filtram só 'aluno'.
         SB.from('profiles').select('*').eq('academy_id', acad).eq('ativo', true),
@@ -512,6 +512,8 @@
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
         SB.from('checkins').select('user_id,data').eq('academy_id', acad).gte('data', d120),                 // M6
         SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),               // M6
+        // Matrículas ativas — popula a.turmas em cada aluno (a UI de Turmas usa isso)
+        SB.from('enrollments').select('user_id,turma_id').eq('status', 'ativo'),
       ]);
       const presById = {}; (hoje.data || []).forEach(c => { presById[c.user_id] = c.hora || '✓'; });
       const mensById = {}; (mens.data || []).forEach(m => { mensById[m.user_id] = m; });
@@ -522,8 +524,10 @@
         a.dias.add(c.data); if (!a.last || c.data > a.last) a.last = c.data;
       });
       const gradByUser = {}; (grads.data || []).forEach(g => { (gradByUser[g.user_id] || (gradByUser[g.user_id] = [])).push(g); });
+      const turmasByUser = {}; (enrolls.data || []).forEach(e => { (turmasByUser[e.user_id] || (turmasByUser[e.user_id] = [])).push(e.turma_id); });
       const out = (profs.data || []).map(p => {
         const base = mapAluno(p, presById, mensById);
+        base.turmas = turmasByUser[p.id] || [];   // ids das turmas matriculadas (UI de Turmas usa)
         const a = agg[p.id];
         base.diasSem = (a && a.last) ? Math.max(0, Math.round((new Date(hojeISO) - new Date(a.last)) / 86400000)) : 999;
         const diasMes = a ? [...a.dias].filter(d => d.slice(0, 7) === mes).length : 0;
@@ -734,7 +738,11 @@
       return turmaId;
     }),
     deletarTurma: wrap(async (id) => {
-      await SB.from('turmas').delete().eq('id', id);   // cascade remove as sessões
+      // Soft-delete: preserva histórico de presenças/matrículas ligadas à turma.
+      // getTurmas já filtra por ativo=true (não reaparece na UI).
+      // Também desativa as sessões pra sumir da grade semanal.
+      await SB.from('turmas').update({ ativo: false }).eq('id', id);
+      await SB.from('turma_sessoes').update({ ativo: false }).eq('turma_id', id);
     }),
 
     // ===== Matrícula aluno↔turma (enrollments) — fecha o "passo 2-backend" =====

@@ -261,8 +261,27 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .cor-seg{display:flex;gap:10px;flex-wrap:wrap}
 .cor-dot{width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}
 .cor-dot.on{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--ink)}
-.ses-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;background:var(--field);border-radius:10px;margin-bottom:6px;font-size:13.5px;font-weight:600;color:var(--ink)}
-.ses-row .ses-del{border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 6px}
+.ses-row{display:flex;align-items:center;gap:6px;padding:0;background:transparent;border-radius:10px;margin-bottom:6px;color:var(--ink)}
+.ses-row .ses-info{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;background:var(--field);border:none;border-radius:10px;color:inherit;cursor:pointer;text-align:left;
+  font-family:inherit;font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;font-variant-numeric:tabular-nums}
+.ses-row .ses-info>span:first-child{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ses-row .ses-info:hover{background:var(--hover)}
+.ses-row .ses-edit-hint{opacity:.4;font-size:12px;letter-spacing:0;text-transform:none}
+.ses-row .ses-info:hover .ses-edit-hint{opacity:1;color:var(--red-strong)}
+.ses-row .ses-del{border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;padding:6px 8px;border-radius:8px}
+.ses-row .ses-del:hover{background:var(--red-tint);color:var(--red-strong)}
+
+/* Bandeira EUA — SVG inline (não depende de font emoji do sistema/Windows) */
+.ico-us{width:14px;height:14px;display:inline-block;vertical-align:-2px;flex:none}
+.ses-info .ico-us{width:16px;height:16px}
+.g-chip .ico-us,.mt-gc .ico-us{width:12px;height:12px}
+
+/* Color picker livre — pinta qualquer hex além das cores sugeridas */
+.cor-picker{display:flex;align-items:center;gap:10px;margin-top:8px;padding:8px 12px;background:var(--field);border-radius:10px;width:fit-content}
+.cor-picker-inp{width:32px;height:32px;border:none;padding:0;background:none;cursor:pointer;border-radius:50%;overflow:hidden}
+.cor-picker-inp::-webkit-color-swatch-wrapper{padding:0;border-radius:50%}
+.cor-picker-inp::-webkit-color-swatch{border:none;border-radius:50%}
+.cor-picker-lbl{font-size:12px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums;text-transform:uppercase}
 
 /* ---------- Loja ---------- */
 .cart-btn{position:relative;width:40px;height:40px;border-radius:11px;border:1px solid var(--line);

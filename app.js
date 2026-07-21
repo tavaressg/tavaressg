@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v263';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v267';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1333,7 +1333,7 @@ function alunoInicio(){
       const card = el(`<div class="checkin-card" role="button" tabindex="0" aria-label="Fazer check-in em ${safeAttr(s.turmaNome)} — ${safeAttr(s.hora)}">
         <span class="cc-dot" style="background:${safeAttr(s.cor||'var(--red)')}"></span>
         <div class="cc-mid">
-          <div class="cc-t">Check-in · ${safeTxt(s.turmaNome)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' 🇺🇸':''}</div>
+          <div class="cc-t">Check-in · ${safeTxt(s.turmaNome)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' '+icoUSFlag():''}</div>
           <div class="cc-s"><b>${safeTxt(s.hora)}</b> · ${safeTxt(quando)}</div>
         </div>
         <span class="cc-go">›</span>
@@ -3414,7 +3414,7 @@ function _sessaoPickSheet(sessoes, onPick){
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sessoes.forEach(s=>{
     const row = el(`<button class="cfg-row" style="width:100%;text-align:left;font-family:inherit;cursor:pointer">
-      <span><b style="color:${safeAttr(s.cor||'var(--ink)')}">${safeTxt(s.hora)}</b> · ${safeTxt(s.turmaNome)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' 🇺🇸':''}</span></button>`);
+      <span><b style="color:${safeAttr(s.cor||'var(--ink)')}">${safeTxt(s.hora)}</b> · ${safeTxt(s.turmaNome)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' '+icoUSFlag():''}</span></button>`);
     row.onclick=()=>{ close(); onPick(s); };
     list.appendChild(row);
   });
@@ -7067,7 +7067,7 @@ function _gradeHorarios(turmas){
     dias.forEach(([d])=>{
       const cell = el('<div class="g-cell"></div>');
       (cells[d+'|'+h]||[]).forEach(({t,s})=>{
-        cell.appendChild(el(`<span class="g-chip" style="--tc:${t.cor||'#888'}">${safeTxt(t.nome)}${s.variacao?`<i>${safeTxt(s.variacao)}</i>`:''}${s.bilingue?' 🇺🇸':''}</span>`));
+        cell.appendChild(el(`<span class="g-chip" style="--tc:${t.cor||'#888'}">${safeTxt(t.nome)}${s.variacao?`<i>${safeTxt(s.variacao)}</i>`:''}${s.bilingue?' '+icoUSFlag():''}</span>`));
       });
       table.appendChild(cell);
     });
@@ -7139,7 +7139,7 @@ function abrirMinhasTurmas(){
         const t = s._t; const cor = t.cor||'#888';
         const src = t.logo || 'brand/logo.png?v=2';
         const logoHTML = `<img class="mt-gd-logo" src="${safeAttr(src)}" alt="" data-fallback="remove">`;
-        const extras = [s.variacao, s.bilingue?'🇺🇸':null].filter(Boolean).join(' · ');
+        const extras = [s.variacao, s.bilingue?icoUSFlag():null].filter(Boolean).join(' · ');
         grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">${logoHTML}${extras?`<i>${safeTxt(extras)}</i>`:''}</div>`));
       });
     });
@@ -7168,8 +7168,12 @@ function _turmaSheet(id){
     <input class="inp" id="tu-nome" placeholder="Ex: Adulto, Kodomo…" value="${t?safeAttr(t.nome):''}">
     <label class="flbl" style="margin-top:12px">Faixa etária <span class="ca-opt">(opcional)</span></label>
     <input class="inp" id="tu-idade" placeholder="Ex: 16+, 6–9 anos" value="${t?safeAttr(t.faixaEtaria||''):''}">
-    <label class="flbl" style="margin-top:12px">Cor</label>
+    <label class="flbl" style="margin-top:12px">Cor <span class="ca-opt">(escolha uma sugerida ou pinte livre)</span></label>
     <div class="cor-seg" id="tu-cor"></div>
+    <div class="cor-picker">
+      <input class="cor-picker-inp" id="tu-cor-hex" type="color" value="${safeAttr(cor)}" aria-label="Cor livre (hexadecimal)">
+      <span class="cor-picker-lbl" id="tu-cor-lbl">${safeAttr(cor)}</span>
+    </div>
     ${!novo?`<label class="flbl" style="margin-top:14px">Horários (<span id="tu-nses">${(t.sessoes||[]).length}</span>)</label><div id="tu-sessoes"></div>
       <button class="add-sessao" id="tu-addses">+ Adicionar horário</button>`:'<div class="empty-hint" style="margin-top:12px">Salve a turma para adicionar horários.</div>'}
     ${!novo?`<div class="cad-sec">Alunos matriculados</div><div id="tu-roster"></div>`:''}
@@ -7178,8 +7182,18 @@ function _turmaSheet(id){
     <button class="sheet-cancel" id="tu-cancel">Cancelar</button>
   </div></div>`);
   const corSeg = sheet.querySelector('#tu-cor');
-  const paintCor=()=>{ corSeg.innerHTML=''; _TURMA_CORES.forEach(c=>{ const b=el(`<button type="button" class="cor-dot ${c===cor?'on':''}" style="background:${c}" aria-label="Cor"></button>`); b.onclick=()=>{ cor=c; paintCor(); }; corSeg.appendChild(b); }); };
+  const corHex = sheet.querySelector('#tu-cor-hex');
+  const corLbl = sheet.querySelector('#tu-cor-lbl');
+  const paintCor=()=>{
+    corSeg.innerHTML='';
+    _TURMA_CORES.forEach(c=>{
+      const b=el(`<button type="button" class="cor-dot ${c.toLowerCase()===String(cor).toLowerCase()?'on':''}" style="background:${c}" aria-label="Cor ${c}"></button>`);
+      b.onclick=()=>{ cor=c; corHex.value=c; corLbl.textContent=c; paintCor(); };
+      corSeg.appendChild(b);
+    });
+  };
   paintCor();
+  corHex.oninput=()=>{ cor=corHex.value; corLbl.textContent=cor; paintCor(); };
   if(!novo){
     const sesWrap=sheet.querySelector('#tu-sessoes');
     const nSes=sheet.querySelector('#tu-nses');
@@ -7187,7 +7201,17 @@ function _turmaSheet(id){
       sesWrap.innerHTML='';
       sessoes.forEach(s=>{
         const lbl = (DIAS_SEMANA.find(([d])=>d===s.dia)||[,s.dia])[1];
-        const row=el(`<div class="ses-row"><span>${lbl} · ${safeTxt(s.hora)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' 🇺🇸':''}</span><button class="ses-del" aria-label="Remover horário">✕</button></div>`);
+        const row=el(`<div class="ses-row">
+          <button class="ses-info" type="button" aria-label="Editar horário">
+            <span>${lbl} · ${safeTxt(s.hora)}${s.variacao?' · '+safeTxt(s.variacao):''}${s.bilingue?' '+icoUSFlag():''}</span>
+            <span class="ses-edit-hint">✎</span>
+          </button>
+          <button class="ses-del" aria-label="Remover horário">✕</button>
+        </div>`);
+        // Toque no chip abre edição; ✕ remove
+        row.querySelector('.ses-info').onclick=()=> _editSessaoSheet(s, (novaS)=>{
+          Object.assign(s, novaS); paintSes();
+        });
         row.querySelector('.ses-del').onclick=()=>{ sessoes=sessoes.filter(x=>x!==s); paintSes(); };
         sesWrap.appendChild(row);
       });
@@ -7195,7 +7219,7 @@ function _turmaSheet(id){
       if(nSes) nSes.textContent=sessoes.length;
     };
     paintSes();
-    sheet.querySelector('#tu-addses').onclick=()=> _sessaoSheet(t.nome, (s)=>{ sessoes.push(s); paintSes(); });
+    sheet.querySelector('#tu-addses').onclick=()=> _sessaoSheet(t.nome, (s)=>{ sessoes.push(s); paintSes(); }, sessoes);
     const rosterBox=sheet.querySelector('#tu-roster');
     const paintRoster=()=>{ if(rosterBox){ rosterBox.innerHTML=''; rosterBox.appendChild(_turmaRosterNode(t, paintRoster)); } };
     paintRoster();
@@ -7228,35 +7252,88 @@ function _turmaSheet(id){
   requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
-function _sessaoSheet(nomeTurma, onAdd){
-  let dia='seg';
+/* Novo horário — multi-dia batch (matriz visual removida por feedback do dono).
+   Marca vários dias + hora + variação uma vez → cria N horários. */
+function _sessaoSheet(nomeTurma, onAdd, sessoesExistentes){
+  const existSet = new Set((sessoesExistentes||[]).map(s=>s.dia+'|'+s.hora));
+  const diasSel = new Set();
   const sheet=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Novo horário — ${safeTxt(nomeTurma)}</div>
-    <label class="flbl">Dia da semana</label>
-    <div class="seg" id="se-dia"></div>
+    <div class="sheet-desc">Marque os dias e defina a hora uma vez — cria em lote</div>
+    <label class="flbl" style="margin-top:8px">Dias</label>
+    <div class="seg" id="se-dias-multi"></div>
     <div class="cad-row" style="margin-top:12px">
       <div style="flex:1"><label class="flbl">Hora</label><input class="inp" id="se-hora" type="time" value="19:30"></div>
       <div style="flex:1"><label class="flbl">Variação <span class="ca-opt">(opc.)</span></label><input class="inp" id="se-var" placeholder="No-Gi, Avançado…"></div>
     </div>
-    <label class="onb-consent" style="margin-top:14px"><input type="checkbox" id="se-bi"> <span>Treino bilíngue 🇺🇸</span></label>
+    <label class="onb-consent" style="margin-top:14px"><input type="checkbox" id="se-bi"> <span>Treino bilíngue ${icoUSFlag()}</span></label>
     <button class="btn-save" id="se-save" style="margin-top:14px">Adicionar</button>
     <button class="sheet-cancel" id="se-cancel">Cancelar</button>
   </div></div>`);
-  const segDia=sheet.querySelector('#se-dia');
-  DIAS_SEMANA.forEach(([d,lbl])=>{ const b=el(`<button class="${d===dia?'active':''}">${lbl}</button>`); b.onclick=()=>{ dia=d; segDia.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segDia.appendChild(b); });
+  const segDias=sheet.querySelector('#se-dias-multi');
+  DIAS_SEMANA.forEach(([d,lbl])=>{
+    const b=el(`<button type="button">${lbl}</button>`);
+    b.onclick=()=>{ diasSel.has(d)?diasSel.delete(d):diasSel.add(d); b.classList.toggle('active', diasSel.has(d)); };
+    segDias.appendChild(b);
+  });
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#se-cancel').onclick=close;
   sheet.querySelector('#se-save').onclick=()=>{
+    if(!diasSel.size){ toast('Marque pelo menos 1 dia'); return; }
     const hora=sheet.querySelector('#se-hora').value; if(!hora){ toast('Informe a hora'); return; }
     const variacao=sheet.querySelector('#se-var').value.trim();
     const bilingue=sheet.querySelector('#se-bi').checked;
-    const s={ id:'s'+Date.now(), dia, hora, variacao:variacao||undefined, bilingue:bilingue||undefined };
-    close(); if(onAdd) onAdd(s); toast('Horário adicionado ✔');
+    let n=0, dup=0;
+    [...diasSel].forEach(d=>{
+      if(existSet.has(d+'|'+hora)){ dup++; return; }
+      const s={ id:'s'+Date.now()+'-'+d, dia:d, hora, variacao:variacao||undefined, bilingue:bilingue||undefined };
+      if(onAdd) onAdd(s);
+      existSet.add(d+'|'+hora);
+      n++;
+    });
+    close();
+    if(n) toast(`${n} horário${n>1?'s':''} adicionado${n>1?'s':''} ✔${dup?` (${dup} já existia${dup>1?'m':''})`:''}`);
+    else toast('Todos os dias marcados já têm essa hora');
   };
   document.body.appendChild(sheet);
   requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+/* Editar sessão existente — toque no chip do horário abre este sheet. */
+function _editSessaoSheet(s, onSave){
+  const sheet=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Editar horário</div>
+    <label class="flbl">Dia</label>
+    <div class="seg" id="ed-dia"></div>
+    <div class="cad-row" style="margin-top:12px">
+      <div style="flex:1"><label class="flbl">Hora</label><input class="inp" id="ed-hora" type="time" value="${safeAttr(s.hora||'19:30')}"></div>
+      <div style="flex:1"><label class="flbl">Variação <span class="ca-opt">(opc.)</span></label><input class="inp" id="ed-var" placeholder="No-Gi, Avançado…" value="${safeAttr(s.variacao||'')}"></div>
+    </div>
+    <label class="onb-consent" style="margin-top:14px"><input type="checkbox" id="ed-bi" ${s.bilingue?'checked':''}> <span>Treino bilíngue ${icoUSFlag()}</span></label>
+    <button class="btn-save" id="ed-save" style="margin-top:14px">Salvar alterações</button>
+    <button class="sheet-cancel" id="ed-cancel">Cancelar</button>
+  </div></div>`);
+  let dia=s.dia||'seg';
+  const segDia=sheet.querySelector('#ed-dia');
+  DIAS_SEMANA.forEach(([d,lbl])=>{
+    const b=el(`<button type="button" class="${d===dia?'active':''}">${lbl}</button>`);
+    b.onclick=()=>{ dia=d; segDia.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
+    segDia.appendChild(b);
+  });
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#ed-cancel').onclick=close;
+  sheet.querySelector('#ed-save').onclick=()=>{
+    const hora=sheet.querySelector('#ed-hora').value; if(!hora){ toast('Informe a hora'); return; }
+    const variacao=sheet.querySelector('#ed-var').value.trim();
+    const bilingue=sheet.querySelector('#ed-bi').checked;
+    if(onSave) onSave({ ...s, dia, hora, variacao: variacao||undefined, bilingue: bilingue||undefined });
+    close(); toast('Horário atualizado ✔');
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* Roster + mini-relatório da turma (abre dentro de _turmaSheet). Indicadores derivados dos
@@ -8147,6 +8224,9 @@ function icoBelt(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 function icoBox(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>`;}
 function icoCalendar(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>`;}
 function icoVideo(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M17 10l4-2v8l-4-2z"/></svg>`;}
+/* Bandeira dos EUA em SVG (não depende de font emoji regional — Windows não renderiza 🇺🇸).
+   Círculo com faixas + cantão azul; estilo simplificado pra caber em chip pequeno. */
+function icoUSFlag(){return `<svg class="ico-us" viewBox="0 0 24 24" aria-label="Bilíngue"><defs><clipPath id="uc"><circle cx="12" cy="12" r="11"/></clipPath></defs><g clip-path="url(#uc)"><rect width="24" height="24" fill="#fff"/><rect y="0"  width="24" height="1.85" fill="#B22234"/><rect y="3.7" width="24" height="1.85" fill="#B22234"/><rect y="7.4" width="24" height="1.85" fill="#B22234"/><rect y="11.1" width="24" height="1.85" fill="#B22234"/><rect y="14.8" width="24" height="1.85" fill="#B22234"/><rect y="18.5" width="24" height="1.85" fill="#B22234"/><rect y="22.2" width="24" height="1.85" fill="#B22234"/><rect width="10.5" height="9.25" fill="#3C3B6E"/></g><circle cx="12" cy="12" r="11" fill="none" stroke="rgba(0,0,0,.12)" stroke-width="1"/></svg>`;}
 
 /* ============================================================
    SELF-TEST (smoke) — rode com ?test=1 ou selfTest() no console.
