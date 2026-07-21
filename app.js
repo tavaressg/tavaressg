@@ -3146,6 +3146,29 @@ function alunoPerfil(){
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));   // clone p/ loop infinito
     w.appendChild(lojaWrap);
+    // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa no toque/hover
+    // e retoma 2.5s depois do último gesto. Loop: quando passa da metade (cards
+    // duplicados), volta scrollLeft pra 0 sem behavior. Respeita reduced-motion.
+    const ticker = lojaWrap.querySelector('.ld-ticker');
+    if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+      let paused=false, resumeAt=0, raf=0;
+      const step = (ts)=>{
+        if(!paused && ts >= resumeAt){
+          const half = track.scrollWidth/2;
+          if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
+          else ticker.scrollLeft += 0.4;
+        }
+        raf = requestAnimationFrame(step);
+      };
+      const bump = ()=>{ paused=true; resumeAt = performance.now()+2500; };
+      const release = ()=>{ paused=false; };
+      ticker.addEventListener('pointerdown', bump, { passive:true });
+      ticker.addEventListener('pointerup', release, { passive:true });
+      ticker.addEventListener('pointercancel', release, { passive:true });
+      ticker.addEventListener('mouseenter', bump);
+      ticker.addEventListener('mouseleave', release);
+      raf = requestAnimationFrame(step);
+    }
   }
 
   // Modo professor — banner grande logo depois da Loja (posição original)
@@ -6875,6 +6898,10 @@ function renderProdutoForm(){
   let sizes = p ? (p.tam||[]).slice() : (CAT_TAMANHOS['Kimonos']||[]).slice();
   let sizesCustom = !novo;   // produto existente: nunca trocar os tamanhos ao mudar categoria
   let dirty = false;
+  // Fotos: primeira = capa (p.img), resto = galeria (p.imgs[]). URLs no Supabase Storage
+  // (bucket `produtos`, público-leitura). Upload cru — sem crop/compressão (as fotos do
+  // catálogo já vêm 1:1 e leves; ver CLAUDE.md § análise de fotos).
+  let fotos = p ? [p.img, ...(Array.isArray(p.imgs)?p.imgs:[])].filter(Boolean) : [];
   const est = {}; sizes.forEach(t=> est[t] = p ? (p.estoque?.[t] ?? 0) : 10);
   const back=()=>{ DB.produtoFormOpen=false; DB._produtoEdit=null; render(); window.scrollTo(0,0); };
   const tryBack=()=>{ dirty ? _confirmDescartar(back) : back(); };
@@ -6894,6 +6921,9 @@ function renderProdutoForm(){
     <input class="inp" id="pr-preco" type="number" inputmode="decimal" value="${novo?'':p.preco}" placeholder="0">
     <label class="flbl" style="margin-top:12px">Emoji</label>
     <input class="inp" id="pr-emoji" value="${novo?'🥋':safeAttr(p.emoji||'🥋')}" maxlength="2">
+    <label class="flbl" style="margin-top:12px">Fotos <span style="color:var(--muted);font-weight:500">(1ª = capa)</span></label>
+    <div class="pf-fotos" id="pf-fotos"></div>
+    <input type="file" accept="image/*" id="pf-file" multiple style="display:none">
     <label class="flbl" style="margin-top:12px">Categoria</label>
     <div class="seg" id="pr-cat"></div>
     <label class="flbl" style="margin-top:12px">Estoque por tamanho</label>
@@ -6916,6 +6946,34 @@ function renderProdutoForm(){
     });
   };
   paintEst();
+  // Grid de fotos: miniaturas + botão "+" que abre o file input.
+  const fotosWrap = body.querySelector('#pf-fotos');
+  const fileIn = body.querySelector('#pf-file');
+  const paintFotos = ()=>{
+    fotosWrap.innerHTML='';
+    fotos.forEach((url,i)=>{
+      const t=el(`<div class="pf-foto${i===0?' capa':''}"><img src="${safeAttr(url)}" alt="" data-fallback="remove">
+        <button class="pf-rm" aria-label="Remover foto ${i+1}">✕</button></div>`);
+      t.querySelector('.pf-rm').onclick=()=>{ dirty=true; fotos.splice(i,1); paintFotos(); };
+      fotosWrap.appendChild(t);
+    });
+    const add=el(`<button class="pf-add" aria-label="Adicionar foto">＋</button>`);
+    add.onclick=()=> fileIn.click();
+    fotosWrap.appendChild(add);
+  };
+  paintFotos();
+  fileIn.onchange = async ()=>{
+    const files = Array.from(fileIn.files||[]); fileIn.value='';
+    if(!files.length) return;
+    if(typeof sbProf==='undefined' || !sbProf.uploadProdutoFoto){ toast('Upload indisponível offline'); return; }
+    toast('Enviando '+files.length+' foto'+(files.length>1?'s':'')+'…');
+    for(const f of files){
+      try{
+        const url = await sbProf.uploadProdutoFoto(f, p?p.id:null);
+        if(url){ fotos.push(url); dirty=true; paintFotos(); }
+      }catch(e){ toast('Erro no upload: '+(e.message||e)); }
+    }
+  };
   body.querySelector('#pr-addtam').onclick=()=>{
     const inp=body.querySelector('#pr-newtam'); const t=(inp.value||'').trim().toUpperCase();
     if(!t){ toast('Digite o tamanho'); return; }
@@ -6938,12 +6996,14 @@ function renderProdutoForm(){
     if(!nome){ toast('Informe o nome do produto'); return; }
     if(!sizes.length){ toast('Adicione pelo menos um tamanho'); return; }
     let alvo;
+    const img = fotos[0] || null;
+    const imgs = fotos.slice(1);
     if(novo){
       const id=Math.max(0,...DB.loja.produtos.map(x=>+x.id||0))+1;
-      alvo={ id, nome, cat:selCat, preco, emoji, cor:'#f0f0f2', desc:'', tam:sizes.slice(), estoque:{...est}, ativo };
+      alvo={ id, nome, cat:selCat, preco, emoji, cor:'#f0f0f2', desc:'', tam:sizes.slice(), estoque:{...est}, ativo, img, imgs };
       DB.loja.produtos.push(alvo);
     } else {
-      p.nome=nome; p.preco=preco; p.emoji=emoji; p.cat=selCat; p.tam=sizes.slice(); p.estoque={...est}; p.ativo=ativo; alvo=p;
+      p.nome=nome; p.preco=preco; p.emoji=emoji; p.cat=selCat; p.tam=sizes.slice(); p.estoque={...est}; p.ativo=ativo; p.img=img; p.imgs=imgs; alvo=p;
     }
     // A3: persiste no backend quando ligado. Aguardar o retorno é CRÍTICO — senão o adapter
     // trata o id local (numérico) como "produto novo" e faz INSERT a cada salvamento (bug

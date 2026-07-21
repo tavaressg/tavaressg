@@ -321,7 +321,7 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .prod-price{font-size:15px;font-weight:800;margin-top:5px}
 
 /* sheet de produto */
-.prod-sheet .prod-hero{aspect-ratio:1/1;max-height:300px;background:#f3f3f5;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:64px;margin-bottom:16px}
+.prod-sheet .prod-hero{aspect-ratio:1/1;max-height:300px;background:#f3f3f5;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:64px;margin:0 auto 16px}
 /* Carrossel do hero (galeria de fotos — migration 0004). Fica no lugar da foto única
    quando há p.imgs. Scroll snap horizontal + dots indicadores. */
 .prod-sheet .prod-hero.has-carousel{padding:0;overflow:hidden}
@@ -1744,11 +1744,16 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .ld-img.has-img .ld-emoji{display:none}
 
 /* ---- Loja Yama · ticker rolante contínuo (aba Mais) ---- */
-.ld-ticker{overflow:hidden;position:relative;margin:6px -12px 0;padding:4px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
-.ld-track{display:flex;gap:12px;width:max-content;animation:ldMarquee 45s linear infinite;padding:0 12px}
-.ld-ticker:hover .ld-track, .ld-ticker:focus-within .ld-track{animation-play-state:paused}
-@keyframes ldMarquee{ from{ transform:translateX(0) } to{ transform:translateX(-50%) } }
-@media (prefers-reduced-motion: reduce){ .ld-track{ animation:none } }
+.ld-ticker{overflow-x:auto;overflow-y:hidden;position:relative;margin:6px -12px 0;padding:4px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.ld-ticker::-webkit-scrollbar{display:none}
+.ld-track{display:flex;gap:12px;width:max-content;padding:0 12px}
+/* upload de fotos do produto (form do professor) */
+.pf-fotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.pf-foto{position:relative;width:72px;height:72px;border-radius:10px;overflow:hidden;background:var(--field);border:1px solid var(--line)}
+.pf-foto img{width:100%;height:100%;object-fit:cover}
+.pf-foto .pf-rm{position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(20,20,22,.82);color:#fff;font-size:11px;cursor:pointer;line-height:1;padding:0}
+.pf-foto.capa::before{content:'CAPA';position:absolute;bottom:0;left:0;right:0;background:rgba(20,20,22,.75);color:#fff;font-size:9px;font-weight:800;text-align:center;letter-spacing:.4px;padding:2px 0}
+.pf-add{width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--line);background:transparent;color:var(--muted);font-size:22px;cursor:pointer}
 
 /* Botão discreto de troca de modo (rodapé do Mais) */
 .pro-switch-btn{display:block;margin:20px auto 12px;padding:11px 22px;background:none;border:1.5px dashed var(--line);

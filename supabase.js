@@ -842,6 +842,20 @@
     deletarProduto: wrap(async (id) => {
       await SB.from('produtos').delete().eq('id', id);   // cascade apaga variantes/movimentos
     }),
+    // Upload de foto do produto no bucket `produtos` (público-leitura, write só professor).
+    // path: {academy_id}/{prodId|novo}/{ts}.jpg — retorna URL pública. Bucket precisa existir
+    // no Supabase (public, RLS: SELECT * / INSERT/UPDATE/DELETE = professor da academia).
+    uploadProdutoFoto: wrap(async (blob, prodId) => {
+      const acad = await myAcademyId();
+      const dir = (typeof prodId === 'string' && prodId.length >= 32) ? prodId : 'novo';
+      const path = `${acad}/${dir}/${Date.now()}.jpg`;
+      const { error } = await SB.storage.from('produtos').upload(path, blob, {
+        contentType: blob.type || 'image/jpeg', upsert: false, cacheControl: '86400',
+      });
+      if (error) throw error;
+      const { data } = SB.storage.from('produtos').getPublicUrl(path);
+      return data && data.publicUrl;
+    }),
     // Ajuste de estoque com auditoria (stock_movements).
     ajustarEstoque: wrap(async (varianteId, delta, motivo, por) => {
       const { data: v } = await SB.from('produto_variantes').select('estoque').eq('id', varianteId).single();
