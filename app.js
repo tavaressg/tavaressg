@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v275';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v280';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4135,6 +4135,8 @@ function renderProfessor(){
   const body = el('<div></div>');
   // Ficha do aluno em tela cheia tem precedência sobre as abas (voltar limpa DB.alunoAberto).
   if (DB.alunoAberto){ body.appendChild(profAlunoDetalhe(DB.alunoAberto)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.batchCheckin){ body.appendChild(profBatchCheckin(DB.batchCheckin.t, DB.batchCheckin.s)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.turmaEditOpen){ body.appendChild(profTurmaEdit(DB.turmaEditOpen==='new'?null:DB.turmaEditOpen)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   const nav = DB.navProf;
   if (nav==='painel')    body.appendChild(profPainel());
   if (nav==='alunos')    body.appendChild(profAlunos());
@@ -4150,90 +4152,276 @@ function renderProfessor(){
   return v;
 }
 
+/* ============================================================
+   BATCH CHECK-IN — PÁGINA CHEIA (protótipo visual v277)
+   Clica na turma da home → navega pra esta página (não sheet).
+   Lista de alunos matriculados com checkbox + botão em lote.
+   Estado: DB.batchCheckin = {t:turma, s:sessao}.
+   ATENÇÃO: NÃO persiste no backend ainda — só marca em memória
+   e mostra toast. Ligar sbProf.marcarPresenca por aluno depois
+   (ver análise de banco abaixo).
+   ============================================================ */
+function profBatchCheckin(turma, sessao){
+  const alunos = (typeof _turmaAlunos==='function' ? _turmaAlunos(turma.id) : []);
+  const DIAS_K = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
+  let onlyPending = true;
+  const marcados = new Set();
+  const close = ()=>{ DB.batchCheckin=null; render(); window.scrollTo(0,0); };
+  const page = el(`<div class="erp-batch-page">
+    <div class="erp-batch-hd">
+      <button class="erp-batch-close" id="bc-close" aria-label="Voltar">‹</button>
+      <div class="erp-batch-title">Adicionar frequência</div>
+      <span></span>
+    </div>
+    <div class="erp-batch-meta">
+      <div class="erp-batch-chip"><b>${safeTxt(sessao.hora||'—')}</b><span>${safeTxt(DIAS_K[sessao.dia]||sessao.dia||'')}</span></div>
+      <div class="erp-batch-chip active" style="--tc:${safeAttr(turma.cor||'#334155')}"><b>${safeTxt(turma.nome)}</b><span>${safeTxt(sessao.variacao||turma.faixaEtaria||'')}</span></div>
+      <label class="erp-batch-toggle">
+        <input type="checkbox" id="bc-pending" checked>
+        <span>Só sem frequência hoje</span>
+      </label>
+    </div>
+    <div class="erp-batch-list" id="bc-list"></div>
+    <div class="erp-batch-foot">
+      <button class="erp-batch-go" id="bc-go" disabled>Adicionar frequência <span class="erp-batch-count" id="bc-n">0</span></button>
+    </div>
+  </div>`);
+  page.querySelector('#bc-close').onclick = close;
+  const listEl = page.querySelector('#bc-list');
+  const goBtn = page.querySelector('#bc-go');
+  const nEl = page.querySelector('#bc-n');
+  const refreshCount = ()=>{ nEl.textContent = marcados.size; goBtn.disabled = marcados.size===0; };
+  const paintList = ()=>{
+    listEl.innerHTML='';
+    if(!alunos.length){ listEl.appendChild(el('<div class="erp-batch-empty">Nenhum aluno matriculado nessa turma.</div>')); return; }
+    const arr = onlyPending ? alunos.filter(a=>!a.pres) : alunos;
+    if(!arr.length){ listEl.appendChild(el('<div class="erp-batch-empty">Todos já com presença hoje. ✔</div>')); return; }
+    arr.forEach(a=>{
+      const key = a.id || a.nm;
+      const isCk = marcados.has(key);
+      const jaPres = !!a.pres;
+      const belt = BELTS[a.faixa] || {cor:'#888',nome:a.faixa||''};
+      const row = el(`<div class="erp-batch-row${isCk?' on':''}${jaPres?' done':''}" role="button" tabindex="0">
+        <span class="erp-batch-check">${isCk?'✓':(jaPres?'✓':'')}</span>
+        ${avatarAluno(a,'width:44px;height:44px;font-size:14px;flex:none')}
+        <div class="erp-batch-info">
+          <div class="erp-batch-nm">${safeTxt(a.nm)}</div>
+          <div class="erp-batch-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)} · ${a.graus||0}º grau</div>
+        </div>
+        ${jaPres?'<span class="erp-batch-flag">Já presente</span>':''}
+      </div>`);
+      if(!jaPres){
+        const toggle = ()=>{ if(marcados.has(key)) marcados.delete(key); else marcados.add(key); paintList(); refreshCount(); };
+        row.onclick = toggle;
+        row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+      }
+      listEl.appendChild(row);
+    });
+  };
+  page.querySelector('#bc-pending').onchange = (e)=>{ onlyPending = e.target.checked; paintList(); };
+  goBtn.onclick = ()=>{
+    if(!marcados.size) return;
+    // Data do check-in: usa o dia SELECIONADO no strip (DB._painelDia) mapeado
+    // pra data real da semana atual. Isso permite marcar presença de outros dias.
+    const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
+    const hojeD = new Date();
+    const diff = jsToKey.indexOf(sessao.dia) - hojeD.getDay();
+    const dt = new Date(hojeD); dt.setDate(dt.getDate()+diff);
+    const dataISO = dt.toISOString().slice(0,10);
+    const userIds = [...marcados];
+    goBtn.disabled = true; goBtn.textContent = 'Salvando…';
+    const doLocal = (n)=>{
+      // Marca no _profData local pra a UI refletir sem re-fetch
+      userIds.forEach(uid=>{
+        const al = ((_profData?.alunos)||[]).find(x=> x.id===uid || x.nm===uid);
+        if(al){ al.pres = sessao.hora || new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); al.diasSem=0; }
+      });
+      toast(`${n} presença${n!==1?'s':''} adicionada${n!==1?'s':''} ✔`);
+      close();
+    };
+    if(typeof sbProf!=='undefined' && sbProf.marcarPresencaLote && turma.id){
+      sbProf.marcarPresencaLote(turma.id, dataISO, sessao.hora, userIds)
+        .then(n=> doLocal(n||userIds.length))
+        .catch(e=>{ goBtn.disabled=false; goBtn.textContent='Adicionar frequência'; refreshCount(); toast('Erro: '+(e.message||e)); });
+    } else {
+      doLocal(userIds.length);   // offline/demo
+    }
+  };
+  paintList(); refreshCount();
+  return page;
+}
+
+/* ============================================================
+   PAINEL DO PROFESSOR — dashboard ERP (v276)
+   Inspiração Kanri: KPIs macro semânticos (cada card = decisão),
+   aniversariantes do mês em tabela, alertas acionáveis.
+   REMOVIDO: BETA KPIs, "Atividade da gestão" (fica em Config).
+   ============================================================ */
 function profPainel(){
   const w = el('<div></div>');
   const d = _profData;
-  const alunos   = d ? d.alunos : [];
-  const kpis     = d ? d.kpis   : { total:0, ativos:0, treinosTotal:0, shares:0, erros:0, receitaMes:0 };
-  const presentes = alunos.filter(a=>a.pres).length;
-  const vencidos  = alunos.filter(a=>a.pago==='late').length;
+  const alunos = d ? d.alunos : [];
+  const kpis   = d ? d.kpis   : { total:0, ativos:0, receitaMes:0 };
 
-  w.innerHTML = `<div class="hello"><div class="greet">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
-    <div class="date">Olá, ${safeTxt(DB.professor.nome)} 🥋</div></div>`;
-
-  // KPI financeiro (Mensalidades pagas) fica na aba Financeiro (Fase F) — no painel
-  // mostramos "Ativos (14d)", KPI de retenção real (evita R$ 0,00 enquanto o financeiro é placeholder).
-  w.appendChild(el(`<div class="stat-grid block">
-    <div class="stat-card"><div class="si red">${icoUsers()}</div><div class="sv">${d?presentes:'…'}</div><div class="sl">Presentes hoje</div></div>
-    <div class="stat-card"><div class="si blue">${icoRoster()}</div><div class="sv">${d?kpis.total:'…'}</div><div class="sl">Alunos</div></div>
-    <div class="stat-card"><div class="si green">${icoPulse()}</div><div class="sv">${d?kpis.ativos:'…'}</div><div class="sl">Ativos (14d)</div></div>
-    <div class="stat-card"><div class="si gold">${icoAlert()}</div><div class="sv">${d?vencidos:'…'}</div><div class="sl">Vencidos</div></div>
+  // Header institucional: nome da academia + saudação
+  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
+  w.appendChild(el(`<div class="erp-dash-hd">
+    <div class="erp-dash-hd-l">
+      <div class="erp-dash-acad">${safeTxt(acadNm)}</div>
+      <div class="erp-dash-greet">Olá, ${safeTxt(DB.professor.nome||'Professor')} — ${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
+    </div>
   </div>`));
 
-  // "O que fazer hoje" — alertas acionáveis (§7.1)
-  if(d){
-    const _aptos=_aptosGraduar().length, _risco=_emRisco().length, _baixos=_produtosBaixos();
-    const _pend=_pedidosPendentesN();
-    const _nvFx=_aptosNovaFaixa().length;
-    const _anivHj=_aniversariantesHoje().length;
-    const _anivMes=_aniversariantes().length;
-    const _sem7 = alunos.filter(a=>(a.diasSem||0)>=7).length;
-    const alerts=[];
-    if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
-    if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
-    if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante hoje`, 'Mandar parabéns ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'good']);
-    if(_nvFx>0)  alerts.push(['🎖️', `${_nvFx} apto${_nvFx>1?'s':''} a nova faixa`, 'Ver relatórios ›', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }, 'good']);
-    if(_aptos>0) alerts.push(['🥋', `${_aptos} apto${_aptos>1?'s':''} a graduar`, 'Ver relatórios ›', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }, 'good']);
-    if(_risco>0) alerts.push(['⚠️', `${_risco} em risco de evasão`, 'Ver risco ›', ()=>{ DB.relTab='risco'; goProf('relatorios'); }, 'gold']);
-    if(_sem7>0 && _sem7!==_risco) alerts.push(['👋', `${_sem7} aluno${_sem7>1?'s':''} há 7+ dias sem treinar`, 'Ver risco ›', ()=>{ DB.relTab='risco'; goProf('relatorios'); }, 'gold']);
-    if(_anivMes>_anivHj) alerts.push(['🗓️', `${_anivMes} aniversariante${_anivMes>1?'s':''} este mês`, 'Ver lista ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'gold']);
-    if(_baixos>0) alerts.push(['📦', `${_baixos} produto${_baixos>1?'s':''} com estoque baixo`, 'Ver loja ›', ()=>goProf('loja'), 'gold']);
-    if(alerts.length){
-      w.appendChild(el(`<div class="sec-title" style="margin:4px 20px 8px">O que fazer hoje</div>`));
-      alerts.forEach(([ic,tx,go,fn,kind])=>{
-        const al=el(`<div class="alert-row block ${kind}" role="button" tabindex="0" aria-label="${safeAttr(tx)}"><span class="ar-ic">${ic}</span>
-          <span class="ar-tx">${tx}</span><span class="ar-go">${go}</span></div>`);
-        al.onclick=fn; al.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; w.appendChild(al);
-      });
-    }
+  // ---- Strip de dias da semana (só dias que TÊM turma cadastrada) ----
+  const DIAS_K = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
+  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
+  const diaHoje = jsToKey[hoje.getDay()];
+  const turmas = (typeof _turmasArr==='function'?_turmasArr():[]);
+  const diasComTurma = new Set();
+  turmas.forEach(t=> (t.sessoes||[]).forEach(s=> diasComTurma.add(s.dia)));
+  const DIAS_ATIVOS = DIAS_K.filter(([k])=> diasComTurma.has(k));
+  // Se o dia salvo não tem turma, cai no atual (se tiver) ou no primeiro dia ativo
+  let diaSel = DB._painelDia;
+  if(!diasComTurma.has(diaSel)) diaSel = diasComTurma.has(diaHoje) ? diaHoje : (DIAS_ATIVOS[0]?.[0] || diaHoje);
+  const _dataDoDia = (k)=>{ const dt=new Date(hoje); dt.setDate(dt.getDate() + (jsToKey.indexOf(k) - hoje.getDay())); return dt; };
+  if(DIAS_ATIVOS.length){
+    const strip = el('<div class="erp-daystrip block"></div>');
+    DIAS_ATIVOS.forEach(([k,lbl])=>{
+      const dt = _dataDoDia(k);
+      const isHoje = k===diaHoje;
+      const isSel  = k===diaSel;
+      const b = el(`<button class="erp-daycell${isSel?' on':''}${isHoje?' hoje':''}" type="button">
+        <span class="erp-daynum">${dt.getDate()}</span>
+        <span class="erp-daylbl">${lbl}</span>
+      </button>`);
+      b.onclick = ()=>{ DB._painelDia = k; render(); };
+      strip.appendChild(b);
+    });
+    w.appendChild(strip);
   }
 
-  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Check-ins de hoje</div>
+  // ---- Turmas do dia selecionado (horizontal scroll) ----
+  const sessionsDoDia = [];
+  turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
+    if(s.dia===diaSel) sessionsDoDia.push({t, s});
+  }));
+  sessionsDoDia.sort((a,b)=> (a.s.hora||'').localeCompare(b.s.hora||''));
+  if(sessionsDoDia.length){
+    const strip2 = el('<div class="erp-classes-strip block"></div>');
+    sessionsDoDia.forEach(({t,s})=>{
+      const sub = s.variacao || t.faixaEtaria || '';
+      const c = el(`<button class="erp-class-card" type="button" style="--tc:${safeAttr(t.cor||'#334155')}">
+        <div class="erp-class-hora">🕐 ${safeTxt(s.hora)}</div>
+        <div class="erp-class-nome">${safeTxt(t.nome)}</div>
+        ${sub?`<div class="erp-class-sub">${safeTxt(sub)}</div>`:''}
+      </button>`);
+      c.onclick = ()=>{ DB.batchCheckin = {t, s}; render(); window.scrollTo(0,0); };
+      strip2.appendChild(c);
+    });
+    w.appendChild(strip2);
+  } else {
+    w.appendChild(el(`<div class="empty-line block" style="padding:16px 20px">Sem turmas em ${DIAS_K.find(([k])=>k===diaSel)[1]}.</div>`));
+  }
+
+  if(!d){
+    w.appendChild(el('<div class="loading-center block">Carregando dados da nuvem…</div>'));
+    return w;
+  }
+
+  // Cálculos
+  const total = kpis.total;
+  const ativos = kpis.ativos;
+  const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
+  const vencidos = alunos.filter(a=>a.pago==='late').length;
+  const aptosGrad = _aptosGraduar().length;
+  const aptosFaixa = _aptosNovaFaixa().length;
+  const recebendoGrau = aptosGrad + aptosFaixa;
+  const anivMes = _aniversariantes();
+
+  // Grid de KPI macros — reusa .stat-card (design consagrado com ícone pastel)
+  // mas cada card é CLICÁVEL e leva pra tela relevante.
+  const kpiCard = (siClass, ico, valor, label, fn)=>{
+    const c = el(`<div class="stat-card kpi-click" role="button" tabindex="0">
+      <div class="si ${siClass}">${ico}</div>
+      <div class="sv">${valor}</div>
+      <div class="sl">${label}</div>
+    </div>`);
+    c.onclick = fn;
+    c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } };
+    return c;
+  };
+  const grid = el('<div class="stat-grid block"></div>');
+  grid.appendChild(kpiCard('blue', icoRoster(), total, 'Alunos totais', ()=>goProf('alunos')));
+  grid.appendChild(kpiCard('green', icoPulse(), ativos, 'Ativos (14d)', ()=>goProf('alunos')));
+  grid.appendChild(kpiCard('gold', icoAlert(), ausentes, 'Ausentes 7+ dias', ()=>{ DB.relTab='risco'; goProf('relatorios'); }));
+  grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }));
+  grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }));
+  grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', ()=>goProf('alunos')));
+  w.appendChild(grid);
+
+  // "O que fazer hoje" — alertas acionáveis (mantido, é o coração do painel)
+  const _baixos=_produtosBaixos();
+  const _pend=_pedidosPendentesN();
+  const _anivHj=_aniversariantesHoje().length;
+  const alerts=[];
+  if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
+  if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
+  if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante hoje`, 'Mandar parabéns ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'good']);
+  if(_baixos>0) alerts.push(['📦', `${_baixos} produto${_baixos>1?'s':''} com estoque baixo`, 'Ver loja ›', ()=>goProf('loja'), 'gold']);
+  if(alerts.length){
+    w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">O que fazer hoje</div>`));
+    alerts.forEach(([ic,tx,go,fn,kind])=>{
+      const al=el(`<div class="alert-row block ${kind}" role="button" tabindex="0" aria-label="${safeAttr(tx)}"><span class="ar-ic">${ic}</span>
+        <span class="ar-tx">${tx}</span><span class="ar-go">${go}</span></div>`);
+      al.onclick=fn; al.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; w.appendChild(al);
+    });
+  }
+
+  // Aniversariantes do mês — tabela (Kanri style)
+  if(anivMes.length){
+    w.appendChild(el(`<div class="sec-row"><div class="sec-title">Aniversariantes do mês</div>
+      <a role="button" tabindex="0" data-click="verAnivFull">Ver todos</a></div>`));
+    const tbl = el(`<div class="erp-dash-birth block"></div>`);
+    tbl.appendChild(el(`<div class="erp-dash-birth-hd">
+      <span>Aluno</span><span>Faixa</span><span>Dia</span><span></span>
+    </div>`));
+    anivMes.slice(0,5).forEach(a=>{
+      const dia = (a.nascData||'').slice(8,10);
+      const mes = (a.nascData||'').slice(5,7);
+      const belt = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
+      const wa = _waLink(a);
+      const row = el(`<div class="erp-dash-birth-row">
+        <span class="erp-dash-birth-nm">${safeTxt(a.nm)}</span>
+        <span class="erp-dash-birth-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)}</span>
+        <span class="erp-dash-birth-dt">${dia}/${mes}</span>
+        <span class="erp-dash-birth-acts">${wa?'<button class="erp-mini" data-a="wa" aria-label="WhatsApp">💬</button>':''}
+          <button class="erp-mini" data-a="open" aria-label="Abrir">›</button></span>
+      </div>`);
+      row.querySelector('[data-a="open"]').onclick=()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
+      const waBtn=row.querySelector('[data-a="wa"]');
+      if(waBtn && wa) waBtn.onclick=()=> window.open(wa, '_blank', 'noopener');
+      tbl.appendChild(row);
+    });
+    w.appendChild(tbl);
+  }
+
+  // Check-ins de hoje — lista compacta
+  const presentes = alunos.filter(a=>a.pres).length;
+  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Check-ins de hoje (${presentes})</div>
     <a data-click="verAlunos">Ver todos</a></div>`));
   const list = el('<div class="list block"></div>');
-  if(!d){
-    list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>'));
-  } else if(!presentes){
+  if(!presentes){
     list.appendChild(el('<div class="empty-line">Nenhum check-in ainda hoje.</div>'));
   } else {
-    alunos.filter(a=>a.pres).slice(0,4).forEach(a=>{
+    alunos.filter(a=>a.pres).slice(0,5).forEach(a=>{
       list.appendChild(el(`<div class="ci-row"><span class="ci-dot"></span>
         ${avatarAluno(a, 'width:36px;height:36px;font-size:13px')}
         <div><div style="font-size:13.5px;font-weight:700">${safeTxt(a.nm)}</div>
-          <div style="font-size:11.5px;color:var(--muted);font-weight:600">${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${safeTxt(a.graus)}º grau</div></div>
+          <div style="font-size:11.5px;color:var(--muted);font-weight:600">${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${a.graus||0}º grau</div></div>
         <span class="ci-time">${safeTxt(a.pres)}</span></div>`));
     });
   }
   w.appendChild(list);
-
-  if(d && kpis.treinosTotal > 0){
-    w.appendChild(el('<div class="sec-title" style="margin:16px 20px 8px">Beta KPIs</div>'));
-    w.appendChild(el(`<div class="list block">
-      <div class="mt-row"><span>Alunos com treino</span><b>${kpis.ativos}</b></div>
-      <div class="mt-row"><span>Total de treinos</span><b>${kpis.treinosTotal}</b></div>
-      <div class="mt-row"><span>Stories compartilhados</span><b>${kpis.shares}</b></div>
-      <div class="mt-row"><span>Erros de app (24h)</span><b>${kpis.erros}</b></div>
-    </div>`));
-  }
-
-  // Trilha administrativa (0008): quem fez o quê na gestão
-  if(d){
-    const aud = el(`<div class="list block"><div class="mt-row" role="button" tabindex="0" aria-label="Atividade da gestão" style="cursor:pointer"><span>📜 Atividade da gestão</span><b style="color:var(--muted)">›</b></div></div>`);
-    const row = aud.querySelector('.mt-row');
-    row.onclick = ()=>_profAuditSheet();
-    row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _profAuditSheet(); } };
-    w.appendChild(aud);
-  }
   return w;
 }
 
@@ -4292,6 +4480,132 @@ function _profErrosSheet(){
   }).catch(()=>{ list.innerHTML='<div class="empty-line">Falha ao carregar os erros.</div>'; });
 }
 
+/* ============================================================
+   EXPORT — XLSX (SheetJS vendorizado) e PDF (jsPDF + autoTable
+   vendorizados). Download DIRETO, sem janela nova. Ambos com header
+   institucional (nome da academia + data) e tabela estruturada.
+   Ver vendor/xlsx.min.js, vendor/jspdf.min.js, vendor/jspdf-autotable.min.js.
+   ============================================================ */
+// Colunas ricas — Kanri-style. Idade calculada; Foto Sim/Não; Dt.Início do cadastro;
+// Pr.Grau/Pr.Nível: aulas restantes (heurística até termos regra CBJJ configurada).
+function _idadeDe(nasc){
+  if(!nasc) return '';
+  const y = String(nasc).slice(0,4); if(!/^\d{4}$/.test(y)) return '';
+  return String((new Date()).getFullYear() - parseInt(y,10));
+}
+function _fmtDataBR(iso){
+  if(!iso) return '';
+  const [y,m,d] = String(iso).split('-'); if(!y||!m||!d) return String(iso);
+  return `${d}/${m}/${y}`;
+}
+function _alunosBuildRows(alunos, turmaMap){
+  return alunos.map(a=>{
+    const cod = (a.matricula ? String(a.matricula).padStart(5,'0') : (a.id ? String(a.id).slice(-6) : ''));
+    const turmas = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(' | ');
+    const nivel = BELTS[a.faixa]?.nome || a.faixa || '';
+    const pago = a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'';
+    return {
+      'Mat.': cod,
+      'Nome': a.nm||'',
+      'E-mail': (a.cad && a.cad.email) || a.email || '',
+      'Idade': _idadeDe(a.nascimento||a.nascData),
+      'Foto': a.foto ? 'Sim' : 'Não',
+      'Dt. Nasc.': _fmtDataBR(a.nascData||a.nascimento),
+      'Dt. Início': _fmtDataBR((a.cad && a.cad.dataInicio) || a.desde),
+      'Nível': nivel,
+      'Graus': a.graus||0,
+      'Grupos': turmas,
+      'Telefone': (a.cad && a.cad.telefone) || a.telefone || '',
+      'Últ. presença': a.pres ? String(a.pres) : '',
+      'Dias sem': a.diasSem||0,
+      'Status': (a.diasSem||0)>=14 ? 'Inativo' : 'Ativo',
+      'Pagamento': pago,
+    };
+  });
+}
+function _alunosFiltrosAtivos(){
+  // No protótipo, sem estado de filtros persistido — retorna vazio.
+  // Depois: ler filtro/busca/faixa e montar string legível "Status: Ativo · Grupo: X · Faixa: Y".
+  return '';
+}
+function _alunosExportXLSX(alunos, turmaMap){
+  if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
+  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
+  const rows = _alunosBuildRows(alunos, turmaMap);
+  const header = ['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Últ. presença','Dias sem','Status','Pagamento'];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws['!cols'] = [{wch:7},{wch:28},{wch:30},{wch:5},{wch:5},{wch:11},{wch:11},{wch:18},{wch:5},{wch:24},{wch:16},{wch:12},{wch:8},{wch:9},{wch:10}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Alunos');
+  const nome = `${acadNm.replace(/\s+/g,'-')}-alunos-${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, nome);
+}
+function _alunosExportPDF(alunos, turmaMap){
+  if(typeof window.jspdf==='undefined' || typeof window.jspdf.jsPDF==='undefined'){ toast('PDF: biblioteca ainda carregando'); return; }
+  const { jsPDF } = window.jspdf;
+  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const filtros = _alunosFiltrosAtivos();
+  // Landscape p/ caber mais colunas (Kanri-style)
+  const doc = new jsPDF({unit:'pt', format:'a4', orientation:'landscape'});
+  const W = doc.internal.pageSize.getWidth();
+  // Header ENXUTO estilo Kanri (sem logo grande — só nome + título + data no canto)
+  doc.setTextColor(20,20,22); doc.setFont('helvetica','bold'); doc.setFontSize(12);
+  doc.text(acadNm, 30, 34);
+  doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text('Alunos Cadastrados', 30, 50);
+  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+  if(filtros) doc.text('Filtros: '+filtros, 30, 64);
+  // Data à direita
+  doc.setTextColor(80,80,80); doc.setFontSize(9);
+  doc.text(hoje, W-30, 34, {align:'right'});
+  // Linha separadora
+  doc.setDrawColor(220,220,220); doc.setLineWidth(0.6);
+  doc.line(30, 72, W-30, 72);
+  // Tabela — mesmo shape do Kanri
+  const rows = _alunosBuildRows(alunos, turmaMap);
+  const head = [['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Status']];
+  const body = rows.map(r=> [r['Mat.'], r['Nome'], r['E-mail'], r['Idade'], r['Foto'], r['Dt. Nasc.'], r['Dt. Início'], r['Nível'], r['Graus'], r['Grupos'], r['Telefone'], r['Status']]);
+  doc.autoTable({
+    startY: 82,
+    head, body,
+    styles: { font:'helvetica', fontSize:7.5, cellPadding:3, overflow:'linebreak', textColor:[40,40,40] },
+    headStyles: { fillColor:[245,245,245], textColor:[20,20,22], fontStyle:'bold', fontSize:7.5, lineWidth:0.3, lineColor:[200,200,200] },
+    alternateRowStyles: { fillColor:[252,252,252] },
+    margin: { left:30, right:30 },
+    columnStyles: {
+      0:{ cellWidth:36 },   // Mat
+      1:{ cellWidth:120 },  // Nome
+      2:{ cellWidth:130 },  // E-mail
+      3:{ cellWidth:32, halign:'center' },  // Idade
+      4:{ cellWidth:32, halign:'center' },  // Foto
+      5:{ cellWidth:60, halign:'center' },  // Nasc
+      6:{ cellWidth:60, halign:'center' },  // Início
+      7:{ cellWidth:70 },   // Nível
+      8:{ cellWidth:34, halign:'center' },  // Graus
+      9:{ cellWidth:'auto' }, // Grupos
+      10:{ cellWidth:80 },  // Tel
+      11:{ cellWidth:48, halign:'center' }, // Status
+    },
+    didParseCell: (data)=>{
+      if(data.section==='body' && data.column.index===11){
+        if(data.cell.raw==='Ativo'){ data.cell.styles.textColor=[47,168,106]; data.cell.styles.fontStyle='bold'; }
+        else if(data.cell.raw==='Inativo'){ data.cell.styles.textColor=[198,40,40]; data.cell.styles.fontStyle='bold'; }
+      }
+    },
+  });
+  // Rodapé com paginação
+  const pages = doc.internal.getNumberOfPages();
+  for(let p=1;p<=pages;p++){
+    doc.setPage(p);
+    const pageH = doc.internal.pageSize.getHeight();
+    doc.setFontSize(7); doc.setTextColor(140,140,140);
+    doc.text(`${acadNm} · Yama Jiu-Jitsu`, 30, pageH-14);
+    doc.text(`Página ${p} de ${pages} · ${alunos.length} alunos · ${hoje}`, W-30, pageH-14, {align:'right'});
+  }
+  const nome = `${acadNm.replace(/\s+/g,'-')}-alunos-cadastrados-${new Date().toISOString().slice(0,10)}.pdf`;
+  doc.save(nome);
+}
+
 /* DataTable de alunos: busca + filtros + seleção múltipla + ações em lote (§7).
    Offline: muta os objetos mock (refletindo na hora). Com backend: chama sbProf. */
 let _selAlunos = new Set();
@@ -4301,30 +4615,62 @@ function profAlunos(){
   const w = el('<div></div>');
   const alunos = (_profData?.alunos)||[];
   const presentes = alunos.filter(a=>a.pres).length;
-  w.innerHTML = `<div class="hello"><div class="date">Alunos</div>
-    <div class="greet">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div></div>`;
+  const ativos = alunos.filter(a=>!a.diasSem || a.diasSem<14).length;
+  const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
+  const vencidosN = alunos.filter(a=>a.pago==='late').length;
+  const aptosN = (typeof _aptosGraduar==='function'?_aptosGraduar().length:0);
 
-  // Mapa turma_id → nome curto (pra coluna Turmas do modo ERP)
+  // Cabeçalho compacto ERP
+  w.innerHTML = `<div class="erp-alunos-hd">
+    <div class="erp-alunos-title">Alunos</div>
+    <div class="erp-alunos-sub">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
+  </div>`;
+
   _loadTurmas();
   const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
 
   let filtro = 'todos', busca = '', filtroEt = 'todos';
-  let sortKey='nm', sortDir='asc';   // ERP: coluna clicada + sentido
-  const PAGE = 20; let shown = PAGE;   // paginação: prepara p/ 200+ alunos
-  const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar pessoa" placeholder="Buscar por nome…"></div>`);
-  const seg = el(`<div class="filter-seg">
-    <button class="active" data-f="todos">Todos</button>
-    <button data-f="presentes">Presentes</button>
-    <button data-f="sumidos">Sumidos</button>
-    <button data-f="vencidos">Vencidos</button>
-  </div>`);
-  // Chip filter por faixa etária derivada (Kids 3-5, Kids 6-9, Juvenil, Adulto)
-  const chipsEt = el(`<div class="et-chips"></div>`);
-  const _mkChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
-    b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); refresh(); };
+  let sortKey='nm', sortDir='asc';
+  let showAdv = false;
+  const PAGE = 20; let shown = PAGE;
+
+  const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
+
+  // Chips-KPI clicáveis semânticos (substituem filter-seg antigo)
+  const kpiChip = (id, lbl, valor, cls)=>{
+    const b = el(`<button class="erp-alunos-kpi ${cls}${filtro===id?' on':''}" data-f="${id}">
+      <span class="erp-alunos-kpi-v">${valor}</span>
+      <span class="erp-alunos-kpi-l">${lbl}</span>
+    </button>`);
+    b.onclick = ()=>{
+      filtro = id; shown = PAGE;
+      w.querySelectorAll('.erp-alunos-kpi').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      renderList();
+    };
+    return b;
+  };
+  const chipsRow = el(`<div class="erp-alunos-chips block"></div>`);
+  chipsRow.appendChild(kpiChip('todos',    'Todos',        alunos.length, 'gray'));
+  chipsRow.appendChild(kpiChip('presentes','Presentes',    presentes,     'green'));
+  chipsRow.appendChild(kpiChip('ativos',   'Ativos (14d)', ativos,        'blue'));
+  chipsRow.appendChild(kpiChip('sumidos',  'Ausentes 7+d', ausentes,      'gold'));
+  chipsRow.appendChild(kpiChip('aptos',    'Aptos a grau', aptosN,        'purple'));
+  chipsRow.appendChild(kpiChip('vencidos', 'Vencidos',     vencidosN,     'red'));
+
+  // Filtros avançados colapsáveis (fica escondido — abre pelo botão "Filtros")
+  const chipsEt = el(`<div class="erp-adv-panel" style="display:none"></div>`);
+  const _mkFxChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
+    b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); renderList(); };
     return b; };
-  chipsEt.appendChild(_mkChip('todos','Todas as idades'));
-  FAIXA_ETARIA_OPCOES.forEach(op=> chipsEt.appendChild(_mkChip(op,op)));
+  chipsEt.appendChild(el('<div class="erp-adv-lbl">Faixa etária</div>'));
+  const fxRow = el('<div class="et-chips"></div>');
+  fxRow.appendChild(_mkFxChip('todos','Todas'));
+  FAIXA_ETARIA_OPCOES.forEach(op=> fxRow.appendChild(_mkFxChip(op,op)));
+  chipsEt.appendChild(fxRow);
+
+  // Mantém referência dummy pra "seg" (código antigo usa) — não renderiza mais.
+  const seg = el('<div style="display:none"></div>');
   const bulk = el(`<div class="bulk-bar" hidden></div>`);
   // Header da tabela ERP — só aparece em desktop (CSS controla)
   const head = el(`<div class="erp-head" role="row">
@@ -4384,7 +4730,15 @@ function profAlunos(){
     if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>')); return; }
     // M4: lê os dados VIVOS de _profData — o array capturado no render ficava
     // desatualizado após um cadastro (o aluno novo não aparecia na lista)
-    let arr = ((_profData?.alunos)||[]).filter(a=> filtro==='todos' ? true : filtro==='presentes' ? !!a.pres : filtro==='sumidos' ? (a.diasSem||0)>0 : a.pago==='late');
+    let arr = ((_profData?.alunos)||[]).filter(a=>{
+      if(filtro==='todos') return true;
+      if(filtro==='presentes') return !!a.pres;
+      if(filtro==='ativos') return !a.diasSem || a.diasSem<14;
+      if(filtro==='sumidos') return (a.diasSem||0)>=7;
+      if(filtro==='vencidos') return a.pago==='late';
+      if(filtro==='aptos') return typeof _aptosGraduar==='function' && _aptosGraduar().some(x=> (x.id||x.nm)===(a.id||a.nm));
+      return true;
+    });
     if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
     if(busca){ const q=busca.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q)); }
     // "Sumidos" ignora o sort escolhido (contexto exige quem sumiu mais)
@@ -4466,8 +4820,64 @@ function profAlunos(){
   };
   actions.appendChild(densBtn);
 
+  // Toolbar mobile: [busca] [Filtros ▾] — botão + Novo vira FAB
+  const toolbar = el('<div class="erp-alunos-toolbar block"></div>');
+  toolbar.appendChild(srch);
+  const filtBtn = el(`<button class="erp-alunos-filt${filtroEt!=='todos'?' on':''}" type="button">Filtros${filtroEt!=='todos'?' •':''}</button>`);
+  filtBtn.onclick = ()=>{ showAdv = !showAdv; chipsEt.style.display = showAdv?'block':'none'; filtBtn.classList.toggle('open', showAdv); };
+  toolbar.appendChild(filtBtn);
+
+  // Header desktop: título + ações (Filtros toggle | Colunas | Exportar | + Novo)
+  const advWrap = el(`<div class="erp-alunos-adv-wrap"></div>`);
+  const advBar = el(`<div class="erp-alunos-adv-bar">
+    <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados</button>
+    <div class="erp-alunos-tool-spacer"></div>
+    <button class="erp-alunos-tool" id="adv-csv" type="button">↓ Excel</button>
+    <button class="erp-alunos-tool" id="adv-pdf" type="button">↓ PDF</button>
+    <button class="erp-alunos-add primary" id="adv-new" type="button">＋ Novo aluno</button>
+  </div>`);
+  // Painel de filtros (colapsado por padrão)
+  const advPanel = el(`<div class="erp-alunos-adv-panel" style="display:none">
+    <div class="erp-alunos-adv-grid">
+      <label><span>Código / matrícula</span><input class="inp" placeholder="Ex: 00042"></label>
+      <label><span>Nome</span><input class="inp" placeholder="Buscar por nome…"></label>
+      <label><span>Ativos</span><select class="inp"><option>Todos</option><option>Ativos</option><option>Inativos</option></select></label>
+      <label><span>Aguardando faixa</span><select class="inp"><option>Todos</option><option>Sim</option><option>Não</option></select></label>
+      <label><span>Recebe mensagens</span><select class="inp"><option>Todos</option><option>Sim</option><option>Não</option></select></label>
+      <label><span>Faixa</span><select class="inp"><option>Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
+      <label><span>Turma / grupo</span><select class="inp"><option>Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
+      <label><span>Status plano</span><select class="inp"><option>Todos</option><option>Ativo</option><option>Vencido</option><option>Cancelado</option></select></label>
+    </div>
+    <div class="erp-alunos-adv-acts">
+      <button class="erp-alunos-adv-clear" type="button">Limpar</button>
+      <button class="erp-alunos-adv-go" type="button">Pesquisar</button>
+    </div>
+  </div>`);
+  advWrap.appendChild(advBar);
+  advWrap.appendChild(advPanel);
+  const advDesktop = advWrap;   // rename pra não quebrar refs abaixo
+  advBar.querySelector('#adv-new').onclick = ()=>abrirCadastroAluno();
+  advBar.querySelector('#adv-toggle').onclick = (ev)=>{
+    const open = advPanel.style.display==='none';
+    advPanel.style.display = open?'block':'none';
+    ev.currentTarget.classList.toggle('on', open);
+  };
+  advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSX((_profData?.alunos)||[], turmaMap);
+  advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF((_profData?.alunos)||[], turmaMap);
+
+  // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
+  const fab = el(`<button class="erp-fab" type="button" aria-label="Cadastrar aluno">＋</button>`);
+  fab.onclick=()=>abrirCadastroAluno();
+
   refresh();
-  w.appendChild(srch); w.appendChild(seg); w.appendChild(chipsEt); w.appendChild(actions); w.appendChild(bulk); w.appendChild(head); w.appendChild(list);
+  w.appendChild(chipsRow);
+  w.appendChild(advDesktop);   // aparece só em desktop (CSS)
+  w.appendChild(toolbar);      // aparece só em mobile (CSS)
+  w.appendChild(chipsEt);
+  w.appendChild(bulk);
+  w.appendChild(head);
+  w.appendChild(list);
+  w.appendChild(fab);
   return w;
 }
 
@@ -5195,9 +5605,14 @@ function _erpFicha(a, c, paint, refresh){
     a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf') };
     a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:(a.cad.responsavel&&a.cad.responsavel.parentesco)||'' };
     a.cad.dataInicio = g('fc-inicio'); a.cad.obs = g('fc-obs');
-    DB._alunoFichaEdit=false;
-    toast('Ficha atualizada (protótipo — não persistido)');
-    paint();
+    // Persiste no backend: mapeia cad → colunas snake_case do profiles
+    if(typeof sbProf!=='undefined' && sbProf.atualizarAluno && a.id && !a._self){
+      sbProf.atualizarAluno(a.id, Object.assign({email:a.cad.email}, _cadToDB(a.cad)))
+        .then(()=>{ DB._alunoFichaEdit=false; toast('Ficha atualizada ✔'); paint(); })
+        .catch(e=>{ toast('Erro: '+(e.message||e)); });
+    } else {
+      DB._alunoFichaEdit=false; toast('Ficha atualizada ✔'); paint();
+    }
   };
   return box;
 }
@@ -5291,7 +5706,7 @@ function _erpTimelineGrad(a, paint){
       <div><b>${stats.proxima||'—'}</b> próxima janela sugerida</div>
     </div>`));
   }
-  // Handlers CRUD (in-memory) — TROCAR por sbProf.* na integração
+  // CRUD ligado ao backend (0011 — graduations append-only).
   box.querySelector('#tl-add').onclick=()=>_erpGradForm(a, null, paint);
   list.querySelectorAll('button.erp-mini').forEach(b=>{
     b.onclick=()=>{
@@ -5300,9 +5715,14 @@ function _erpTimelineGrad(a, paint){
       if(act==='edit') _erpGradForm(a, item, paint);
       else if(act==='del'){
         if(!confirm('Excluir esse evento da linha do tempo?')) return;
-        a.graduacoes = (a.graduacoes||[]).filter(g=> !(g.data===item.data && g.faixa===item.faixa && (g.graus||0)===(item.graus||0)));
-        toast('Evento removido (protótipo — não persistido)');
-        paint();
+        const doDel = ()=>{
+          a.graduacoes = (a.graduacoes||[]).filter(g=> g!==item);
+          toast('Evento removido ✔'); paint();
+        };
+        if(item.id && typeof sbProf!=='undefined' && sbProf.removerGraduacao){
+          sbProf.removerGraduacao(item.id).then(doDel)
+            .catch(e=> toast('Erro ao remover: '+(e.message||e)));
+        } else doDel();
       }
     };
   });
@@ -5342,14 +5762,21 @@ function _erpGradForm(a, existing, paint){
   sh.querySelector('#gf-save').onclick=()=>{
     if(!dInp.value){ toast('Informe a data'); return; }
     const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: dInp.value, nota: nInp.value.trim() };
-    if(existing){
-      const idx=(a.graduacoes||[]).findIndex(g=> g.data===existing.data && g.faixa===existing.faixa && (g.graus||0)===(existing.graus||0));
-      if(idx>=0) a.graduacoes[idx]=novo;
-    } else {
-      a.graduacoes = (a.graduacoes||[]).concat([novo]);
-    }
-    toast(existing?'Evento atualizado (protótipo)':'Evento adicionado (protótipo)');
-    close(); paint();
+    // Persiste no backend quando disponível; senão, mantém in-memory (demo/local)
+    const persist = (idAtual)=>{
+      if(!(typeof sbProf!=='undefined' && sbProf.salvarGraduacao && a.id)) return Promise.resolve(idAtual);
+      return sbProf.salvarGraduacao({ id: idAtual, user_id: a.id, ...novo });
+    };
+    persist(existing && existing.id).then(newId=>{
+      if(existing){
+        const idx = (a.graduacoes||[]).indexOf(existing);
+        if(idx>=0) a.graduacoes[idx] = { ...novo, id: newId || existing.id };
+      } else {
+        a.graduacoes = (a.graduacoes||[]).concat([{ ...novo, id: newId }]);
+      }
+      toast(existing?'Evento atualizado ✔':'Evento adicionado ✔');
+      close(); paint();
+    }).catch(e=> toast('Erro ao salvar: '+(e.message||e)));
   };
   document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
 }
@@ -7333,9 +7760,29 @@ function profTurmas(){
   const n = _turmasArr().length;
   w.innerHTML = `<div class="hello"><div class="date">Turmas</div>
     <div class="greet">${n} turma${n!==1?'s':''} · grade semanal</div></div>`;
+  // Abas de visualização (Grade padrão; Gantt/Mês/Ocupação/Conflitos são PROTÓTIPOS
+  // visuais — usam mock pra instrutor/duração/capacidade até a migration 0012).
+  const tab = DB._turmasTab || 'grade';
+  const TABS = [['grade','Grade'],['gantt','Instrutores'],['heat','Ocupação']];
+  const tabsBar = el('<div class="turmas-tabs"></div>');
+  TABS.forEach(([k,l])=>{
+    const b = el(`<button class="turmas-tab${k===tab?' on':''}">${l}</button>`);
+    b.onclick = ()=>{ DB._turmasTab = k; render(); };
+    tabsBar.appendChild(b);
+  });
+  w.appendChild(tabsBar);
   const grade = el('<div class="mod-card" style="padding:14px 12px"></div>');
-  grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
-  grade.appendChild(_gradeHorarios(_turmasArr()));
+  const turmasArr = _turmasArr();
+  if(tab==='grade'){
+    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
+    grade.appendChild(_gradeHorarios(turmasArr));
+  } else if(tab==='gantt'){
+    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Timeline por instrutor <span style="font-size:10px;color:var(--muted);font-weight:600">(mock)</span></div>`));
+    grade.appendChild(_viewGantt(turmasArr));
+  } else if(tab==='heat'){
+    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Heatmap de ocupação <span style="font-size:10px;color:var(--muted);font-weight:600">(mock)</span></div>`));
+    grade.appendChild(_viewHeatmap(turmasArr));
+  }
   w.appendChild(grade);
   const add = el(`<button class="add-turma">+ Nova turma</button>`);
   add.onclick=()=> _turmaSheet(null);
@@ -7360,37 +7807,300 @@ function profTurmas(){
 }
 
 // Grade semanal: linhas = horas distintas ordenadas; colunas = dias com sessão.
+/* ============================================================
+   VIEWS DE TURMAS (protótipo visual — mock instrutor/duração/capacidade
+   até a migration 0012). Reusa BELTS e turmas do backend.
+   ============================================================ */
+// Mock helpers — depois viram campos reais no schema
+const _MOCK_INSTRUTORES = ['Prof. Gabriel','Prof. Bruno','Prof. Rafa'];
+function _instrutorMock(turma, i){ return turma.instrutor || _MOCK_INSTRUTORES[i % _MOCK_INSTRUTORES.length]; }
+function _duracaoMock(s){ return s.duracao_min || 60; }
+function _capacidadeMock(t){ return t.capacidade_max || null; }   // sem capacidade cadastrada → null
+function _hashSeed(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))|0; return Math.abs(h); }
+function _ocupacaoMock(turma, dia, hora, modo, semanas){
+  // modo: 'matr' (matriculados — comercial) ou 'freq' (presença média — operacional).
+  // semanas: janela pra calcular presença média (só usada em modo 'freq').
+  const cap = _capacidadeMock(turma);
+  const matr = (typeof _turmaAlunos==='function') ? _turmaAlunos(turma.id).length : 0;
+  if(modo==='freq'){
+    // PROTÓTIPO: presença média = matr × fator estável (seed pela turma). Depois vira
+    // query SQL real (avg de checkins × aulas nas últimas N semanas).
+    const seed = _hashSeed(turma.id + (semanas||8));
+    const fator = 0.45 + (seed%40)/100;   // 0.45 a 0.85 (típico de academia)
+    return { n: Math.round(matr*fator), cap: cap||0 };
+  }
+  return { n: matr, cap: cap||0 };
+}
+
+// View 1: Gantt por instrutor. Linha=instrutor, colunas=dias, blocos por hora
+function _viewGantt(turmas){
+  const wrap = el('<div></div>');
+  const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
+  // Agrupa sessões por instrutor→dia
+  const byProf = {};
+  turmas.forEach((t,i)=>{
+    const prof = _instrutorMock(t, i);
+    (t.sessoes||[]).forEach(s=>{
+      const k = prof;
+      byProf[k] = byProf[k] || {};
+      (byProf[k][s.dia] = byProf[k][s.dia] || []).push({t, s});
+    });
+  });
+  const profs = Object.keys(byProf).sort();
+  if(!profs.length){ wrap.appendChild(el('<div class="empty-hint">Sem instrutores/turmas.</div>')); return wrap; }
+  // Filtrar dias que têm ao menos 1 sessão
+  const diasAtivos = DIAS.filter(([d])=> profs.some(p=> byProf[p][d]));
+  const tbl = el(`<div class="gantt"></div>`);
+  tbl.style.gridTemplateColumns = `140px repeat(${diasAtivos.length}, minmax(80px,1fr))`;
+  tbl.appendChild(el('<div class="gantt-corner"></div>'));
+  diasAtivos.forEach(([d,lbl])=> tbl.appendChild(el(`<div class="gantt-dh">${lbl}</div>`)));
+  profs.forEach(prof=>{
+    tbl.appendChild(el(`<div class="gantt-prof">${safeTxt(prof)}</div>`));
+    diasAtivos.forEach(([d])=>{
+      const cell = el('<div class="gantt-cell"></div>');
+      const arr = (byProf[prof][d]||[]).sort((a,b)=> (a.s.hora||'').localeCompare(b.s.hora||''));
+      arr.forEach(({t,s})=>{
+        const blk = el(`<span class="gantt-blk" style="--tc:${t.cor||'#888'};cursor:pointer" title="${safeAttr(t.nome+' '+s.hora)}">
+          <b>${safeTxt(s.hora)}</b><i>${safeTxt(t.nome)}</i></span>`);
+        blk.onclick = ()=> _turmaSheet(t.id);
+        cell.appendChild(blk);
+      });
+      tbl.appendChild(cell);
+    });
+  });
+  wrap.appendChild(tbl);
+  return wrap;
+}
+
+// View 2: calendário mensal. Dia = célula com bolinhas coloridas por turma
+function _viewCalendarioMes(turmas){
+  const wrap = el('<div></div>');
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  const primeiroDia = new Date(y, m, 1);
+  const ultimoDia = new Date(y, m+1, 0);
+  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  wrap.appendChild(el(`<div class="cal-hd">${MESES[m]} ${y}</div>`));
+  const grid = el('<div class="cal-grid"></div>');
+  ['SEG','TER','QUA','QUI','SEX','SÁB','DOM'].forEach(l=> grid.appendChild(el(`<div class="cal-dh">${l}</div>`)));
+  // Deslocamento: alinha semana começando na segunda
+  const offset = (primeiroDia.getDay()+6)%7;   // 0=seg, 6=dom
+  for(let i=0;i<offset;i++) grid.appendChild(el('<div class="cal-day empty"></div>'));
+  for(let d=1; d<=ultimoDia.getDate(); d++){
+    const dt = new Date(y, m, d);
+    const diaK = jsToKey[dt.getDay()];
+    const sessoes = [];
+    turmas.forEach(t=>(t.sessoes||[]).forEach(s=>{ if(s.dia===diaK) sessoes.push({t,s}); }));
+    const isToday = (d===now.getDate());
+    const cell = el(`<div class="cal-day${isToday?' today':''}${sessoes.length?'':' vazio'}">
+      <div class="cal-num">${d}</div>
+      <div class="cal-dots"></div>
+    </div>`);
+    const dots = cell.querySelector('.cal-dots');
+    sessoes.slice(0,6).forEach(({t,s})=>{
+      dots.appendChild(el(`<span class="cal-dot" style="background:${t.cor||'#888'}" title="${safeAttr(t.nome+' '+s.hora)}"></span>`));
+    });
+    if(sessoes.length>6) dots.appendChild(el(`<span class="cal-more">+${sessoes.length-6}</span>`));
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+// View 3: heatmap de ocupação. hora × dia, cor por % ocupação.
+// Toggle: Matriculados (comercial) vs Presença média (operacional). Semanas configurável.
+function _viewHeatmap(turmas){
+  const wrap = el('<div></div>');
+  const modo = DB._heatMode || 'freq';
+  const semanas = DB._heatSemanas || 8;
+  // Controles no topo: toggle + select de semanas
+  const ctrl = el(`<div class="heat-ctrl">
+    <div class="heat-toggle">
+      <button class="heat-tog${modo==='freq'?' on':''}" data-m="freq">Presença média</button>
+      <button class="heat-tog${modo==='matr'?' on':''}" data-m="matr">Matriculados</button>
+    </div>
+    <label class="heat-weeks${modo!=='freq'?' hidden':''}">
+      <span>Janela</span>
+      <select id="heat-w">
+        ${[4,8,12,24].map(n=>`<option value="${n}"${n===semanas?' selected':''}>${n} semanas</option>`).join('')}
+      </select>
+    </label>
+  </div>`);
+  ctrl.querySelectorAll('[data-m]').forEach(b=> b.onclick=()=>{ DB._heatMode = b.dataset.m; render(); });
+  ctrl.querySelector('#heat-w').onchange = (e)=>{ DB._heatSemanas = parseInt(e.target.value,10)||8; render(); };
+  wrap.appendChild(ctrl);
+  const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
+  const cells = {}; const horasSet = new Set(); const diasSet = new Set();
+  turmas.forEach(t=>(t.sessoes||[]).forEach(s=>{
+    const k = s.dia+'|'+s.hora;
+    const oc = _ocupacaoMock(t, s.dia, s.hora, modo, semanas);
+    cells[k] = cells[k] || {n:0,cap:0,turmas:[],ids:[]};
+    cells[k].n += oc.n; cells[k].cap += oc.cap;
+    cells[k].turmas.push(t.nome);
+    cells[k].ids.push(t.id);
+    horasSet.add(s.hora); diasSet.add(s.dia);
+  }));
+  const horas = [...horasSet].sort();
+  const dias = DIAS.filter(([d])=> diasSet.has(d));
+  if(!horas.length){ wrap.appendChild(el('<div class="empty-hint">Sem dados.</div>')); return wrap; }
+  const heat = el(`<div class="heat"></div>`);
+  heat.style.gridTemplateColumns = `56px repeat(${dias.length}, minmax(46px,1fr))`;
+  heat.appendChild(el('<div class="heat-corner"></div>'));
+  dias.forEach(([,lbl])=> heat.appendChild(el(`<div class="heat-dh">${lbl}</div>`)));
+  horas.forEach(h=>{
+    heat.appendChild(el(`<div class="heat-hh">${safeTxt(h)}</div>`));
+    dias.forEach(([d])=>{
+      const c = cells[d+'|'+h];
+      if(!c){ heat.appendChild(el('<div class="heat-c empty"></div>')); return; }
+      const openFirst = ()=> _turmaSheet(c.ids[0]);
+      if(!c.cap){
+        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${c.n}</b><i>—</i></div>`);
+        cell.onclick = openFirst; heat.appendChild(cell); return;
+      }
+      const pct = Math.round(c.n*100/c.cap);
+      const kind = pct>=90?'red' : pct>=70?'gold' : pct>=40?'green' : 'blue';
+      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+c.n+'/'+c.cap)}">
+        <b>${c.n}</b><i>/${c.cap}</i></div>`);
+      cell.onclick = openFirst; heat.appendChild(cell);
+    });
+  });
+  wrap.appendChild(heat);
+  // legenda
+  wrap.appendChild(el(`<div class="heat-legend">
+    <span><i class="blue"></i> &lt;40%</span>
+    <span><i class="green"></i> 40-70%</span>
+    <span><i class="gold"></i> 70-90%</span>
+    <span><i class="red"></i> ≥90%</span>
+  </div>`));
+  return wrap;
+}
+
+// View 4: conflitos (mesmo instrutor, mesmo horário; sobreposição por duração)
+function _viewConflitos(turmas){
+  const wrap = el('<div></div>');
+  const DIAS_LBL = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
+  // Coleta {dia, hora, fim, turma, prof}
+  const evts = [];
+  turmas.forEach((t,i)=>{
+    const prof = _instrutorMock(t, i);
+    (t.sessoes||[]).forEach(s=>{
+      const [h,m] = (s.hora||'00:00').split(':').map(Number);
+      const start = h*60 + (m||0);
+      const end = start + _duracaoMock(s);
+      evts.push({dia:s.dia, start, end, hora:s.hora, turma:t, prof});
+    });
+  });
+  // Detecta conflitos: mesmo prof, mesmo dia, intervalos sobrepostos
+  const conflitos = [];
+  for(let i=0;i<evts.length;i++){
+    for(let j=i+1;j<evts.length;j++){
+      const a=evts[i], b=evts[j];
+      if(a.dia!==b.dia || a.prof!==b.prof) continue;
+      const overlap = a.start < b.end && b.start < a.end;
+      if(overlap) conflitos.push([a,b]);
+    }
+  }
+  if(!conflitos.length){
+    wrap.appendChild(el('<div class="conf-empty">✓ Nenhum conflito detectado na grade atual.</div>'));
+    return wrap;
+  }
+  conflitos.forEach(([a,b])=>{
+    const item = el(`<div class="conf-item">
+      <div class="conf-hd">⚠️ Sobreposição — ${safeTxt(DIAS_LBL[a.dia]||a.dia)}</div>
+      <div class="conf-bd">
+        <div class="conf-l"><b style="--tc:${a.turma.cor||'#888'}">${safeTxt(a.turma.nome)}</b><span>${safeTxt(a.hora)} · ${_duracaoMock(a)}min · ${safeTxt(a.prof)}</span></div>
+        <div class="conf-vs">×</div>
+        <div class="conf-l"><b style="--tc:${b.turma.cor||'#888'}">${safeTxt(b.turma.nome)}</b><span>${safeTxt(b.hora)} · ${_duracaoMock(b)}min · ${safeTxt(b.prof)}</span></div>
+      </div>
+      <div class="conf-note">Mesmo instrutor em 2 turmas simultâneas.</div>
+    </div>`);
+    wrap.appendChild(item);
+  });
+  return wrap;
+}
+
+// Grade de horários — renderiza DUAS variantes + chips filtro de faixa etária.
+//   .grade-desktop (dias em cima, horas na esquerda) — mostra em >=800px
+//   .grade-mobile  (horas em cima, dias na esquerda) — mostra em <800px
+// Extras: destaca coluna/linha do dia atual, zebra nas horas, filtro por
+// faixa etária (chips clicáveis acima da grade). Filtro persiste em DB._gradeFaixa.
 function _gradeHorarios(turmas){
   const wrap = el('<div class="grade-wrap"></div>');
+  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
+  const diaHoje = jsToKey[(new Date()).getDay()];
+  // Chips de filtro por faixa etária (Chiisai/Kodomo/Kouhai/Adulto/Feminino/...)
+  const faixasDisp = [...new Set((turmas||[]).map(t=>t.faixaEtaria).filter(Boolean))];
+  const fSel = DB._gradeFaixa || 'todas';
+  if(faixasDisp.length > 1){
+    const bar = el('<div class="grade-fchips"></div>');
+    const mk = (id, lbl)=>{
+      const b = el(`<button class="grade-fchip${fSel===id?' on':''}">${safeTxt(lbl)}</button>`);
+      b.onclick = ()=>{ DB._gradeFaixa = id; render(); };
+      return b;
+    };
+    bar.appendChild(mk('todas','Todas'));
+    faixasDisp.forEach(f=> bar.appendChild(mk(f,f)));
+    wrap.appendChild(bar);
+  }
+  const turmasFiltradas = (turmas||[]).filter(t=> fSel==='todas' || t.faixaEtaria===fSel);
   const cells = {}; const horasSet = new Set(); const diasSet = new Set();
-  (turmas||[]).forEach(t=> (t.sessoes||[]).forEach(s=>{
+  turmasFiltradas.forEach(t=> (t.sessoes||[]).forEach(s=>{
     const k = s.dia+'|'+s.hora; (cells[k]=cells[k]||[]).push({t, s});
     horasSet.add(s.hora); diasSet.add(s.dia);
   }));
   const horas = [...horasSet].sort();
   const dias = DIAS_SEMANA.filter(([d])=> diasSet.has(d));
-  if(!horas.length){ wrap.appendChild(el('<div class="empty-hint">Sem horários. Adicione sessões às turmas.</div>')); return wrap; }
-  const table = el('<div class="grade"></div>');
+  if(!horas.length){ wrap.appendChild(el('<div class="empty-hint">Sem horários pra essa faixa.</div>')); return wrap; }
+  const chipHTML = (t,s)=>{
+    const sub = s.variacao || t.faixaEtaria || '';
+    return `<span class="g-chip" style="--tc:${t.cor||'#888'}">
+      <b class="g-nm">${safeTxt(t.nome)}${s.bilingue?' '+icoUSFlag():''}</b>
+      ${sub?`<i class="g-sub">${safeTxt(sub)}</i>`:''}
+    </span>`;
+  };
+  // ---------- DESKTOP: dias em cima, horas na esquerda ----------
+  const table = el('<div class="grade grade-desktop"></div>');
   table.style.gridTemplateColumns = `48px repeat(${dias.length}, minmax(62px,1fr))`;
   table.appendChild(el('<div class="g-h g-corner"></div>'));
-  dias.forEach(([d,lbl])=> table.appendChild(el(`<div class="g-h">${lbl}</div>`)));
-  horas.forEach(h=>{
-    table.appendChild(el(`<div class="g-hora">${safeTxt(h)}</div>`));
+  dias.forEach(([d,lbl])=> table.appendChild(el(`<div class="g-h${d===diaHoje?' g-h-today':''}">${lbl}</div>`)));
+  horas.forEach((h,rowIdx)=>{
+    const zebra = rowIdx%2===1 ? ' g-zebra' : '';
+    table.appendChild(el(`<div class="g-hora${zebra}">${safeTxt(h)}</div>`));
     dias.forEach(([d])=>{
-      const cell = el('<div class="g-cell"></div>');
+      const isToday = d===diaHoje ? ' g-today' : '';
+      const cell = el(`<div class="g-cell${zebra}${isToday}"></div>`);
       (cells[d+'|'+h]||[]).forEach(({t,s})=>{
-        // Chip 2 linhas: NOME em cima, VARIAÇÃO (prioritária) ou FAIXA ETÁRIA embaixo.
-        // Bandeira 🇺🇸 no canto quando bilíngue.
-        const sub = s.variacao || t.faixaEtaria || '';
-        cell.appendChild(el(`<span class="g-chip" style="--tc:${t.cor||'#888'}">
-          <b class="g-nm">${safeTxt(t.nome)}${s.bilingue?' '+icoUSFlag():''}</b>
-          ${sub?`<i class="g-sub">${safeTxt(sub)}</i>`:''}
-        </span>`));
+        const chip = el(chipHTML(t,s));
+        chip.style.cursor = 'pointer';
+        chip.onclick = ()=> _turmaSheet(t.id);
+        cell.appendChild(chip);
       });
       table.appendChild(cell);
     });
   });
   wrap.appendChild(table);
+  // ---------- MOBILE: horas em cima, dias na esquerda ----------
+  const tableM = el('<div class="grade grade-mobile"></div>');
+  tableM.style.gridTemplateColumns = `44px repeat(${horas.length}, minmax(0,1fr))`;
+  tableM.appendChild(el('<div class="g-h g-corner"></div>'));
+  horas.forEach((h,i)=> tableM.appendChild(el(`<div class="g-h${i%2===1?' g-zebra':''}">${safeTxt(h)}</div>`)));
+  dias.forEach(([d,lbl])=>{
+    const isToday = d===diaHoje ? ' g-today' : '';
+    tableM.appendChild(el(`<div class="g-dia${isToday}">${lbl}</div>`));
+    horas.forEach((h,i)=>{
+      const zebra = i%2===1 ? ' g-zebra' : '';
+      const cell = el(`<div class="g-cell${zebra}${isToday}"></div>`);
+      (cells[d+'|'+h]||[]).forEach(({t,s})=>{
+        const chip = el(chipHTML(t,s));
+        chip.style.cursor = 'pointer';
+        chip.onclick = ()=> _turmaSheet(t.id);
+        cell.appendChild(chip);
+      });
+      tableM.appendChild(cell);
+    });
+  });
+  wrap.appendChild(tableM);
   return wrap;
 }
 
@@ -7479,18 +8189,31 @@ function abrirMinhasTurmas(){
 }
 
 const _TURMA_CORES = ['#334155','#d4a017','#8e44ad','#2e7d32','#c2185b','#2f8fef','#e5392f','#0d9488'];
-function _turmaSheet(id){
+// Atalho de navegação — código antigo chama _turmaSheet(id) ou _turmaSheet(null).
+// Agora vira uma navegação de página cheia (DB.turmaEditOpen).
+function _turmaSheet(id){ DB.turmaEditOpen = id || 'new'; render(); window.scrollTo(0,0); }
+
+// PÁGINA CHEIA de edição de turma — substitui o modal sheet antigo.
+function profTurmaEdit(id){
   const t = id ? _turmaById(id) : null;
   const novo = !t;
   let cor = t?.cor || _TURMA_CORES[0];
-  let sessoes = (t?.sessoes || []).slice();   // cópia de trabalho: horários só gravam no Salvar (Cancelar descarta)
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" style="max-height:90vh;overflow-y:auto">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">${novo?'Nova turma':'Editar turma'}</div>
+  let sessoes = (t?.sessoes || []).slice();
+  let capacidade = (t && t.capacidade_max) || '';
+  const close = ()=>{ DB.turmaEditOpen=null; render(); window.scrollTo(0,0); };
+  const sheet = el(`<div class="erp-turma-page">
+    <div class="erp-turma-hd">
+      <button class="erp-batch-close" id="tu-back" aria-label="Voltar">‹</button>
+      <div class="erp-turma-title">${novo?'Nova turma':'Editar turma'}</div>
+      <span></span>
+    </div>
+    <div class="erp-turma-body">
     <label class="flbl">Nome</label>
     <input class="inp" id="tu-nome" placeholder="Ex: Adulto, Kodomo…" value="${t?safeAttr(t.nome):''}">
     <label class="flbl" style="margin-top:12px">Faixa etária <span class="ca-opt">(opcional)</span></label>
     <input class="inp" id="tu-idade" placeholder="Ex: 16+, 6–9 anos" value="${t?safeAttr(t.faixaEtaria||''):''}">
+    <label class="flbl" style="margin-top:12px">Capacidade máxima <span class="ca-opt">(quantos alunos cabem)</span></label>
+    <input class="inp" id="tu-cap" type="number" min="1" max="200" placeholder="Ex: 20" value="${capacidade?safeAttr(capacidade):''}">
     <label class="flbl" style="margin-top:12px">Cor <span class="ca-opt">(escolha uma sugerida ou pinte livre)</span></label>
     <div class="cor-seg" id="tu-cor"></div>
     <div class="cor-picker">
@@ -7502,8 +8225,10 @@ function _turmaSheet(id){
     ${!novo?`<div class="cad-sec">Alunos matriculados</div><div id="tu-roster"></div>`:''}
     <button class="btn-save" id="tu-save" style="margin-top:16px">${novo?'Criar turma':'Salvar'}</button>
     ${!novo?'<button class="action-item danger" id="tu-del" style="justify-content:center;margin-top:8px">Excluir turma</button>':''}
-    <button class="sheet-cancel" id="tu-cancel">Cancelar</button>
-  </div></div>`);
+    <button class="sheet-cancel" id="tu-cancel" style="margin-top:8px">Cancelar</button>
+    </div>
+  </div>`);
+  sheet.querySelector('#tu-back').onclick = close;
   const corSeg = sheet.querySelector('#tu-cor');
   const corHex = sheet.querySelector('#tu-cor-hex');
   const corLbl = sheet.querySelector('#tu-cor-lbl');
@@ -7547,32 +8272,29 @@ function _turmaSheet(id){
     const paintRoster=()=>{ if(rosterBox){ rosterBox.innerHTML=''; rosterBox.appendChild(_turmaRosterNode(t, paintRoster)); } };
     paintRoster();
   }
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#tu-cancel').onclick=close;
   const delBtn=sheet.querySelector('#tu-del');
   if(delBtn) delBtn.onclick=()=>{
     if(!DEMO && typeof sbProf!=='undefined'){ sbProf.deletarTurma(t.id).then(()=>{ _turmasTs=0; _loadTurmas(); }).catch(e=>toast('Erro: '+(e.message||e))); close(); toast('Turma excluída'); return; }
-    DB.turmas=_turmasArr().filter(x=>x!==t); close(); render(); toast('Turma excluída');
+    DB.turmas=_turmasArr().filter(x=>x!==t); close(); toast('Turma excluída');
   };
   sheet.querySelector('#tu-save').onclick=()=>{
     const nome=sheet.querySelector('#tu-nome').value.trim();
     if(!nome){ toast('Informe o nome da turma'); return; }
     const idade=sheet.querySelector('#tu-idade').value.trim();
-    if(!DEMO && typeof sbProf!=='undefined'){   // backend real: persiste turma + sessões
-      const payload = novo ? { nome, faixaEtaria:idade, cor, sessoes } : { id:t.id, nome, faixaEtaria:idade, cor, sessoes };
+    const cap = parseInt(sheet.querySelector('#tu-cap').value,10) || null;
+    if(!DEMO && typeof sbProf!=='undefined'){
+      const payload = novo ? { nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap } : { id:t.id, nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap };
       sbProf.salvarTurma(payload).then((newId)=>{ _turmasTs=0; _loadTurmas();
-        // atalho: turma nova reabre direto na edição (adicionar horários + matricular sem procurar)
         if(novo && newId) setTimeout(()=>_turmaSheet(newId), 350);
       }).catch(e=>toast('Erro: '+(e.message||e)));
       close(); toast(novo?'Turma criada ✔ — adicione os horários':'Turma salva ✔'); return;
     }
-    if(novo){ const nid='t'+Date.now(); _turmasArr().push({ id:nid, nome, faixaEtaria:idade, cor, sessoes }); close(); render(); toast('Turma criada ✔ — adicione os horários'); setTimeout(()=>_turmaSheet(nid), 300); return; }
-    t.nome=nome; t.faixaEtaria=idade; t.cor=cor; t.sessoes=sessoes;
-    close(); render(); toast('Turma salva ✔');
+    if(novo){ const nid='t'+Date.now(); _turmasArr().push({ id:nid, nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap }); toast('Turma criada ✔ — adicione os horários'); setTimeout(()=>_turmaSheet(nid), 200); return; }
+    t.nome=nome; t.faixaEtaria=idade; t.cor=cor; t.sessoes=sessoes; t.capacidade_max=cap;
+    close(); toast('Turma salva ✔');
   };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
+  return sheet;
 }
 
 /* Novo horário — multi-dia batch (matriz visual removida por feedback do dono).

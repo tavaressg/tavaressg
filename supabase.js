@@ -727,15 +727,51 @@
     // Cria/edita uma turma + substitui suas sessões (delete+insert sob RLS de professor/dono).
     salvarTurma: wrap(async (t) => {
       const acad = await myAcademyId();
-      const row = { academy_id: acad, nome: t.nome, faixa_etaria: t.faixaEtaria || null, cor: t.cor || null, ativo: true };
-      let turmaId = (typeof t.id === 'string' && t.id.length >= 32) ? t.id : null;  // uuid = editar; senão criar
+      // 0012: capacidade_max opcional (heatmap de ocupação)
+      const row = { academy_id: acad, nome: t.nome, faixa_etaria: t.faixaEtaria || null, cor: t.cor || null, ativo: true, capacidade_max: t.capacidade_max || null };
+      let turmaId = (typeof t.id === 'string' && t.id.length >= 32) ? t.id : null;
       if (turmaId) { await SB.from('turmas').update(row).eq('id', turmaId); }
       else { const { data } = await SB.from('turmas').insert(row).select('id').single(); turmaId = data && data.id; }
       if (!turmaId) throw new Error('turma sem id');
       await SB.from('turma_sessoes').delete().eq('turma_id', turmaId);
-      const rows = (t.sessoes || []).map(s => ({ turma_id: turmaId, academy_id: acad, dia: s.dia, hora: s.hora, variacao: s.variacao || null, bilingue: !!s.bilingue, ativo: true }));
+      // 0012: sessão com duracao_min + instrutor_id (opcionais, default 60min / sem instrutor)
+      const rows = (t.sessoes || []).map(s => ({
+        turma_id: turmaId, academy_id: acad, dia: s.dia, hora: s.hora,
+        variacao: s.variacao || null, bilingue: !!s.bilingue, ativo: true,
+        duracao_min: s.duracao_min || 60, instrutor_id: s.instrutor_id || null,
+      }));
       if (rows.length) await SB.from('turma_sessoes').insert(rows);
       return turmaId;
+    }),
+    // 0010: batch check-in por AULA. Cria/reusa aula por (turma,data,hora) e
+    // insere check-ins de vários alunos em transação (RPC no backend).
+    marcarPresencaLote: wrap(async (turmaId, data, hora, userIds) => {
+      const { data: n, error } = await SB.rpc('marcar_presenca_lote', {
+        p_turma_id: turmaId, p_data: data, p_hora: hora || null, p_user_ids: userIds || [],
+      });
+      if (error) throw error;
+      return n || 0;
+    }),
+    // 0011: append em graduations. O trigger M3 já sincroniza profiles.faixa/graus
+    // pra tipo 'faixa'/'grau'. Outros tipos (inicio/honra/retroativo) só registram
+    // no histórico sem mudar a faixa atual — regra decidida no protótipo.
+    salvarGraduacao: wrap(async (g) => {
+      const acad = await myAcademyId();
+      const { data: u } = await SB.auth.getUser();
+      const row = {
+        user_id: g.user_id, academy_id: acad,
+        faixa: g.faixa, graus: g.graus || 0, tipo: g.tipo || 'grau',
+        data: g.data, por: g.por || null, nota: g.nota || null,
+        criado_por: u?.user?.id || null,
+      };
+      if (g.id) { await SB.from('graduations').update(row).eq('id', g.id); return g.id; }
+      const { data, error } = await SB.from('graduations').insert(row).select('id').single();
+      if (error) throw error;
+      return data && data.id;
+    }),
+    removerGraduacao: wrap(async (id) => {
+      const { error } = await SB.from('graduations').delete().eq('id', id);
+      if (error) throw error;
     }),
     deletarTurma: wrap(async (id) => {
       // Soft-delete: preserva histórico de presenças/matrículas ligadas à turma.

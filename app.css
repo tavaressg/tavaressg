@@ -243,6 +243,102 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 /* Turmas + grade de horários (gestão) */
 .grade-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .grade{display:grid;gap:4px;min-width:max-content}
+/* Desktop: dias em cima (grade-desktop). Mobile: horas em cima (grade-mobile).
+   CSS controla qual aparece pra evitar scroll horizontal desconfortável no phone. */
+.grade-desktop{display:none}
+.grade-mobile{display:grid;min-width:0}
+@media (min-width:800px){
+  .grade-desktop{display:grid}
+  .grade-mobile{display:none}
+}
+.grade .g-dia{font-size:12px;font-weight:800;color:var(--ink);text-transform:uppercase;letter-spacing:.3px;padding:8px 2px;display:flex;align-items:center;justify-content:flex-start;min-width:0}
+.grade-mobile .g-h{padding:8px 2px 10px;font-size:12px;color:var(--ink);border-bottom:2px solid var(--line)}
+/* Filtro de faixa etária acima da grade */
+.grade-fchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.grade-fchip{border:1.5px solid var(--line);background:var(--card);color:var(--muted);border-radius:99px;padding:6px 14px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px}
+.grade-fchip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* Página cheia de edição de turma (não modal sheet) */
+.erp-turma-page{background:var(--bg,#f4f4f6);min-height:100vh}
+.erp-turma-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.erp-turma-title{font-size:16px;font-weight:800;color:var(--ink);letter-spacing:-.2px;flex:1;text-align:center}
+.erp-turma-body{padding:16px 20px 40px;max-width:640px;margin:0 auto}
+
+/* Abas de views de Turmas */
+.turmas-tabs{display:flex;gap:4px;margin:0 20px 12px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line)}
+.turmas-tabs::-webkit-scrollbar{display:none}
+.turmas-tab{flex:none;border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:10px 14px;border-bottom:3px solid transparent;cursor:pointer;font-family:inherit;white-space:nowrap}
+.turmas-tab.on{color:var(--ink);border-bottom-color:var(--red)}
+
+/* View: Gantt por instrutor */
+.gantt{display:grid;gap:4px;min-width:max-content}
+.gantt-corner{background:transparent}
+.gantt-dh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--line)}
+.gantt-prof{font-size:12px;font-weight:800;color:var(--ink);padding:8px 6px;display:flex;align-items:center;border-right:1px solid var(--line)}
+.gantt-cell{min-height:52px;background:var(--field);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:3px}
+.gantt-blk{background:var(--tc,#888);color:#fff;border-radius:6px;padding:4px 6px;font-size:10.5px;line-height:1.2;display:flex;flex-direction:column;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}
+.gantt-blk b{font-weight:800}
+.gantt-blk i{font-style:normal;opacity:.85;font-weight:600;font-size:9.5px}
+
+/* View: Calendário mensal */
+.cal-hd{font-size:14px;font-weight:800;color:var(--ink);text-align:center;margin-bottom:10px;letter-spacing:-.2px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dh{font-size:10.5px;font-weight:800;color:var(--muted);text-align:center;padding:4px 2px;text-transform:uppercase;letter-spacing:.3px}
+.cal-day{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:64px;padding:6px;display:flex;flex-direction:column;gap:4px}
+.cal-day.empty{background:transparent;border-color:transparent}
+.cal-day.vazio{opacity:.45}
+.cal-day.today{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.cal-num{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.cal-dots{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.cal-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.cal-more{font-size:9px;font-weight:800;color:var(--muted)}
+
+/* Controles do heatmap: toggle modo + janela de semanas */
+.heat-ctrl{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;padding:0 2px}
+.heat-toggle{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.heat-tog{border:none;background:transparent;color:var(--muted);font-weight:800;font-size:12px;padding:8px 14px;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px}
+.heat-tog.on{background:var(--ink);color:#fff}
+.heat-weeks{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.heat-weeks.hidden{visibility:hidden}
+.heat-weeks select{font-family:inherit;font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-weight:700}
+/* View: Heatmap */
+.heat{display:grid;gap:3px;min-width:max-content}
+.heat-corner{background:transparent}
+.heat-dh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;text-transform:uppercase;letter-spacing:.3px}
+.heat-hh{font-size:11px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
+.heat-c{border-radius:6px;padding:8px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;line-height:1;min-height:44px}
+.heat-c.empty{background:var(--field)}
+.heat-c b{font-weight:800;font-size:13px}
+.heat-c i{font-style:normal;opacity:.85;font-size:9.5px;margin-top:2px}
+.heat-c.blue{background:#7fb1e8}
+.heat-c.green{background:#2fa86a}
+.heat-c.gold{background:#c98a2f}
+.heat-c.red{background:#c62828}
+.heat-c.nocap{background:var(--field);color:var(--muted);border:1px dashed var(--line)}
+.heat-c.nocap i{opacity:.5}
+.heat-legend{display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:11px;color:var(--muted);font-weight:600;flex-wrap:wrap}
+.heat-legend span{display:inline-flex;align-items:center;gap:5px}
+.heat-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.heat-legend i.blue{background:#7fb1e8}
+.heat-legend i.green{background:#2fa86a}
+.heat-legend i.gold{background:#c98a2f}
+.heat-legend i.red{background:#c62828}
+
+/* View: Conflitos */
+.conf-empty{padding:24px 12px;text-align:center;color:var(--good);font-weight:700;background:rgba(47,168,106,.08);border-radius:10px}
+.conf-item{background:var(--card);border-left:4px solid var(--red);border-radius:8px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)}
+.conf-hd{font-size:12px;font-weight:800;color:var(--red-strong);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px}
+.conf-bd{display:flex;align-items:center;gap:10px}
+.conf-l{flex:1;min-width:0;display:flex;flex-direction:column;padding:8px 10px;background:var(--field);border-left:3px solid var(--tc,#888);border-radius:6px}
+.conf-l b{font-size:13px;color:var(--ink);font-weight:800}
+.conf-l span{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
+.conf-vs{font-size:16px;font-weight:800;color:var(--muted);flex:none}
+.conf-note{font-size:11px;color:var(--muted);font-style:italic;margin-top:8px}
+/* Zebra nas linhas de hora — destaque do dia atual removido a pedido do dono */
+.grade .g-zebra{background:rgba(0,0,0,.02)}
+/* Cantos das células e chips: quadrados secos (zero) */
+.grade .g-cell{border-radius:0}
+.grade .g-chip{border-radius:0}
 .grade .g-h{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:4px 2px;text-transform:uppercase;letter-spacing:.3px}
 .grade .g-hora{font-size:11px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:4px}
 .grade .g-cell{min-height:48px;background:var(--field);border-radius:8px;padding:3px;display:flex;flex-direction:column;gap:3px}
@@ -1945,6 +2041,143 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-fld-edit .inp{width:100%;font-size:13px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .erp-fld-edit textarea.inp{resize:vertical;font-family:inherit;line-height:1.4}
 .erp-fld-acts{display:flex;justify-content:flex-end;padding-top:14px;border-top:1px solid var(--line);margin-top:6px}
+/* ============================================================
+   PAINEL DO PROFESSOR — dashboard ERP (v276). KPIs macro semânticos
+   com cor por categoria + tabela de aniversariantes.
+   ============================================================ */
+.erp-dash-hd{padding:16px 20px 4px}
+.erp-dash-acad{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+.erp-dash-greet{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
+/* ============================================================
+   ALUNOS v2 — layout ERP compacto (v278). Chips-KPI clicáveis
+   substituem segmented; filtros avançados atrás de botão;
+   FAB flutuante no mobile pra + Novo aluno.
+   ============================================================ */
+.erp-alunos-hd{padding:14px 20px 6px}
+.erp-alunos-title{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.3px}
+.erp-alunos-sub{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
+.erp-alunos-chips{display:flex;gap:6px;padding:6px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.erp-alunos-chips::-webkit-scrollbar{display:none}
+.erp-alunos-kpi{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:88px;padding:8px 12px;background:var(--card);border:1.5px solid var(--line);border-radius:10px;cursor:pointer;font-family:inherit;transition:transform .12s ease}
+.erp-alunos-kpi:hover{transform:translateY(-1px)}
+.erp-alunos-kpi .erp-alunos-kpi-v{font-size:17px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+.erp-alunos-kpi .erp-alunos-kpi-l{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:4px;white-space:nowrap}
+.erp-alunos-kpi.on{background:var(--kpi-bg,var(--ink));border-color:var(--kpi-bg,var(--ink))}
+.erp-alunos-kpi.on .erp-alunos-kpi-v,.erp-alunos-kpi.on .erp-alunos-kpi-l{color:#fff}
+.erp-alunos-kpi.gray{--kpi-bg:#546e7a}
+.erp-alunos-kpi.green{--kpi-bg:#2fa86a}
+.erp-alunos-kpi.blue{--kpi-bg:#2f6fe5}
+.erp-alunos-kpi.gold{--kpi-bg:#c98a2f}
+.erp-alunos-kpi.purple{--kpi-bg:#7e4ddb}
+.erp-alunos-kpi.red{--kpi-bg:#c62828}
+/* toolbar: busca + filtros + novo */
+.erp-alunos-toolbar{display:flex;gap:8px;align-items:center;padding:8px 20px 0}
+.erp-alunos-toolbar .dt-search{flex:1;margin:0}
+.erp-alunos-filt{flex:none;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer}
+.erp-alunos-filt.open{background:var(--field);border-color:var(--muted)}
+.erp-alunos-filt.on{border-color:var(--red);color:var(--red-strong)}
+.erp-alunos-add{flex:none;border:none;background:var(--red);color:#fff;border-radius:10px;padding:9px 16px;font-weight:800;font-size:13px;cursor:pointer;letter-spacing:.2px}
+@media (max-width:640px){ .erp-alunos-add{display:none} }
+.erp-adv-panel{padding:10px 20px 0}
+.erp-adv-lbl{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+/* FAB (mobile) */
+.erp-fab{position:fixed;right:20px;bottom:80px;width:56px;height:56px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:26px;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.15);cursor:pointer;z-index:50;display:none}
+@media (max-width:800px){ .erp-fab{display:flex;align-items:center;justify-content:center} }
+
+/* Painel Kanri-style — só DESKTOP (>=800px). Barra de ações sempre visível,
+   painel de filtros colapsa por padrão (toggle). */
+.erp-alunos-adv-wrap{display:none}
+@media (min-width:800px){
+  .erp-alunos-adv-wrap{display:block;margin:12px 20px 0}
+  .erp-alunos-toolbar{display:none}
+}
+.erp-alunos-adv-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--card);border-radius:12px;box-shadow:var(--shadow);margin-bottom:8px}
+.erp-alunos-tool{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit}
+.erp-alunos-tool:hover{background:var(--field)}
+.erp-alunos-tool.on{background:var(--field);border-color:var(--muted);color:var(--red-strong)}
+.erp-alunos-tool-spacer{flex:1}
+.erp-alunos-adv-bar .erp-alunos-add.primary{background:var(--red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:800;font-size:13px;cursor:pointer;letter-spacing:.2px}
+.erp-alunos-adv-panel{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.erp-alunos-adv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 16px;padding:14px 16px}
+.erp-alunos-adv-grid label{display:flex;flex-direction:column;gap:4px}
+.erp-alunos-adv-grid label>span{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.erp-alunos-adv-grid .inp{width:100%;font-size:13px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.erp-alunos-adv-acts{display:flex;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--line);background:var(--field)}
+.erp-alunos-adv-clear{border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13px;cursor:pointer;padding:8px 12px}
+.erp-alunos-adv-go{border:none;background:#2f6fe5;color:#fff;font-weight:800;font-size:13px;cursor:pointer;padding:8px 20px;border-radius:6px}
+@media (min-width:1100px){ .erp-alunos-adv-grid{grid-template-columns:repeat(4,1fr)} }
+
+/* Strip de dias da semana (Kanri-style) */
+.erp-daystrip{display:flex;gap:6px;padding:8px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:center}
+.erp-daystrip::-webkit-scrollbar{display:none}
+.erp-daycell{flex:none;min-width:56px;display:flex;flex-direction:column;align-items:center;padding:8px 10px 10px;background:var(--card);border:1px solid var(--line);border-radius:10px;cursor:pointer;font-family:inherit}
+.erp-daycell .erp-daynum{font-size:15px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
+.erp-daycell .erp-daylbl{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+.erp-daycell.hoje .erp-daynum{color:var(--red)}
+.erp-daycell.on{background:#334155;border-color:#334155}
+.erp-daycell.on .erp-daynum,.erp-daycell.on .erp-daylbl{color:#fff}
+
+/* Turmas do dia (horizontal scroll de cards) */
+.erp-classes-strip{display:flex;gap:8px;padding:8px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.erp-classes-strip::-webkit-scrollbar{display:none}
+.erp-class-card{flex:none;min-width:150px;background:#334155;color:#fff;border:none;border-left:4px solid var(--tc,#334155);border-radius:10px;padding:12px 14px;text-align:left;cursor:pointer;font-family:inherit;transition:transform .12s ease}
+.erp-class-card:hover{transform:translateY(-1px)}
+.erp-class-hora{font-size:11px;font-weight:700;opacity:.9;display:flex;align-items:center;gap:4px}
+.erp-class-nome{font-size:14px;font-weight:800;margin-top:6px;letter-spacing:-.2px}
+.erp-class-sub{font-size:10.5px;font-weight:700;opacity:.75;margin-top:2px;text-transform:uppercase;letter-spacing:.3px}
+
+/* PÁGINA cheia de batch check-in (não sheet) */
+.erp-batch-page{background:var(--bg,#f4f4f6);min-height:100vh;display:flex;flex-direction:column;padding-bottom:100px}
+.erp-batch-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.erp-batch-close{width:32px;height:32px;border-radius:50%;border:none;background:var(--field);color:var(--muted);font-size:20px;line-height:1;cursor:pointer;font-weight:700}
+.erp-batch-title{font-size:16px;font-weight:800;color:var(--ink);letter-spacing:-.2px;flex:1;text-align:center}
+.erp-batch-meta{display:flex;gap:8px;align-items:center;padding:12px 18px;overflow-x:auto;scrollbar-width:none}
+.erp-batch-meta::-webkit-scrollbar{display:none}
+.erp-batch-chip{background:var(--field);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;line-height:1.1;flex:none}
+.erp-batch-chip b{font-size:13px;color:var(--ink);font-weight:800}
+.erp-batch-chip span{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
+.erp-batch-chip.active{background:#334155;color:#fff;border-left:4px solid var(--tc,#334155)}
+.erp-batch-chip.active b,.erp-batch-chip.active span{color:#fff}
+.erp-batch-toggle{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap;cursor:pointer}
+.erp-batch-toggle input{accent-color:var(--red)}
+.erp-batch-list{flex:1;padding:0 12px 12px}
+.erp-batch-empty{text-align:center;padding:32px 12px;color:var(--muted);font-size:13px}
+.erp-batch-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background .12s ease;margin-bottom:4px}
+.erp-batch-row:hover{background:var(--field)}
+.erp-batch-row.on{background:var(--red-tint)}
+.erp-batch-row.done{opacity:.55;cursor:default}
+.erp-batch-check{width:24px;height:24px;border-radius:6px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff;flex:none}
+.erp-batch-row.on .erp-batch-check{background:var(--red);border-color:var(--red)}
+.erp-batch-row.done .erp-batch-check{background:var(--good);border-color:var(--good)}
+.erp-batch-info{flex:1;min-width:0}
+.erp-batch-nm{font-size:13.5px;font-weight:700;color:var(--ink)}
+.erp-batch-belt{font-size:11px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;margin-top:2px}
+.erp-batch-belt i{width:7px;height:7px;border-radius:50%;flex:none}
+.erp-batch-flag{font-size:10px;font-weight:800;color:var(--good);background:rgba(47,168,106,.12);padding:3px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.3px}
+.erp-batch-foot{padding:12px 20px 18px;background:var(--card);border-top:1px solid var(--line);position:fixed;left:0;right:0;bottom:0;z-index:20}
+.erp-batch-go{width:100%;background:#334155;color:#fff;border:none;border-radius:12px;padding:14px 16px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
+.erp-batch-go:disabled{opacity:.5;cursor:not-allowed}
+.erp-batch-count{background:rgba(255,255,255,.2);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:800}
+
+/* KPIs macros do painel: reusa .stat-card + adiciona clique */
+.stat-card.kpi-click{cursor:pointer;transition:transform .12s ease}
+.stat-card.kpi-click:hover{transform:translateY(-1px)}
+.stat-card.kpi-click:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.stat-card .si.purple{background:#efe6ff;color:#7e4ddb}
+.stat-card .si.pink{background:#ffe6ef;color:#e91e63}
+
+/* Tabela aniversariantes */
+.erp-dash-birth{margin:0 20px;padding:0}
+.erp-dash-birth-hd,.erp-dash-birth-row{display:grid;grid-template-columns:1fr 130px 60px 70px;gap:8px;align-items:center;padding:10px 14px}
+.erp-dash-birth-hd{background:var(--field);border-radius:10px 10px 0 0;font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.erp-dash-birth-row{border-bottom:1px solid var(--line);background:var(--card)}
+.erp-dash-birth-row:last-child{border-bottom:none;border-radius:0 0 10px 10px}
+.erp-dash-birth-nm{font-size:13px;font-weight:700;color:var(--ink);word-break:break-word}
+.erp-dash-birth-belt{font-size:11.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.erp-dash-birth-belt i{width:8px;height:8px;border-radius:50%;flex:none}
+.erp-dash-birth-dt{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.erp-dash-birth-acts{display:flex;gap:6px;justify-content:flex-end}
+
 /* Presenças — histórico */
 .erp-pres-list{display:flex;flex-direction:column}
 .erp-pres-row{display:grid;grid-template-columns:64px 1fr 60px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
