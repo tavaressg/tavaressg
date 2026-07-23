@@ -4,6 +4,9 @@ confidencial/
 CLAUDE.md
 .claude/
 
+# === Lixo do Supabase CLI na raiz (o backend real vive em confidencial/supabase/) ===
+/supabase/
+
 # === Lixo de SO / editor ===
 .DS_Store
 Thumbs.db

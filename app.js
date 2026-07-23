@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v280';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v281';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -3965,18 +3965,38 @@ function _sairDaConta(){
   requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
-/* Troca de senha no 1º acesso (P1): disparada quando sbAuth.mustChangePassword() é true. */
+/* Troca de senha no 1º acesso (P1): disparada quando sbAuth.mustChangePassword() é true.
+   Também atende o retorno do link "esqueci a senha" (PASSWORD_RECOVERY → DB.trocarSenhaRecovery). */
+function pwErrMsg(err){
+  const m = String((err && err.message) || err);
+  if (/different from the old|different password/i.test(m)) return 'A nova senha precisa ser diferente da senha provisória.';
+  if (/current password/i.test(m)) return 'Senha provisória (atual) incorreta.';
+  if (/at least one character|abcdefghijklmnopqrstuvwxyz/i.test(m)) return 'A senha precisa ter letras e números.';
+  if (/at least \d+ character/i.test(m)) return 'Senha muito curta — mínimo 8 caracteres.';
+  if (/reauthentication|nonce/i.test(m)) return 'Sessão expirada — saia e entre de novo para trocar a senha.';
+  if (/rate limit|too many/i.test(m)) return 'Muitas tentativas — aguarde alguns minutos.';
+  return 'Erro: ' + m;
+}
 function renderTrocarSenha(){
+  const recovery = !!DB.trocarSenhaRecovery;
+  // 1º acesso após reload: a senha do login não está mais em memória — pedir a provisória.
+  const needCur = !recovery && typeof sbAuth!=='undefined' && sbAuth.hasLoginPw && !sbAuth.hasLoginPw();
   const v = el('<div class="view auth-view"></div>');
   v.appendChild(el('<div class="auth-safe"></div>'));
   v.appendChild(el(`<div class="auth-hero">
     <img class="auth-logo" src="brand/logo.png?v=2" data-fallback="logo" alt="">
-    <div class="auth-title">Defina sua senha</div>
-    <div class="auth-sub">Primeiro acesso — crie uma senha pessoal para continuar.</div>
+    <div class="auth-title">${recovery?'Redefinir senha':'Defina sua senha'}</div>
+    <div class="auth-sub">${recovery?'Crie uma nova senha para a sua conta.':'Primeiro acesso — crie uma senha pessoal para continuar.'}</div>
   </div>`));
   const form = el('<div class="auth-form"></div>');
-  form.appendChild(el('<label class="flbl">Nova senha</label>'));
-  const pw1 = el(`<input class="inp" type="password" id="ts-pw1" placeholder="Mínimo 8 caracteres" autocomplete="new-password">`);
+  let cur = null;
+  if(needCur){
+    form.appendChild(el('<label class="flbl">Senha provisória (atual)</label>'));
+    cur = el(`<input class="inp" type="password" id="ts-cur" placeholder="A senha entregue pela academia" autocomplete="current-password">`);
+    form.appendChild(cur);
+  }
+  form.appendChild(el(`<label class="flbl"${needCur?' style="margin-top:12px"':''}>Nova senha</label>`));
+  const pw1 = el(`<input class="inp" type="password" id="ts-pw1" placeholder="Mín. 8 caracteres, letras e números" autocomplete="new-password">`);
   form.appendChild(pw1);
   form.appendChild(el('<label class="flbl" style="margin-top:12px">Confirmar senha</label>'));
   const pw2 = el(`<input class="inp" type="password" id="ts-pw2" placeholder="Repita a senha" autocomplete="new-password" style="margin-top:6px">`);
@@ -3984,21 +4004,25 @@ function renderTrocarSenha(){
   const btn = el('<button class="btn-register auth-btn">Salvar e continuar</button>');
   btn.onclick = async ()=>{
     const p1=pw1.value, p2=pw2.value;
+    if(needCur && !cur.value){ toast('Informe a senha provisória atual'); return; }
     if(p1.length<8){ toast('Senha: mínimo 8 caracteres'); return; }
+    if(!/[a-zA-Z]/.test(p1) || !/[0-9]/.test(p1)){ toast('A senha precisa ter letras e números'); return; }
+    if(needCur && p1===cur.value){ toast('A nova senha precisa ser diferente da provisória'); return; }
     if(p1!==p2){ toast('As senhas não coincidem'); return; }
     btn.disabled=true; btn.textContent='Salvando…';
     try{
-      if(typeof sbAuth!=='undefined') await sbAuth.changePassword(p1);
-      DB.trocarSenhaOpen=false;
+      if(typeof sbAuth!=='undefined') await sbAuth.changePassword(p1, needCur ? cur.value : undefined);
+      DB.trocarSenhaOpen=false; DB.trocarSenhaRecovery=false;
       if(!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen=true;
       render(); toast('Senha definida ✔');
     }catch(err){
       btn.disabled=false; btn.textContent='Salvar e continuar';
-      toast('Erro: '+(err.message||err));
+      toast(pwErrMsg(err));
+      try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
     }
   };
   form.appendChild(btn);
-  form.appendChild(el('<div class="auth-note">🔒 Você entrou com uma senha provisória. Defina a sua para manter a conta segura.</div>'));
+  form.appendChild(el(`<div class="auth-note">${recovery?'🔒 Após salvar, use a nova senha nos próximos logins.':'🔒 Você entrou com uma senha provisória. Defina a sua para manter a conta segura.'}</div>`));
   v.appendChild(form);
   return v;
 }
@@ -9877,6 +9901,8 @@ if (DEMO || TESTMODE) {
     sbAuth.onAuthStateChange((event, s)=>{
       if(event==='SIGNED_OUT'){ DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
       if(event==='SIGNED_IN' && s && !DB.sbUser){ _cloudLogin(s.user); }
+      // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
+      if(event==='PASSWORD_RECOVERY'){ DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render(); }
     });
     if (session) {
       await _cloudLogin(session.user);

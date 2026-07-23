@@ -97,10 +97,15 @@
   /* ========================================================
      sbAuth — autenticação
      ======================================================== */
+  // Senha do login vive SÓ em memória (nunca persistida): o painel Auth exige
+  // "require current password" no updateUser — o gate do 1º acesso a envia junto.
+  let _loginPw = null;
+
   const sbAuth = {
     signIn: wrap(async (email, pw) => {
       const { data, error } = await SB.auth.signInWithPassword({ email, password: pw });
       if (error) throw error;
+      _loginPw = pw;
       return { user: data.user };
     }),
     // Não usado p/ aluno (professor cadastra via Edge Function). Mantido p/ contrato.
@@ -109,7 +114,7 @@
       if (error) throw error;
       return { session: data.session, user: data.user };
     }),
-    signOut: wrap(async () => { const { error } = await SB.auth.signOut(); if (error) throw error; }),
+    signOut: wrap(async () => { _loginPw = null; const { error } = await SB.auth.signOut(); if (error) throw error; }),
     resetPw: wrap(async (email) => {
       const { error } = await SB.auth.resetPasswordForEmail(email, { redirectTo: global.location.origin });
       if (error) throw error;
@@ -123,9 +128,17 @@
       const { data } = await SB.from('profiles').select('must_change_pw').eq('id', u.id).single();
       return !!(data && data.must_change_pw);
     }),
-    changePassword: wrap(async (newPw) => {
-      const { error } = await SB.auth.updateUser({ password: newPw });
+    // true = a senha do login desta sessão está em memória (não precisa pedir ao usuário).
+    hasLoginPw: () => !!_loginPw,
+    // currentPw explícito > stash do login. Sessão de recovery (link de e-mail) não tem
+    // nenhum dos dois — segue sem current_password (o servidor dispensa nesse fluxo).
+    changePassword: wrap(async (newPw, currentPw) => {
+      const cur = currentPw || _loginPw;
+      const attrs = { password: newPw };
+      if (cur) attrs.current_password = cur;
+      const { error } = await SB.auth.updateUser(attrs);
       if (error) throw error;
+      _loginPw = null;
       // M-4: baixa must_change_pw pela RPC controlada — o guard bloqueia update direto da flag.
       const { error: e2 } = await SB.rpc('mark_password_changed');
       if (e2) throw e2;
