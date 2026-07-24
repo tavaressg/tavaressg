@@ -129,10 +129,10 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 /* ---------- Card Modalidade / graduação ---------- */
 .mod-card{margin:16px 20px 18px;background:var(--card);border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
 .mod-title{font-size:15px;font-weight:800;margin-bottom:15px}
-/* Faixa "grande" da Jornada — wrapper que só define altura; SVG interno herda 100%. */
-.belt-rank{display:flex;align-items:center;height:20px;border-radius:5px;overflow:hidden;margin-bottom:18px;
-  box-shadow:0 1px 2px rgba(0,0,0,.18),inset 0 0 0 1px rgba(0,0,0,.10)}
-.belt-rank svg{display:block;height:100%;width:auto}
+/* Faixa "grande" da Jornada — wrapper de contexto; o desenho vem do .belt-mini único.
+   Override apenas de escala (--bm-h) e margem — geometria interna sai do .belt-mini. */
+.belt-rank{margin-bottom:18px}
+.belt-rank .belt-mini{--bm-h:20px;--bm-body:52px;--bm-tip:65.98px;--bm-end:11px}
 .mod-grid{display:flex;gap:16px}
 .mod-grid .mc{flex:1}
 .mod-grid .mc.bd{border-left:1px solid var(--line);padding-left:16px}
@@ -199,19 +199,32 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .pm-belt-nm{font-size:13.5px;font-weight:800;color:var(--ink)}
 .pm-num{font-size:13px;font-weight:800;color:var(--ink)}
 .pm-foot{font-size:12px;color:var(--muted);font-weight:700;margin-top:10px}
-/* Faixa BJJ (item 3): SVG único desenhado por beltSvg() em app.js — vetorial, nítido em
-   qualquer tamanho, fonte da verdade de cor/listra/graus. `.belt-mini` é só o wrapper
-   inline; SVG interno herda a altura via svg{height:100%}. Overrides por contexto abaixo. */
-.belt-mini{display:inline-flex;align-items:center;height:14px;line-height:0;border-radius:3px;overflow:hidden;
+/* Faixa BJJ — UMA implementação. Renderizada por beltMini() em app.js e usada em TODOS
+   os contextos (pill, rank/Jornada, seletor). Overrides de tamanho por contexto abaixo.
+   >>> PONTO ÚNICO DE AJUSTE DE PIXEL <<< as 4 vars controlam toda a geometria.
+   Trocar aqui muda a faixa em todo o app; overrides só mexem em --bm-h e nas 3 vars de largura. */
+.belt-mini{--bm-h:13px;--bm-body:34px;--bm-tip:43.13px;--bm-end:7px;
+  display:inline-flex;align-items:stretch;height:var(--bm-h);border-radius:3px;overflow:hidden;
   box-shadow:0 1px 2px rgba(0,0,0,.16),inset 0 0 0 1px rgba(0,0,0,.16)}
-.belt-mini svg,.belt-svg{display:block;height:100%;width:auto}
-/* seletor de faixa: campo (mini-faixa) que abre a lista de mini-faixas (sem nome) */
+.belt-mini .bm-body{width:var(--bm-body);flex:none;background:var(--bc);
+  background-image:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 42%,rgba(0,0,0,.14))}
+/* ponteira SEMPRE visível e de tamanho FIXO — preta (vermelha na faixa preta, .red-tip); só os graus (stripes) mudam */
+.belt-mini .bm-tip{flex:none;width:var(--bm-tip);padding-right:5px;background:#14161b;display:flex;align-items:stretch;justify-content:flex-end;gap:4px;
+  background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.25))}
+.belt-mini .bm-tip i{width:3px;align-self:stretch;background:#fff;box-shadow:0 0 1px rgba(0,0,0,.45)}
+.belt-mini .bm-tip.red-tip{background:#e53935}
+.belt-mini .bm-end{width:var(--bm-end);flex:none;background:var(--bc);
+  background-image:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 42%,rgba(0,0,0,.14))}
+/* faixas bicolores: listra central --bar (kids _branca/_preta + corais) */
+.belt-mini.bicolor .bm-body,.belt-mini.bicolor .bm-end{background-image:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 42%,rgba(0,0,0,.14)),linear-gradient(180deg,transparent 30%,var(--bar) 30%,var(--bar) 70%,transparent 70%)}
+/* Overrides de tamanho por contexto: só ajustam --bm-h e as 3 vars de largura */
+.belt-pill .belt-mini{--bm-h:10px;--bm-body:26px;--bm-tip:33.18px;--bm-end:5.4px}
 .belt-field{display:inline-flex;align-items:center;gap:12px;padding:9px 14px;border-radius:12px;background:var(--field);border:1px solid var(--line);cursor:pointer;font-family:inherit;min-width:120px}
-.belt-field .belt-mini{height:20px}
+.belt-field .belt-mini{--bm-h:20px;--bm-body:52px;--bm-tip:65.98px;--bm-end:11px}
 .belt-field .bf-caret{color:var(--muted);font-size:12px;font-weight:800;margin-left:auto}
 .belt-picker{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px;max-height:52vh;overflow-y:auto}
 .belt-pick{display:flex;align-items:center;gap:14px;padding:11px 14px;border-radius:12px;background:var(--field);border:1px solid var(--line);cursor:pointer;font-family:inherit;text-align:left}
-.belt-pick .belt-mini{height:15px;flex:none}
+.belt-pick .belt-mini{--bm-h:15px;--bm-body:39px;--bm-tip:49.5px;--bm-end:8.1px;flex:none}
 .belt-pick .belt-pick-nm{font-size:14.5px;font-weight:700;color:var(--ink)}
 .belt-pick .belt-pick-ck{margin-left:auto;color:var(--red);font-size:15px;font-weight:800;width:16px;text-align:center}
 .belt-pick.on{border-color:var(--red);box-shadow:0 0 0 2px var(--red-tint)}
