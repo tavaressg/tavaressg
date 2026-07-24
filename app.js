@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v287';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v288';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -7906,29 +7906,13 @@ function profTurmas(){
   const n = _turmasArr().length;
   w.innerHTML = `<div class="hello"><div class="date">Turmas</div>
     <div class="greet">${n} turma${n!==1?'s':''} · grade semanal</div></div>`;
-  // Abas de visualização (Grade padrão; Gantt/Mês/Ocupação/Conflitos são PROTÓTIPOS
-  // visuais — usam mock pra instrutor/duração/capacidade até a migration 0012).
-  const tab = DB._turmasTab || 'grade';
-  const TABS = [['grade','Grade'],['gantt','Instrutores'],['heat','Ocupação']];
-  const tabsBar = el('<div class="turmas-tabs"></div>');
-  TABS.forEach(([k,l])=>{
-    const b = el(`<button class="turmas-tab${k===tab?' on':''}">${l}</button>`);
-    b.onclick = ()=>{ DB._turmasTab = k; render(); };
-    tabsBar.appendChild(b);
-  });
-  w.appendChild(tabsBar);
-  const grade = el('<div class="mod-card" style="padding:14px 12px"></div>');
+  // Grade semanal — única view. Timeline por instrutor e Heatmap de ocupação foram
+  // removidos no v288: dependiam de _MOCK_INSTRUTORES/duracao/capacidade fictícios e
+  // confundiam o dono (dados inventados). Voltam quando houver instrutor_id/checkins reais.
   const turmasArr = _turmasArr();
-  if(tab==='grade'){
-    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
-    grade.appendChild(_gradeHorarios(turmasArr));
-  } else if(tab==='gantt'){
-    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Timeline por instrutor <span style="font-size:10px;color:var(--muted);font-weight:600">(mock)</span></div>`));
-    grade.appendChild(_viewGantt(turmasArr));
-  } else if(tab==='heat'){
-    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Heatmap de ocupação <span style="font-size:10px;color:var(--muted);font-weight:600">(mock)</span></div>`));
-    grade.appendChild(_viewHeatmap(turmasArr));
-  }
+  const grade = el('<div class="mod-card" style="padding:14px 12px"></div>');
+  grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
+  grade.appendChild(_gradeHorarios(turmasArr));
   w.appendChild(grade);
   const add = el(`<button class="add-turma">+ Nova turma</button>`);
   add.onclick=()=> _turmaSheet(null);
@@ -7953,218 +7937,6 @@ function profTurmas(){
 }
 
 // Grade semanal: linhas = horas distintas ordenadas; colunas = dias com sessão.
-/* ============================================================
-   VIEWS DE TURMAS (protótipo visual — mock instrutor/duração/capacidade
-   até a migration 0012). Reusa BELTS e turmas do backend.
-   ============================================================ */
-// Mock helpers — depois viram campos reais no schema
-const _MOCK_INSTRUTORES = ['Prof. Gabriel','Prof. Bruno','Prof. Rafa'];
-function _instrutorMock(turma, i){ return turma.instrutor || _MOCK_INSTRUTORES[i % _MOCK_INSTRUTORES.length]; }
-function _duracaoMock(s){ return s.duracao_min || 60; }
-function _capacidadeMock(t){ return t.capacidade_max || null; }   // sem capacidade cadastrada → null
-function _hashSeed(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))|0; return Math.abs(h); }
-function _ocupacaoMock(turma, dia, hora, modo, semanas){
-  // modo: 'matr' (matriculados — comercial) ou 'freq' (presença média — operacional).
-  // semanas: janela pra calcular presença média (só usada em modo 'freq').
-  const cap = _capacidadeMock(turma);
-  const matr = (typeof _turmaAlunos==='function') ? _turmaAlunos(turma.id).length : 0;
-  if(modo==='freq'){
-    // PROTÓTIPO: presença média = matr × fator estável (seed pela turma). Depois vira
-    // query SQL real (avg de checkins × aulas nas últimas N semanas).
-    const seed = _hashSeed(turma.id + (semanas||8));
-    const fator = 0.45 + (seed%40)/100;   // 0.45 a 0.85 (típico de academia)
-    return { n: Math.round(matr*fator), cap: cap||0 };
-  }
-  return { n: matr, cap: cap||0 };
-}
-
-// View 1: Gantt por instrutor. Linha=instrutor, colunas=dias, blocos por hora
-function _viewGantt(turmas){
-  const wrap = el('<div></div>');
-  const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
-  // Agrupa sessões por instrutor→dia
-  const byProf = {};
-  turmas.forEach((t,i)=>{
-    const prof = _instrutorMock(t, i);
-    (t.sessoes||[]).forEach(s=>{
-      const k = prof;
-      byProf[k] = byProf[k] || {};
-      (byProf[k][s.dia] = byProf[k][s.dia] || []).push({t, s});
-    });
-  });
-  const profs = Object.keys(byProf).sort();
-  if(!profs.length){ wrap.appendChild(el('<div class="empty-hint">Sem instrutores/turmas.</div>')); return wrap; }
-  // Filtrar dias que têm ao menos 1 sessão
-  const diasAtivos = DIAS.filter(([d])=> profs.some(p=> byProf[p][d]));
-  const tbl = el(`<div class="gantt"></div>`);
-  tbl.style.gridTemplateColumns = `140px repeat(${diasAtivos.length}, minmax(80px,1fr))`;
-  tbl.appendChild(el('<div class="gantt-corner"></div>'));
-  diasAtivos.forEach(([d,lbl])=> tbl.appendChild(el(`<div class="gantt-dh">${lbl}</div>`)));
-  profs.forEach(prof=>{
-    tbl.appendChild(el(`<div class="gantt-prof">${safeTxt(prof)}</div>`));
-    diasAtivos.forEach(([d])=>{
-      const cell = el('<div class="gantt-cell"></div>');
-      const arr = (byProf[prof][d]||[]).sort((a,b)=> (a.s.hora||'').localeCompare(b.s.hora||''));
-      arr.forEach(({t,s})=>{
-        const blk = el(`<span class="gantt-blk" style="--tc:${t.cor||'#888'};cursor:pointer" title="${safeAttr(t.nome+' '+s.hora)}">
-          <b>${safeTxt(s.hora)}</b><i>${safeTxt(t.nome)}</i></span>`);
-        blk.onclick = ()=> _turmaSheet(t.id);
-        cell.appendChild(blk);
-      });
-      tbl.appendChild(cell);
-    });
-  });
-  wrap.appendChild(tbl);
-  return wrap;
-}
-
-// View 2: calendário mensal. Dia = célula com bolinhas coloridas por turma
-function _viewCalendarioMes(turmas){
-  const wrap = el('<div></div>');
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth();
-  const primeiroDia = new Date(y, m, 1);
-  const ultimoDia = new Date(y, m+1, 0);
-  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
-  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  wrap.appendChild(el(`<div class="cal-hd">${MESES[m]} ${y}</div>`));
-  const grid = el('<div class="cal-grid"></div>');
-  ['SEG','TER','QUA','QUI','SEX','SÁB','DOM'].forEach(l=> grid.appendChild(el(`<div class="cal-dh">${l}</div>`)));
-  // Deslocamento: alinha semana começando na segunda
-  const offset = (primeiroDia.getDay()+6)%7;   // 0=seg, 6=dom
-  for(let i=0;i<offset;i++) grid.appendChild(el('<div class="cal-day empty"></div>'));
-  for(let d=1; d<=ultimoDia.getDate(); d++){
-    const dt = new Date(y, m, d);
-    const diaK = jsToKey[dt.getDay()];
-    const sessoes = [];
-    turmas.forEach(t=>(t.sessoes||[]).forEach(s=>{ if(s.dia===diaK) sessoes.push({t,s}); }));
-    const isToday = (d===now.getDate());
-    const cell = el(`<div class="cal-day${isToday?' today':''}${sessoes.length?'':' vazio'}">
-      <div class="cal-num">${d}</div>
-      <div class="cal-dots"></div>
-    </div>`);
-    const dots = cell.querySelector('.cal-dots');
-    sessoes.slice(0,6).forEach(({t,s})=>{
-      dots.appendChild(el(`<span class="cal-dot" style="background:${t.cor||'#888'}" title="${safeAttr(t.nome+' '+s.hora)}"></span>`));
-    });
-    if(sessoes.length>6) dots.appendChild(el(`<span class="cal-more">+${sessoes.length-6}</span>`));
-    grid.appendChild(cell);
-  }
-  wrap.appendChild(grid);
-  return wrap;
-}
-
-// View 3: heatmap de ocupação. hora × dia, cor por % ocupação.
-// Toggle: Matriculados (comercial) vs Presença média (operacional). Semanas configurável.
-function _viewHeatmap(turmas){
-  const wrap = el('<div></div>');
-  const modo = DB._heatMode || 'freq';
-  const semanas = DB._heatSemanas || 8;
-  // Controles no topo: toggle + select de semanas
-  const ctrl = el(`<div class="heat-ctrl">
-    <div class="heat-toggle">
-      <button class="heat-tog${modo==='freq'?' on':''}" data-m="freq">Presença média</button>
-      <button class="heat-tog${modo==='matr'?' on':''}" data-m="matr">Matriculados</button>
-    </div>
-    <label class="heat-weeks${modo!=='freq'?' hidden':''}">
-      <span>Janela</span>
-      <select id="heat-w">
-        ${[4,8,12,24].map(n=>`<option value="${n}"${n===semanas?' selected':''}>${n} semanas</option>`).join('')}
-      </select>
-    </label>
-  </div>`);
-  ctrl.querySelectorAll('[data-m]').forEach(b=> b.onclick=()=>{ DB._heatMode = b.dataset.m; render(); });
-  ctrl.querySelector('#heat-w').onchange = (e)=>{ DB._heatSemanas = parseInt(e.target.value,10)||8; render(); };
-  wrap.appendChild(ctrl);
-  const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
-  const cells = {}; const horasSet = new Set(); const diasSet = new Set();
-  turmas.forEach(t=>(t.sessoes||[]).forEach(s=>{
-    const k = s.dia+'|'+s.hora;
-    const oc = _ocupacaoMock(t, s.dia, s.hora, modo, semanas);
-    cells[k] = cells[k] || {n:0,cap:0,turmas:[],ids:[]};
-    cells[k].n += oc.n; cells[k].cap += oc.cap;
-    cells[k].turmas.push(t.nome);
-    cells[k].ids.push(t.id);
-    horasSet.add(s.hora); diasSet.add(s.dia);
-  }));
-  const horas = [...horasSet].sort();
-  const dias = DIAS.filter(([d])=> diasSet.has(d));
-  if(!horas.length){ wrap.appendChild(el('<div class="empty-hint">Sem dados.</div>')); return wrap; }
-  const heat = el(`<div class="heat"></div>`);
-  heat.style.gridTemplateColumns = `56px repeat(${dias.length}, minmax(46px,1fr))`;
-  heat.appendChild(el('<div class="heat-corner"></div>'));
-  dias.forEach(([,lbl])=> heat.appendChild(el(`<div class="heat-dh">${lbl}</div>`)));
-  horas.forEach(h=>{
-    heat.appendChild(el(`<div class="heat-hh">${safeTxt(h)}</div>`));
-    dias.forEach(([d])=>{
-      const c = cells[d+'|'+h];
-      if(!c){ heat.appendChild(el('<div class="heat-c empty"></div>')); return; }
-      const openFirst = ()=> _turmaSheet(c.ids[0]);
-      if(!c.cap){
-        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${c.n}</b><i>—</i></div>`);
-        cell.onclick = openFirst; heat.appendChild(cell); return;
-      }
-      const pct = Math.round(c.n*100/c.cap);
-      const kind = pct>=90?'red' : pct>=70?'gold' : pct>=40?'green' : 'blue';
-      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+c.n+'/'+c.cap)}">
-        <b>${c.n}</b><i>/${c.cap}</i></div>`);
-      cell.onclick = openFirst; heat.appendChild(cell);
-    });
-  });
-  wrap.appendChild(heat);
-  // legenda
-  wrap.appendChild(el(`<div class="heat-legend">
-    <span><i class="blue"></i> &lt;40%</span>
-    <span><i class="green"></i> 40-70%</span>
-    <span><i class="gold"></i> 70-90%</span>
-    <span><i class="red"></i> ≥90%</span>
-  </div>`));
-  return wrap;
-}
-
-// View 4: conflitos (mesmo instrutor, mesmo horário; sobreposição por duração)
-function _viewConflitos(turmas){
-  const wrap = el('<div></div>');
-  const DIAS_LBL = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
-  // Coleta {dia, hora, fim, turma, prof}
-  const evts = [];
-  turmas.forEach((t,i)=>{
-    const prof = _instrutorMock(t, i);
-    (t.sessoes||[]).forEach(s=>{
-      const [h,m] = (s.hora||'00:00').split(':').map(Number);
-      const start = h*60 + (m||0);
-      const end = start + _duracaoMock(s);
-      evts.push({dia:s.dia, start, end, hora:s.hora, turma:t, prof});
-    });
-  });
-  // Detecta conflitos: mesmo prof, mesmo dia, intervalos sobrepostos
-  const conflitos = [];
-  for(let i=0;i<evts.length;i++){
-    for(let j=i+1;j<evts.length;j++){
-      const a=evts[i], b=evts[j];
-      if(a.dia!==b.dia || a.prof!==b.prof) continue;
-      const overlap = a.start < b.end && b.start < a.end;
-      if(overlap) conflitos.push([a,b]);
-    }
-  }
-  if(!conflitos.length){
-    wrap.appendChild(el('<div class="conf-empty">✓ Nenhum conflito detectado na grade atual.</div>'));
-    return wrap;
-  }
-  conflitos.forEach(([a,b])=>{
-    const item = el(`<div class="conf-item">
-      <div class="conf-hd">⚠️ Sobreposição — ${safeTxt(DIAS_LBL[a.dia]||a.dia)}</div>
-      <div class="conf-bd">
-        <div class="conf-l"><b style="--tc:${a.turma.cor||'#888'}">${safeTxt(a.turma.nome)}</b><span>${safeTxt(a.hora)} · ${_duracaoMock(a)}min · ${safeTxt(a.prof)}</span></div>
-        <div class="conf-vs">×</div>
-        <div class="conf-l"><b style="--tc:${b.turma.cor||'#888'}">${safeTxt(b.turma.nome)}</b><span>${safeTxt(b.hora)} · ${_duracaoMock(b)}min · ${safeTxt(b.prof)}</span></div>
-      </div>
-      <div class="conf-note">Mesmo instrutor em 2 turmas simultâneas.</div>
-    </div>`);
-    wrap.appendChild(item);
-  });
-  return wrap;
-}
 
 // Grade de horários — renderiza DUAS variantes + chips filtro de faixa etária.
 //   .grade-desktop (dias em cima, horas na esquerda) — mostra em >=800px

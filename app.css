@@ -260,76 +260,6 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .erp-turma-title{font-size:16px;font-weight:800;color:var(--ink);letter-spacing:-.2px;flex:1;text-align:center}
 .erp-turma-body{padding:16px 20px 40px;max-width:640px;margin:0 auto}
 
-/* Abas de views de Turmas */
-.turmas-tabs{display:flex;gap:4px;margin:0 20px 12px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line)}
-.turmas-tabs::-webkit-scrollbar{display:none}
-.turmas-tab{flex:none;border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:10px 14px;border-bottom:3px solid transparent;cursor:pointer;font-family:inherit;white-space:nowrap}
-.turmas-tab.on{color:var(--ink);border-bottom-color:var(--red)}
-
-/* View: Gantt por instrutor */
-.gantt{display:grid;gap:4px;min-width:max-content}
-.gantt-corner{background:transparent}
-.gantt-dh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--line)}
-.gantt-prof{font-size:12px;font-weight:800;color:var(--ink);padding:8px 6px;display:flex;align-items:center;border-right:1px solid var(--line)}
-.gantt-cell{min-height:52px;background:var(--field);border-radius:8px;padding:4px;display:flex;flex-direction:column;gap:3px}
-.gantt-blk{background:var(--tc,#888);color:#fff;border-radius:6px;padding:4px 6px;font-size:10.5px;line-height:1.2;display:flex;flex-direction:column;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}
-.gantt-blk b{font-weight:800}
-.gantt-blk i{font-style:normal;opacity:.85;font-weight:600;font-size:9.5px}
-
-/* View: Calendário mensal */
-.cal-hd{font-size:14px;font-weight:800;color:var(--ink);text-align:center;margin-bottom:10px;letter-spacing:-.2px}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.cal-dh{font-size:10.5px;font-weight:800;color:var(--muted);text-align:center;padding:4px 2px;text-transform:uppercase;letter-spacing:.3px}
-.cal-day{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:64px;padding:6px;display:flex;flex-direction:column;gap:4px}
-.cal-day.empty{background:transparent;border-color:transparent}
-.cal-day.vazio{opacity:.45}
-.cal-day.today{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
-.cal-num{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
-.cal-dots{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
-.cal-dot{width:8px;height:8px;border-radius:50%;flex:none}
-.cal-more{font-size:9px;font-weight:800;color:var(--muted)}
-
-/* Controles do heatmap: toggle modo + janela de semanas */
-.heat-ctrl{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;padding:0 2px}
-.heat-toggle{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
-.heat-tog{border:none;background:transparent;color:var(--muted);font-weight:800;font-size:12px;padding:8px 14px;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px}
-.heat-tog.on{background:var(--ink);color:#fff}
-.heat-weeks{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
-.heat-weeks.hidden{visibility:hidden}
-.heat-weeks select{font-family:inherit;font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-weight:700}
-/* View: Heatmap */
-.heat{display:grid;gap:3px;min-width:max-content}
-.heat-corner{background:transparent}
-.heat-dh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;text-transform:uppercase;letter-spacing:.3px}
-.heat-hh{font-size:11px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
-.heat-c{border-radius:6px;padding:8px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;line-height:1;min-height:44px}
-.heat-c.empty{background:var(--field)}
-.heat-c b{font-weight:800;font-size:13px}
-.heat-c i{font-style:normal;opacity:.85;font-size:9.5px;margin-top:2px}
-.heat-c.blue{background:#7fb1e8}
-.heat-c.green{background:#2fa86a}
-.heat-c.gold{background:#c98a2f}
-.heat-c.red{background:#c62828}
-.heat-c.nocap{background:var(--field);color:var(--muted);border:1px dashed var(--line)}
-.heat-c.nocap i{opacity:.5}
-.heat-legend{display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:11px;color:var(--muted);font-weight:600;flex-wrap:wrap}
-.heat-legend span{display:inline-flex;align-items:center;gap:5px}
-.heat-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
-.heat-legend i.blue{background:#7fb1e8}
-.heat-legend i.green{background:#2fa86a}
-.heat-legend i.gold{background:#c98a2f}
-.heat-legend i.red{background:#c62828}
-
-/* View: Conflitos */
-.conf-empty{padding:24px 12px;text-align:center;color:var(--good);font-weight:700;background:rgba(47,168,106,.08);border-radius:10px}
-.conf-item{background:var(--card);border-left:4px solid var(--red);border-radius:8px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)}
-.conf-hd{font-size:12px;font-weight:800;color:var(--red-strong);text-transform:uppercase;letter-spacing:.3px;margin-bottom:8px}
-.conf-bd{display:flex;align-items:center;gap:10px}
-.conf-l{flex:1;min-width:0;display:flex;flex-direction:column;padding:8px 10px;background:var(--field);border-left:3px solid var(--tc,#888);border-radius:6px}
-.conf-l b{font-size:13px;color:var(--ink);font-weight:800}
-.conf-l span{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
-.conf-vs{font-size:16px;font-weight:800;color:var(--muted);flex:none}
-.conf-note{font-size:11px;color:var(--muted);font-style:italic;margin-top:8px}
 /* Zebra nas linhas de hora — destaque do dia atual removido a pedido do dono */
 .grade .g-zebra{background:rgba(0,0,0,.02)}
 /* Cantos das células e chips: quadrados secos (zero) */
@@ -1719,7 +1649,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 @media (min-width:1024px){
   body[data-role="professor"] .erp-head{
     display:grid;
-    grid-template-columns: 32px 44px minmax(180px,1.4fr) 140px minmax(120px,1fr) 120px 78px 90px 36px;
+    grid-template-columns: 32px 44px minmax(180px,1.4fr) 170px minmax(120px,1fr) 120px 78px 90px 36px;
     gap:12px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
@@ -1737,7 +1667,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   /* linha vira grid com as mesmas colunas do header */
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
     display:grid;
-    grid-template-columns: 32px 44px minmax(180px,1.4fr) 140px minmax(120px,1fr) 120px 78px 90px 36px;
+    grid-template-columns: 32px 44px minmax(180px,1.4fr) 170px minmax(120px,1fr) 120px 78px 90px 36px;
     gap:12px;align-items:center;
     border-radius:12px;padding:10px 15px;
   }
