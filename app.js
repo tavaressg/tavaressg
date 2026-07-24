@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v281';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v282';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -8299,7 +8299,7 @@ function profTurmaEdit(id){
   sheet.querySelector('#tu-cancel').onclick=close;
   const delBtn=sheet.querySelector('#tu-del');
   if(delBtn) delBtn.onclick=()=>{
-    if(!DEMO && typeof sbProf!=='undefined'){ sbProf.deletarTurma(t.id).then(()=>{ _turmasTs=0; _loadTurmas(); }).catch(e=>toast('Erro: '+(e.message||e))); close(); toast('Turma excluída'); return; }
+    if(!DEMO && typeof sbProf!=='undefined'){ sbProf.deletarTurma(t.id).then(()=>{ _turmasTs=0; _loadTurmas(); toast('Turma excluída'); }).catch(e=>toast('Erro ao excluir turma: '+(e.message||e))); close(); return; }
     DB.turmas=_turmasArr().filter(x=>x!==t); close(); toast('Turma excluída');
   };
   sheet.querySelector('#tu-save').onclick=()=>{
@@ -8310,9 +8310,10 @@ function profTurmaEdit(id){
     if(!DEMO && typeof sbProf!=='undefined'){
       const payload = novo ? { nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap } : { id:t.id, nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap };
       sbProf.salvarTurma(payload).then((newId)=>{ _turmasTs=0; _loadTurmas();
+        toast(novo?'Turma criada ✔ — adicione os horários':'Turma salva ✔');
         if(novo && newId) setTimeout(()=>_turmaSheet(newId), 350);
-      }).catch(e=>toast('Erro: '+(e.message||e)));
-      close(); toast(novo?'Turma criada ✔ — adicione os horários':'Turma salva ✔'); return;
+      }).catch(e=>toast('Erro ao salvar turma: '+(e.message||e)));
+      close(); return;
     }
     if(novo){ const nid='t'+Date.now(); _turmasArr().push({ id:nid, nome, faixaEtaria:idade, cor, sessoes, capacidade_max:cap }); toast('Turma criada ✔ — adicione os horários'); setTimeout(()=>_turmaSheet(nid), 200); return; }
     t.nome=nome; t.faixaEtaria=idade; t.cor=cor; t.sessoes=sessoes; t.capacidade_max=cap;

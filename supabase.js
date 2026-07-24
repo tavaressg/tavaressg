@@ -646,11 +646,13 @@
         SB.from('enrollments').select('turma_id').eq('user_id', id).limit(1).maybeSingle(),
         myAcademyId(),
       ]);
-      await SB.from('checkins').upsert({ user_id: id, academy_id: acad, turma_id: enrR.data ? enrR.data.turma_id : null, data: HOJE(), hora, via: 'professor' },
+      const { error } = await SB.from('checkins').upsert({ user_id: id, academy_id: acad, turma_id: enrR.data ? enrR.data.turma_id : null, data: HOJE(), hora, via: 'professor' },
         { onConflict: 'user_id,data' });
+      if (error) throw error;
     }),
     removerPresenca: wrap(async (id) => {
-      await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE());
+      const { error } = await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE());
+      if (error) throw error;
     }),
 
     // Config da academia (academies.config, 0003) — 1º uso: meta de aulas por faixa
@@ -699,11 +701,13 @@
 
     // Atualiza a ficha cadastral de um aluno existente (sob RLS de professor da academia).
     atualizarAluno: wrap(async (id, campos) => {
-      await SB.from('profiles').update(campos).eq('id', id);
+      const { error } = await SB.from('profiles').update(campos).eq('id', id);
+      if (error) throw error;
     }),
 
     setMensalidade: wrap(async (id, status) => {
-      await SB.from('mensalidades').upsert({ user_id: id, status, mes: mesAtual() }, { onConflict: 'user_id,mes' });
+      const { error } = await SB.from('mensalidades').upsert({ user_id: id, status, mes: mesAtual() }, { onConflict: 'user_id,mes' });
+      if (error) throw error;
     }),
 
     // ===== Fase B — Professores + Turmas (gestão 100% pelo app) =====
@@ -743,17 +747,20 @@
       // 0012: capacidade_max opcional (heatmap de ocupação)
       const row = { academy_id: acad, nome: t.nome, faixa_etaria: t.faixaEtaria || null, cor: t.cor || null, ativo: true, capacidade_max: t.capacidade_max || null };
       let turmaId = (typeof t.id === 'string' && t.id.length >= 32) ? t.id : null;
-      if (turmaId) { await SB.from('turmas').update(row).eq('id', turmaId); }
-      else { const { data } = await SB.from('turmas').insert(row).select('id').single(); turmaId = data && data.id; }
+      // Erros checados em TODOS os passos: um schema desatualizado precisa abortar AQUI,
+      // antes do delete das sessões (incidente 2026-07-23: 0012 ausente apagou os horários).
+      if (turmaId) { const { error: eU } = await SB.from('turmas').update(row).eq('id', turmaId); if (eU) throw eU; }
+      else { const { data, error: eI } = await SB.from('turmas').insert(row).select('id').single(); if (eI) throw eI; turmaId = data && data.id; }
       if (!turmaId) throw new Error('turma sem id');
-      await SB.from('turma_sessoes').delete().eq('turma_id', turmaId);
+      const { error: eD } = await SB.from('turma_sessoes').delete().eq('turma_id', turmaId);
+      if (eD) throw eD;
       // 0012: sessão com duracao_min + instrutor_id (opcionais, default 60min / sem instrutor)
       const rows = (t.sessoes || []).map(s => ({
         turma_id: turmaId, academy_id: acad, dia: s.dia, hora: s.hora,
         variacao: s.variacao || null, bilingue: !!s.bilingue, ativo: true,
         duracao_min: s.duracao_min || 60, instrutor_id: s.instrutor_id || null,
       }));
-      if (rows.length) await SB.from('turma_sessoes').insert(rows);
+      if (rows.length) { const { error: eS } = await SB.from('turma_sessoes').insert(rows); if (eS) throw eS; }
       return turmaId;
     }),
     // 0010: batch check-in por AULA. Cria/reusa aula por (turma,data,hora) e
@@ -777,7 +784,7 @@
         data: g.data, por: g.por || null, nota: g.nota || null,
         criado_por: u?.user?.id || null,
       };
-      if (g.id) { await SB.from('graduations').update(row).eq('id', g.id); return g.id; }
+      if (g.id) { const { error } = await SB.from('graduations').update(row).eq('id', g.id); if (error) throw error; return g.id; }
       const { data, error } = await SB.from('graduations').insert(row).select('id').single();
       if (error) throw error;
       return data && data.id;
@@ -790,8 +797,10 @@
       // Soft-delete: preserva histórico de presenças/matrículas ligadas à turma.
       // getTurmas já filtra por ativo=true (não reaparece na UI).
       // Também desativa as sessões pra sumir da grade semanal.
-      await SB.from('turmas').update({ ativo: false }).eq('id', id);
-      await SB.from('turma_sessoes').update({ ativo: false }).eq('turma_id', id);
+      const { error: eT } = await SB.from('turmas').update({ ativo: false }).eq('id', id);
+      if (eT) throw eT;
+      const { error: eS } = await SB.from('turma_sessoes').update({ ativo: false }).eq('turma_id', id);
+      if (eS) throw eS;
     }),
 
     // ===== Matrícula aluno↔turma (enrollments) — fecha o "passo 2-backend" =====
@@ -874,22 +883,25 @@
         img_urls: p.imgs || [] };    // 0004: fotos extras (galeria/carrossel)
       let prodId = (typeof p.id === 'string' && p.id.length >= 32) ? p.id : null;  // uuid = editar; senão criar
       if (prodId) {
-        await SB.from('produtos').update(row).eq('id', prodId);
+        const { error: eU } = await SB.from('produtos').update(row).eq('id', prodId); if (eU) throw eU;
       } else {
-        const { data } = await SB.from('produtos').insert(row).select('id').single();
+        const { data, error: eI } = await SB.from('produtos').insert(row).select('id').single(); if (eI) throw eI;
         prodId = data && data.id;
       }
       if (!prodId) return null;
       // variantes: upsert por (produto_id, tamanho) e remove tamanhos que saíram
       const tams = p.tam || [];
       const rows = tams.map(t => ({ produto_id: prodId, tamanho: t, estoque: (p.estoque && p.estoque[t]) || 0 }));
-      // estratégia simples: apaga as variantes e regrava (catálogo pequeno)
-      await SB.from('produto_variantes').delete().eq('produto_id', prodId);
-      if (rows.length) await SB.from('produto_variantes').insert(rows);
+      // estratégia simples: apaga as variantes e regrava (catálogo pequeno) — erros checados
+      // p/ o delete nunca ficar órfão de um insert que falhou (mesma classe do incidente das turmas)
+      const { error: eD } = await SB.from('produto_variantes').delete().eq('produto_id', prodId);
+      if (eD) throw eD;
+      if (rows.length) { const { error: eS } = await SB.from('produto_variantes').insert(rows); if (eS) throw eS; }
       return prodId;
     }),
     deletarProduto: wrap(async (id) => {
-      await SB.from('produtos').delete().eq('id', id);   // cascade apaga variantes/movimentos
+      const { error } = await SB.from('produtos').delete().eq('id', id);   // cascade apaga variantes/movimentos
+      if (error) throw error;
     }),
     // Upload de foto do produto no bucket `produtos` (público-leitura, write só professor).
     // path: {academy_id}/{prodId|novo}/{ts}.jpg — retorna URL pública. Bucket precisa existir
