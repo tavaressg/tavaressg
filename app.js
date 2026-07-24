@@ -98,6 +98,27 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 // ---- ViaCEP: auto-preenche endereço a partir do CEP (API pública, sem chave) ----
 // Uso: bindViaCEP(cepInput, {logr, bairro, cidade, uf, num}) — busca no blur/enter.
 function _maskCEP(v){ const d=String(v||'').replace(/\D/g,'').slice(0,8); return d.length>5?d.slice(0,5)+'-'+d.slice(5):d; }
+// Campo de data em pt-BR sem picker do OS. Guarda no atributo data-iso pra facilitar leitura.
+// Uso: dateBRField(id, isoValue, {placeholder?}) → HTML string; dateBRRead(el) → 'YYYY-MM-DD' ou ''.
+function _isoToBR(iso){ if(!iso||typeof iso!=='string') return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[3]}/${m[2]}/${m[1]}`:''; }
+function _brToIso(br){ if(!br) return ''; const m=String(br).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m?`${m[3]}-${m[2]}-${m[1]}`:''; }
+function dateBRField(id, isoValue, opts){
+  const ph=(opts&&opts.placeholder)||'dd/mm/aaaa';
+  return `<input class="inp" id="${id}" type="text" inputmode="numeric" maxlength="10" placeholder="${ph}" value="${safeAttr(_isoToBR(isoValue))}">`;
+}
+function bindDateBR(root){
+  root.querySelectorAll('input[maxlength="10"][placeholder="dd/mm/aaaa"]').forEach(inp=>{
+    if(inp._brMask) return; inp._brMask=true;
+    inp.addEventListener('input', ()=>{
+      const raw = inp.value.replace(/\D/g,'').slice(0,8);
+      let out=raw;
+      if(raw.length>4) out=raw.slice(0,2)+'/'+raw.slice(2,4)+'/'+raw.slice(4);
+      else if(raw.length>2) out=raw.slice(0,2)+'/'+raw.slice(2);
+      inp.value = out;
+    });
+  });
+}
+function dateBRRead(elem){ return _brToIso(elem?elem.value:''); }
 function bindViaCEP(cepInp, fields){
   if(!cepInp) return;
   cepInp.addEventListener('input', ()=>{ const p=cepInp.selectionStart; cepInp.value=_maskCEP(cepInp.value); try{ cepInp.setSelectionRange(p,p); }catch(_){}});
@@ -649,7 +670,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v283';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v285';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1128,11 +1149,15 @@ function _announceRoute(viewKey){
   const nome = _ROUTE_NOMES[base] || _ROUTE_NOMES[viewKey] || null;
   if(nome) reg.textContent = nome;
 }
+// Sheets vivem no <body> fora do #root — quando o usuário navega no menu, o render
+// limpa o root mas o overlay fica pendurado. Fecha explicitamente na troca de view.
+function _closeAllSheets(){ document.querySelectorAll('.sheet-overlay').forEach(n=> n.remove()); }
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
   const root = $('#root');
   const curView = _viewKey();
   const sameView = root.dataset.view === curView;
+  if (!sameView) _closeAllSheets();
   // memoriza scrollY da view atual antes de trocar
   if (root.dataset.view && root.dataset.view !== curView && typeof _scrollMem !== 'undefined') _scrollMem[root.dataset.view] = window.scrollY;
   root.dataset.view = curView;
@@ -3260,7 +3285,7 @@ function tabbarAluno(){
   const bar = el(`<div class="tabbar" role="tablist"></div>`);
   tabs.forEach(([id,label,ico])=>{
     if (id==='__fab'){
-      const f = el(`<div class="tab fab-tab" role="button" tabindex="0" aria-label="Registrar treino"><div class="fb" aria-hidden="true">+</div><span class="tl">${label}</span></div>`);
+      const f = el(`<div class="tab fab-tab" role="button" tabindex="0" aria-label="Registrar treino"><div class="fb" aria-hidden="true">${icoPlus()}</div><span class="tl">${label}</span></div>`);
       f.onclick = ()=> openFlow();
       f.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openFlow(); } };
       bar.appendChild(f); return;
@@ -4656,6 +4681,8 @@ function profAlunos(){
   let filtro = 'todos', busca = '', filtroEt = 'todos';
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
+  // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
+  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'' };
   const PAGE = 20; let shown = PAGE;
 
   const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
@@ -4765,6 +4792,20 @@ function profAlunos(){
     });
     if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
     if(busca){ const q=busca.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q)); }
+    // Filtros avançados
+    if(advF.matricula){ const q=String(advF.matricula).replace(/\D/g,''); if(q) arr = arr.filter(a=> String(a.matricula||'').includes(q) || String(a.matricula||'').padStart(5,'0').includes(q)); }
+    if(advF.nome){ const q=advF.nome.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
+    if(advF.ativos==='ativos') arr = arr.filter(a=> !a.diasSem || a.diasSem<14);
+    else if(advF.ativos==='inativos') arr = arr.filter(a=> (a.diasSem||0)>=14);
+    if(advF.aguardando==='sim'){ const aptos=new Set((typeof _aptosGraduar==='function'?_aptosGraduar():[]).map(x=>x.id||x.nm)); arr = arr.filter(a=> aptos.has(a.id||a.nm)); }
+    else if(advF.aguardando==='nao'){ const aptos=new Set((typeof _aptosGraduar==='function'?_aptosGraduar():[]).map(x=>x.id||x.nm)); arr = arr.filter(a=> !aptos.has(a.id||a.nm)); }
+    if(advF.mensagens==='sim') arr = arr.filter(a=> a.cad && a.cad.aceitaContato);
+    else if(advF.mensagens==='nao') arr = arr.filter(a=> !(a.cad && a.cad.aceitaContato));
+    if(advF.faixa) arr = arr.filter(a=> (a.faixa||'') === advF.faixa);
+    if(advF.turma) arr = arr.filter(a=> (a.turmas||[]).includes(advF.turma));
+    if(advF.plano==='ok') arr = arr.filter(a=> a.pago==='ok');
+    else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
+    else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
     // "Sumidos" ignora o sort escolhido (contexto exige quem sumiu mais)
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
     else arr.sort(_cmp);
@@ -4860,23 +4901,45 @@ function profAlunos(){
     <button class="erp-alunos-tool" id="adv-pdf" type="button">↓ PDF</button>
     <button class="erp-alunos-add primary" id="adv-new" type="button">＋ Novo aluno</button>
   </div>`);
-  // Painel de filtros (colapsado por padrão)
+  // Painel de filtros (colapsado por padrão). IDs e handlers ligam ao advF/renderList.
   const advPanel = el(`<div class="erp-alunos-adv-panel" style="display:none">
     <div class="erp-alunos-adv-grid">
-      <label><span>Código / matrícula</span><input class="inp" placeholder="Ex: 00042"></label>
-      <label><span>Nome</span><input class="inp" placeholder="Buscar por nome…"></label>
-      <label><span>Ativos</span><select class="inp"><option>Todos</option><option>Ativos</option><option>Inativos</option></select></label>
-      <label><span>Aguardando faixa</span><select class="inp"><option>Todos</option><option>Sim</option><option>Não</option></select></label>
-      <label><span>Recebe mensagens</span><select class="inp"><option>Todos</option><option>Sim</option><option>Não</option></select></label>
-      <label><span>Faixa</span><select class="inp"><option>Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
-      <label><span>Turma / grupo</span><select class="inp"><option>Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
-      <label><span>Status plano</span><select class="inp"><option>Todos</option><option>Ativo</option><option>Vencido</option><option>Cancelado</option></select></label>
+      <label><span>Código / matrícula</span><input class="inp" id="advf-mat" placeholder="Ex: 00042"></label>
+      <label><span>Nome</span><input class="inp" id="advf-nome" placeholder="Buscar por nome…"></label>
+      <label><span>Ativos</span><select class="inp" id="advf-ativos"><option value="">Todos</option><option value="ativos">Ativos (14d)</option><option value="inativos">Inativos (14d+)</option></select></label>
+      <label><span>Aguardando faixa</span><select class="inp" id="advf-agu"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
+      <label><span>Recebe mensagens</span><select class="inp" id="advf-msg"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
+      <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
+      <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
+      <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
     </div>
     <div class="erp-alunos-adv-acts">
-      <button class="erp-alunos-adv-clear" type="button">Limpar</button>
-      <button class="erp-alunos-adv-go" type="button">Pesquisar</button>
+      <button class="erp-alunos-adv-clear" type="button" id="advf-clear">Limpar</button>
+      <button class="erp-alunos-adv-go" type="button" id="advf-go">Pesquisar</button>
     </div>
   </div>`);
+  // Filtro ao vivo (change/input) + botão Pesquisar redundante (força refresh)
+  const _readAdv = ()=>{
+    advF.matricula = advPanel.querySelector('#advf-mat').value.trim();
+    advF.nome      = advPanel.querySelector('#advf-nome').value.trim();
+    advF.ativos    = advPanel.querySelector('#advf-ativos').value;
+    advF.aguardando= advPanel.querySelector('#advf-agu').value;
+    advF.mensagens = advPanel.querySelector('#advf-msg').value;
+    advF.faixa     = advPanel.querySelector('#advf-faixa').value;
+    advF.turma     = advPanel.querySelector('#advf-turma').value;
+    advF.plano     = advPanel.querySelector('#advf-plano').value;
+    shown=PAGE; renderList();
+  };
+  advPanel.querySelectorAll('input,select').forEach(el0=>{
+    const ev = el0.tagName==='SELECT' ? 'change' : 'input';
+    el0.addEventListener(ev, _readAdv);
+  });
+  advPanel.querySelector('#advf-go').onclick = _readAdv;
+  advPanel.querySelector('#advf-clear').onclick = ()=>{
+    advPanel.querySelectorAll('input').forEach(i=> i.value='');
+    advPanel.querySelectorAll('select').forEach(s=> s.value='');
+    _readAdv();
+  };
   advWrap.appendChild(advBar);
   advWrap.appendChild(advPanel);
   const advDesktop = advWrap;   // rename pra não quebrar refs abaixo
@@ -4990,7 +5053,9 @@ function _lesoesPanelNode(lesoes){
     const dataFmt = l.data ? (()=>{ const [y,m,d]=l.data.split('-'); return `${d}/${m}/${y}`; })() : '—';
     list.appendChild(el(`<div class="les-row">
       <div class="les-mid"><div class="nm">${safeTxt(l.parte||'—')}</div>
-        <div class="meta">${chip} <span style="color:var(--muted)">· ${dataFmt}</span></div></div></div>`));
+        <div class="meta">${chip} <span style="color:var(--muted)">· ${dataFmt}</span></div>
+        ${l.nota?`<div class="li-nota" style="margin-top:6px;font-size:13px;color:var(--ink);white-space:pre-wrap">${safeTxt(l.nota)}</div>`:''}
+      </div></div>`));
   });
   box.appendChild(list);
   return box;
@@ -5012,8 +5077,10 @@ function _progressoPanelNode(prog){
     <div class="stat-card"><div class="sv" style="color:#2fa86a">${conta.dominada}</div><div class="sl">Dominadas</div></div>
   </div>`));
   if(!arr.length){ box.appendChild(el('<div class="list block"><div class="empty-line" style="padding:12px;color:var(--muted);text-align:center;font-size:13px">Sem progresso registrado ainda.</div></div>')); return box; }
-  // Top 8 por nº de treinos (mais praticadas)
-  const top=arr.slice().sort((a,b)=>(b.treinos||0)-(a.treinos||0)).slice(0,8);
+  // Top 8 por nº de treinos (mais praticadas). Sem prática > 0 nada é "mais praticado" —
+  // listar 8 zeros passa impressão de app quebrado.
+  const top=arr.slice().filter(p=>(p.treinos||0)>0).sort((a,b)=>(b.treinos||0)-(a.treinos||0)).slice(0,8);
+  if(!top.length){ box.appendChild(el('<div class="list block"><div class="empty-line" style="padding:12px;color:var(--muted);text-align:center;font-size:13px">O aluno ainda não registrou prática de nenhuma técnica.</div></div>')); return box; }
   box.appendChild(el(`<div class="sec-title" style="margin:8px 4px 6px;font-size:11px">Mais praticadas</div>`));
   const list=el('<div class="list block"></div>');
   top.forEach(p=>{
@@ -5151,7 +5218,7 @@ function renderCadastroAluno(){
           <input class="inp" id="ca-nasc" type="number" inputmode="numeric" placeholder="1998" min="1920" max="${hoje.getFullYear()}"></div>
       </div>
       <label class="flbl" style="margin-top:12px">Data de nascimento completa <span class="ca-opt">(opcional — habilita aniversariantes)</span></label>
-      <input class="inp" id="ca-nascdata" type="date">
+      ${dateBRField('ca-nascdata','')}
       <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(opcional — o aluno pode definir depois)</span></label>
       <input class="inp" id="ca-apelido" placeholder="Ex: Tavares">
     </div>
@@ -5189,7 +5256,7 @@ function renderCadastroAluno(){
       <label class="flbl" style="margin-top:12px">Graus</label>
       <div class="seg" id="ca-graus"></div>
       <label class="flbl" style="margin-top:12px">Data de início <span class="ca-opt">(opcional)</span></label>
-      <input class="inp" id="ca-inicio" type="date" value="${HOJE_ISO}">
+      ${dateBRField('ca-inicio', HOJE_ISO)}
       <label class="flbl" style="margin-top:12px">Observações <span class="ca-opt">(opcional)</span></label>
       <textarea class="ta" id="ca-obs" placeholder="Anotações administrativas (não vê no app do aluno)"></textarea>
       <label class="flbl" style="margin-top:12px">Turmas <span class="ca-opt">(matrícula — toque para selecionar)</span></label>
@@ -5238,6 +5305,7 @@ function renderCadastroAluno(){
     uf:     sheet.querySelector('#ca-uf'),
     num:    sheet.querySelector('#ca-num'),
   });
+  bindDateBR(sheet);
   // wizard: uma etapa por vez (Dados → Endereço → Responsável → Graduação)
   const stepsEl=sheet.querySelector('#ca-steps');
   const backBtn=sheet.querySelector('#ca-back');
@@ -5274,11 +5342,11 @@ function renderCadastroAluno(){
     const email=val('ca-email').toLowerCase();
     const nascVal=parseInt(val('ca-nasc'));
     const nascimento=(nascVal>=1920 && nascVal<=hoje.getFullYear())?nascVal:null;
-    const nascData=val('ca-nascdata')||null;
+    const nascData=dateBRRead(sheet.querySelector('#ca-nascdata'))||null;
     const telefone=val('ca-tel');
     const cep=val('ca-cep'), logradouro=val('ca-logr'), numero=val('ca-num'), bairro=val('ca-bairro'), cidade=val('ca-cidade'), uf=val('ca-uf').toUpperCase();
     const resp_nome=val('ca-rnome'), resp_telefone=val('ca-rtel'), resp_parentesco=val('ca-rpar');
-    const data_inicio=val('ca-inicio')||HOJE_ISO, observacoes=val('ca-obs');
+    const data_inicio=dateBRRead(sheet.querySelector('#ca-inicio'))||HOJE_ISO, observacoes=val('ca-obs');
     const senha=_gerarSenhaProvisoria();
     const dados={ nome_completo:nome, apelido, email, faixa:selFaixa, graus:selGraus, nascimento, desde:HOJE_ISO.slice(0,7),
       telefone, cep, logradouro, numero, bairro, cidade, uf,
@@ -5586,17 +5654,29 @@ function _erpFicha(a, c, paint, refresh){
   box.appendChild(el(`<div class="erp-card-h">Ficha cadastral
     <button class="erp-btn sm" id="fc-toggle">${editing?'Cancelar':'Editar'}</button></div>`));
   const e=(c&&c.endereco)||{}, r=(c&&c.responsavel)||{};
+  // Mapa de turmas p/ mostrar nome+cor tanto em view quanto em edit
+  _loadTurmas();
+  const _tById = {}; (_turmasArr()||[]).forEach(t=>{ _tById[t.id]=t; });
+  const _turmasDoAluno = (a.turmas||[]).map(id=>_tById[id]).filter(Boolean);
   if(!editing){
     const endTxt=[e.logradouro, e.numero, e.bairro, e.cidade, e.uf].filter(Boolean).join(', ') + (e.cep?(' · '+e.cep):'');
     const linha=(lbl,val)=> `<div class="erp-fld"><label>${lbl}</label><div class="erp-fld-v">${val?safeTxt(val):'<i>—</i>'}</div></div>`;
+    const turmasHtml = _turmasDoAluno.length
+      ? _turmasDoAluno.map(t=>`<span class="turma-chip on" style="--tc:${safeAttr(t.cor||'#888')};pointer-events:none">${safeTxt(t.nome)}${t.faixaEtaria?` · ${safeTxt(t.faixaEtaria)}`:''}</span>`).join(' ')
+      : '<i>—</i>';
+    const nascComp = a.nascData ? _isoToBR(a.nascData) : (a.nascimento||c&&c.nascimento||'');
     const body = el('<div></div>');
     body.innerHTML =
+      linha('Nome completo', c?c.nomeCompleto:'') +
+      linha('Apelido', a.nm||'') +
+      linha('Nascimento', nascComp) +
       linha('Telefone', c?c.telefone:'') +
       linha('E-mail', c?c.email:'') +
       linha('Endereço', endTxt.trim().replace(/^·\s*/,'')) +
       linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'') +
       linha('Início', c?c.dataInicio:'') +
       linha('Recebe mensagens', c ? (c.aceitaContato?'Sim':'Não') : '') +
+      `<div class="erp-fld"><label>Turmas</label><div class="erp-fld-v">${turmasHtml}</div></div>` +
       (c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:'');
     box.appendChild(body);
     box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=true; paint(); };
@@ -5605,8 +5685,13 @@ function _erpFicha(a, c, paint, refresh){
   // modo edit — inputs inline, sem sheet
   const inp=(id,lbl,val,type='text',ph='')=>`<div class="erp-fld erp-fld-edit"><label>${lbl}</label>
     <input class="inp" id="${id}" type="${type}" value="${val?safeAttr(val):''}" placeholder="${ph}"></div>`;
+  const dateInp=(id,lbl,isoVal)=>`<div class="erp-fld erp-fld-edit"><label>${lbl}</label>${dateBRField(id, isoVal||'')}</div>`;
   const form = el('<div></div>');
   form.innerHTML =
+    inp('fc-nome','Nome completo', (c&&c.nomeCompleto)||a.nm||'', 'text', 'Ex: Gabriel Tavares de Jesus') +
+    inp('fc-apelido','Apelido', a.nm||'', 'text', 'Como aparece no app') +
+    inp('fc-nasc','Ano de nascimento', (c&&c.nascimento)||a.nascimento||'', 'number', '1998') +
+    dateInp('fc-nascdata','Data de nascimento completa (opcional)', a.nascData||'') +
     inp('fc-tel','Telefone', c?c.telefone:'', 'tel', '(11) 99999-0000') +
     inp('fc-email','E-mail', c?c.email:'', 'email') +
     inp('fc-cep','CEP', e.cep, 'text', '00000-000') +
@@ -5617,27 +5702,55 @@ function _erpFicha(a, c, paint, refresh){
     inp('fc-uf','UF', e.uf) +
     inp('fc-rnm','Responsável (nome)', r.nome) +
     inp('fc-rtel','Responsável (telefone)', r.telefone, 'tel') +
-    inp('fc-inicio','Início', c?c.dataInicio:'', 'date') +
+    inp('fc-rpar','Responsável (parentesco)', r.parentesco, 'text', 'Mãe, cônjuge…') +
+    dateInp('fc-inicio','Início na academia', c?c.dataInicio:'') +
     `<div class="erp-fld erp-fld-edit"><label>Recebe mensagens (autorizado pelo aluno)</label>
       <select class="inp" id="fc-contato"><option value="0">Não</option><option value="1" ${c&&c.aceitaContato?'selected':''}>Sim</option></select></div>` +
+    `<div class="erp-fld erp-fld-edit"><label>Turmas (clique pra matricular/desmatricular)</label>
+      <div id="fc-turmas" class="turma-chips"></div></div>` +
     `<div class="erp-fld erp-fld-edit"><label>Observações</label>
       <textarea class="inp" id="fc-obs" rows="3">${c&&c.obs?safeTxt(c.obs):''}</textarea></div>` +
-    `<div class="erp-fld-acts"><button class="erp-btn primary" id="fc-save">Salvar</button></div>`;
+    `<div class="erp-fld-acts"><button class="erp-btn primary" id="fc-save">Salvar ficha</button></div>`;
   box.appendChild(form);
+  bindDateBR(form);
+  const selTurmas = new Set(a.turmas||[]);
+  _turmaChips(form.querySelector('#fc-turmas'), selTurmas);
+  bindViaCEP(form.querySelector('#fc-cep'), {
+    logr: form.querySelector('#fc-log'), bairro: form.querySelector('#fc-bairro'),
+    cidade: form.querySelector('#fc-cid'), uf: form.querySelector('#fc-uf'), num: form.querySelector('#fc-num'),
+  });
   box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=false; paint(); };
   box.querySelector('#fc-save').onclick=()=>{
     const g=(id)=> form.querySelector('#'+id).value.trim();
+    const nomeCompleto = g('fc-nome');
+    const apelidoNovo  = g('fc-apelido') || (nomeCompleto.split(/\s+/)[0]||'');
+    const nascAno      = parseInt(g('fc-nasc'));
+    const nascimento   = (nascAno>=1920 && nascAno<=hoje.getFullYear()) ? nascAno : (c&&c.nascimento)||null;
+    const nascData     = dateBRRead(form.querySelector('#fc-nascdata')) || null;
+    const dataInicio   = dateBRRead(form.querySelector('#fc-inicio')) || null;
     a.cad = a.cad || {};
+    a.cad.nomeCompleto = nomeCompleto;
+    a.cad.nascimento = nascimento;
     a.cad.telefone = g('fc-tel'); a.cad.email = g('fc-email');
-    a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf') };
-    a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:(a.cad.responsavel&&a.cad.responsavel.parentesco)||'' };
-    a.cad.dataInicio = g('fc-inicio'); a.cad.obs = g('fc-obs');
+    a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf').toUpperCase() };
+    a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:g('fc-rpar') };
+    a.cad.dataInicio = dataInicio; a.cad.obs = g('fc-obs');
     a.cad.aceitaContato = form.querySelector('#fc-contato').value === '1';
-    // Persiste no backend: mapeia cad → colunas snake_case do profiles
+    if(apelidoNovo){ a.nm = apelidoNovo; a.ini = _iniciaisDe(apelidoNovo); }
+    if(nascimento) a.nascimento = nascimento;
+    a.nascData = nascData;
+    const novasTurmas = [...selTurmas];
+    a.turmas = novasTurmas;
     if(typeof sbProf!=='undefined' && sbProf.atualizarAluno && a.id && !a._self){
-      sbProf.atualizarAluno(a.id, Object.assign({email:a.cad.email}, _cadToDB(a.cad)))
-        .then(()=>{ DB._alunoFichaEdit=false; toast('Ficha atualizada ✔'); paint(); })
-        .catch(e=>{ toast('Erro: '+(e.message||e)); });
+      const payload = Object.assign({ nome_completo: nomeCompleto, apelido: apelidoNovo, email: a.cad.email, nascimento }, _cadToDB(a.cad));
+      // nascimento_data (0002) e turmas em promessas paralelas — falha em uma não derruba a outra
+      Promise.all([
+        sbProf.atualizarAluno(a.id, payload),
+        nascData !== (a._nascDataAntes||null) ? sbProf.atualizarAluno(a.id, { nascimento_data: nascData }).catch(()=>{}) : null,
+        sbProf.sincronizarTurmas ? sbProf.sincronizarTurmas(a.id, novasTurmas) : null,
+      ].filter(Boolean))
+        .then(()=>{ DB._alunoFichaEdit=false; toast('Ficha atualizada ✔'); if(refresh) refresh(); else paint(); })
+        .catch(err=>{ toast('Erro: '+(err.message||err)); });
     } else {
       DB._alunoFichaEdit=false; toast('Ficha atualizada ✔'); paint();
     }
@@ -5929,7 +6042,7 @@ function _profEditarFichaSheet(a, refresh){
       <div style="width:120px"><label class="flbl">Nascimento</label><input class="inp" id="fe-nasc" type="number" inputmode="numeric" min="1920" max="${hoje.getFullYear()}" value="${safeAttr(c.nascimento||a.nascimento||'')}"></div>
     </div>
     <label class="flbl" style="margin-top:12px">Data de nascimento completa <span class="ca-opt">(opcional — habilita aniversariantes)</span></label>
-    <input class="inp" id="fe-nascdata" type="date" value="${safeAttr(a.nascData||'')}">
+    ${dateBRField('fe-nascdata', a.nascData||'')}
     <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(como aparece no app)</span></label>
     <input class="inp" id="fe-apelido" value="${safeAttr(apelidoAtual)}">
 
@@ -5957,7 +6070,7 @@ function _profEditarFichaSheet(a, refresh){
 
     <div class="cad-sec">Administrativo</div>
     <label class="flbl">Data de início <span class="ca-opt">(opcional)</span></label>
-    <input class="inp" id="fe-inicio" type="date" value="${safeAttr(c.dataInicio||'')}">
+    ${dateBRField('fe-inicio', c.dataInicio||'')}
     <label class="flbl" style="margin-top:12px">Observações <span class="ca-opt">(opcional)</span></label>
     <textarea class="ta" id="fe-obs">${safeTxt(c.obs||'')}</textarea>
 
@@ -5979,12 +6092,13 @@ function _profEditarFichaSheet(a, refresh){
     uf:     sheet.querySelector('#fe-uf'),
     num:    sheet.querySelector('#fe-num'),
   });
+  bindDateBR(sheet);
   sheet.onclick=(ev)=>{ if(ev.target===sheet){ _feDirty?_confirmDescartar(close):close(); } };
   sheet.querySelector('#fe-cancel').onclick=close;
   sheet.querySelector('#fe-save').onclick=()=>{
     const val=id=>{ const el2=sheet.querySelector('#'+id); return el2?el2.value.trim():''; };
     const nome=val('fe-nome'), email=val('fe-email').toLowerCase(), telefone=val('fe-tel');
-    const nascData=val('fe-nascdata')||null;
+    const nascData=dateBRRead(sheet.querySelector('#fe-nascdata'))||null;
     let nascVal=parseInt(val('fe-nasc'));
     if(!(nascVal>=1920) && nascData) nascVal=parseInt(nascData.slice(0,4));   // ano deriva da data completa
     const nascimento=(nascVal>=1920&&nascVal<=hoje.getFullYear())?nascVal:(c.nascimento||null);
@@ -5997,7 +6111,7 @@ function _profEditarFichaSheet(a, refresh){
     const cad={ nomeCompleto:nome, email, nascimento, telefone,
       endereco:{ cep:val('fe-cep'), logradouro:val('fe-logr'), numero:val('fe-num'), bairro:val('fe-bairro'), cidade:val('fe-cidade'), uf:val('fe-uf').toUpperCase() },
       responsavel:{ nome:resp_nome, telefone:resp_telefone, parentesco:val('fe-rpar') },
-      dataInicio:val('fe-inicio'), obs:val('fe-obs') };
+      dataInicio:dateBRRead(sheet.querySelector('#fe-inicio')), obs:val('fe-obs') };
     if(a._self){ DB.eu.cad=cad; DB.eu.nomeCompleto=nome; DB.eu.apelido=apelido; DB.eu.iniciais=_iniciaisDe(apelido); if(nascimento) DB.eu.nascimento=nascimento; if(nascData) DB.eu.nascData=nascData; }
     else { a.cad=cad; a.nm=apelido; a.ini=_iniciaisDe(apelido); }
     a.nascData=nascData||a.nascData||null;
@@ -8168,16 +8282,20 @@ function abrirMinhasTurmas(){
       body.appendChild(el('<div class="empty-hint">Suas turmas ainda não têm horários cadastrados.</div>'));
       return;
     }
-    // Legenda no topo: cor + nome de cada turma (só faz sentido pra 2+; pra 1 turma vira título)
-    const legenda = el(`<div class="mt-legenda"></div>`);
-    minhas.forEach(t=>{
-      const chip = el(`<span class="mt-legenda-item" style="--tc:${safeAttr(t.cor||'#888')}">
-        <span class="mt-tcolor" aria-hidden="true"></span>
-        <b>${safeTxt(t.nome)}</b>${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}
-      </span>`);
-      legenda.appendChild(chip);
-    });
-    body.appendChild(legenda);
+    // Legenda no topo: só aparece com 2+ turmas (com 1 turma o título já basta e a
+    // grade mantém texto nas células — trocar por só-cor pra 1 turma vira ambíguo).
+    const multi = minhas.length > 1;
+    if(multi){
+      const legenda = el(`<div class="mt-legenda"></div>`);
+      minhas.forEach(t=>{
+        const chip = el(`<span class="mt-legenda-item" style="--tc:${safeAttr(t.cor||'#888')}">
+          <span class="mt-tcolor" aria-hidden="true"></span>
+          <b>${safeTxt(t.nome)}</b>${t.faixaEtaria?` <span class="mt-tid">${safeTxt(t.faixaEtaria)}</span>`:''}
+        </span>`);
+        legenda.appendChild(chip);
+      });
+      body.appendChild(legenda);
+    }
     // Coleta horários (colunas) e dias (linhas) do UNIÃO das turmas
     const horas = [...new Set(allSess.map(s=>s.hora))].sort();
     const diasComSess = ORD_DIAS.filter(d=> allSess.some(s=>s.dia===d));
@@ -8199,10 +8317,16 @@ function abrirMinhasTurmas(){
         const t = s._t; const cor = t.cor||'#888';
         const sub = s.variacao || t.faixaEtaria || '';
         const flag = s.bilingue ? ' '+icoUSFlag() : '';
-        grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">
-          <b class="g-nm">${safeTxt(t.nome)}${flag}</b>
-          ${sub?`<i class="g-sub">${safeTxt(sub)}</i>`:''}
-        </div>`));
+        // Multi-turma: célula é bloco sólido de cor, sem texto (a legenda no topo identifica).
+        // Uma turma só: mantém chip com nome+sub (não precisa de legenda pra 1 turma).
+        if(multi){
+          grid.appendChild(el(`<div class="mt-gc mt-gc-solid" style="--tc:${safeAttr(cor)};background:${safeAttr(cor)}" title="${safeAttr(t.nome)}${sub?' · '+safeAttr(sub):''}"></div>`));
+        } else {
+          grid.appendChild(el(`<div class="mt-gc" style="--tc:${safeAttr(cor)}" title="${safeAttr(t.nome)}">
+            <b class="g-nm">${safeTxt(t.nome)}${flag}</b>
+            ${sub?`<i class="g-sub">${safeTxt(sub)}</i>`:''}
+          </div>`));
+        }
       });
     });
     body.appendChild(grid);
@@ -9291,6 +9415,7 @@ function icoUser(){return `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" 
 function icoUsers(){return `<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="2"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 5.5a3 3 0 010 5.6M17 20c0-2.2-1-3.7-2.5-4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;}
 function icoCard(){return `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 10h18" stroke="currentColor" stroke-width="2"/></svg>`;}
 function icoMore(){return `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;}
+function icoPlus(){return `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>`;}
 // Ícones dos KPIs do professor (stroke currentColor — cor vem da classe .si)
 function icoRoster(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`;}
 function icoPulse(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-7 4 14 2.5-7H21"/></svg>`;}
