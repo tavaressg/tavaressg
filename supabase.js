@@ -475,6 +475,7 @@
     const mens = mensById[p.id];
     return {
       id: p.id, nm, ini, cor: corDoNome(nm),
+      matricula: p.matricula ?? null,   // 0011: código sequencial por academia (UI formata 00042)
       foto: p.foto_url || null,   // §4 autoriza professor a ler foto do aluno (perfil visível)
       role: p.role || 'aluno',   // 'aluno' | 'professor' | 'dono' — badge na lista; KPIs contam só alunos
       faixa: p.faixa || 'branca', graus: p.graus || 0,
@@ -496,6 +497,7 @@
       endereco: { cep: p.cep, logradouro: p.logradouro, numero: p.numero, bairro: p.bairro, cidade: p.cidade, uf: p.uf },
       responsavel: { nome: p.resp_nome, telefone: p.resp_telefone, parentesco: p.resp_parentesco },
       dataInicio: p.data_inicio, obs: p.observacoes,
+      aceitaContato: !!p.aceita_contato,   // 0013: consentimento de contato (LGPD, opt-in)
     };
   }
   function corDoNome(nm) {
@@ -733,13 +735,15 @@
     // Turmas (grupo) + sessões → shape do app: {id, nome, faixaEtaria, cor, sessoes:[{id,dia,hora,variacao,bilingue}]}
     getTurmas: wrap(async () => {
       const acad = await myAcademyId(); if (!acad) return [];
+      // 0012: capacidade_max/duracao_min/instrutor_id fazem round-trip completo —
+      // sem eles no select, salvar turma "perdia" capacidade e duração na recarga.
       const [tR, sR] = await Promise.all([
-        SB.from('turmas').select('id,nome,faixa_etaria,cor,ativo').eq('academy_id', acad).eq('ativo', true),
-        SB.from('turma_sessoes').select('id,turma_id,dia,hora,variacao,bilingue').eq('academy_id', acad).eq('ativo', true),
+        SB.from('turmas').select('id,nome,faixa_etaria,cor,ativo,capacidade_max').eq('academy_id', acad).eq('ativo', true),
+        SB.from('turma_sessoes').select('id,turma_id,dia,hora,variacao,bilingue,duracao_min,instrutor_id').eq('academy_id', acad).eq('ativo', true),
       ]);
       const sesByTurma = {};
-      (sR.data || []).forEach(s => { (sesByTurma[s.turma_id] || (sesByTurma[s.turma_id] = [])).push({ id: s.id, dia: s.dia, hora: s.hora, variacao: s.variacao || undefined, bilingue: s.bilingue || undefined }); });
-      return (tR.data || []).map(t => ({ id: t.id, nome: t.nome, faixaEtaria: t.faixa_etaria || '', cor: t.cor, sessoes: sesByTurma[t.id] || [] }));
+      (sR.data || []).forEach(s => { (sesByTurma[s.turma_id] || (sesByTurma[s.turma_id] = [])).push({ id: s.id, dia: s.dia, hora: s.hora, variacao: s.variacao || undefined, bilingue: s.bilingue || undefined, duracao_min: s.duracao_min || 60, instrutor_id: s.instrutor_id || undefined }); });
+      return (tR.data || []).map(t => ({ id: t.id, nome: t.nome, faixaEtaria: t.faixa_etaria || '', cor: t.cor, capacidade_max: t.capacidade_max || null, sessoes: sesByTurma[t.id] || [] }));
     }),
     // Cria/edita uma turma + substitui suas sessões (delete+insert sob RLS de professor/dono).
     salvarTurma: wrap(async (t) => {

@@ -649,7 +649,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v282';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v283';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -5596,6 +5596,7 @@ function _erpFicha(a, c, paint, refresh){
       linha('Endereço', endTxt.trim().replace(/^·\s*/,'')) +
       linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'') +
       linha('Início', c?c.dataInicio:'') +
+      linha('Recebe mensagens', c ? (c.aceitaContato?'Sim':'Não') : '') +
       (c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:'');
     box.appendChild(body);
     box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=true; paint(); };
@@ -5617,6 +5618,8 @@ function _erpFicha(a, c, paint, refresh){
     inp('fc-rnm','Responsável (nome)', r.nome) +
     inp('fc-rtel','Responsável (telefone)', r.telefone, 'tel') +
     inp('fc-inicio','Início', c?c.dataInicio:'', 'date') +
+    `<div class="erp-fld erp-fld-edit"><label>Recebe mensagens (autorizado pelo aluno)</label>
+      <select class="inp" id="fc-contato"><option value="0">Não</option><option value="1" ${c&&c.aceitaContato?'selected':''}>Sim</option></select></div>` +
     `<div class="erp-fld erp-fld-edit"><label>Observações</label>
       <textarea class="inp" id="fc-obs" rows="3">${c&&c.obs?safeTxt(c.obs):''}</textarea></div>` +
     `<div class="erp-fld-acts"><button class="erp-btn primary" id="fc-save">Salvar</button></div>`;
@@ -5629,6 +5632,7 @@ function _erpFicha(a, c, paint, refresh){
     a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf') };
     a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:(a.cad.responsavel&&a.cad.responsavel.parentesco)||'' };
     a.cad.dataInicio = g('fc-inicio'); a.cad.obs = g('fc-obs');
+    a.cad.aceitaContato = form.querySelector('#fc-contato').value === '1';
     // Persiste no backend: mapeia cad → colunas snake_case do profiles
     if(typeof sbProf!=='undefined' && sbProf.atualizarAluno && a.id && !a._self){
       sbProf.atualizarAluno(a.id, Object.assign({email:a.cad.email}, _cadToDB(a.cad)))
@@ -6015,7 +6019,8 @@ function _profEditarFichaSheet(a, refresh){
 function _cadToDB(cad){
   const e=cad.endereco||{}, r=cad.responsavel||{};
   return { telefone:cad.telefone, cep:e.cep, logradouro:e.logradouro, numero:e.numero, bairro:e.bairro, cidade:e.cidade, uf:e.uf,
-    resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, data_inicio:cad.dataInicio||null, observacoes:cad.obs };
+    resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, data_inicio:cad.dataInicio||null, observacoes:cad.obs,
+    aceita_contato:!!cad.aceitaContato };
 }
 function _profGraduarSheet(a, refresh){
   // v193: sem filtro por idade — professor decide a faixa (todas disponíveis).
