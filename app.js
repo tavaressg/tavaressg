@@ -372,21 +372,48 @@ function elegibilidadeCBJJ(eu){
   const eligible = checks.length>0 && checks.every(c=>c.ok===true);
   return { eligible, checks, nextBelt:info.next };
 }
+// SVG único da faixa BJJ (item 3 do backlog). Substitui as duas renderizações antigas
+// (HTML+CSS empilhado) por um único componente vetorial parametrizado, nítido em qualquer
+// zoom/tamanho e com a mesma fonte da verdade pra ficha, lista, timeline e Jornada.
+// Anatomia (regra CBJJ): corpo colorido → ponteira (preta; VERMELHA na preta) → ponta colorida.
+// Graus: quadradinhos brancos (pretos na branca) alinhados à direita na ponteira.
+// Bicolor (kids/corais): listra horizontal no meio, sobre corpo e ponta.
+function beltSvg(faixa, graus, opts){
+  const x = BELTS[faixa] || { cor:'#9e9e9e' };
+  const g = Math.max(0, Math.min(6, (graus|0)));
+  const h = (opts && opts.height) || 14;
+  const w = h * 6;                              // razão 6:1 (faixa é longa e fina)
+  const bodyW = w*0.66, tipW = w*0.27, endW = w*0.07;
+  const tipStart = bodyW, endStart = bodyW + tipW;
+  const tipColor = (faixa==='preta') ? '#e53935' : '#141414';
+  const grausColor = (faixa==='branca') ? '#141414' : '#fff';
+  const barColor = x.bar || null;
+  const gW = Math.max(2, h*0.20), gH = h*0.60, gGap = Math.max(1, h*0.12), gPad = h*0.28;
+  const grausRects = [];
+  for(let i=0; i<g; i++){
+    const gx = endStart - gPad - (i+1)*gW - i*gGap;
+    grausRects.push(`<rect x="${gx.toFixed(1)}" y="${((h-gH)/2).toFixed(1)}" width="${gW.toFixed(1)}" height="${gH.toFixed(1)}" fill="${grausColor}" rx="0.4"/>`);
+  }
+  const barY = h*0.35, barH = h*0.30;
+  const barRects = barColor
+    ? `<rect x="0" y="${barY.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barColor}"/><rect x="${endStart.toFixed(1)}" y="${barY.toFixed(1)}" width="${endW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barColor}"/>`
+    : '';
+  return `<svg class="belt-svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">`+
+    `<rect x="0" y="0" width="${bodyW.toFixed(1)}" height="${h}" fill="${x.cor}"/>`+
+    barRects+
+    `<rect x="${tipStart.toFixed(1)}" y="0" width="${tipW.toFixed(1)}" height="${h}" fill="${tipColor}"/>`+
+    `<rect x="${endStart.toFixed(1)}" y="0" width="${endW.toFixed(1)}" height="${h}" fill="${x.cor}"/>`+
+    grausRects.join('')+
+    `</svg>`;
+}
 function beltPill(b, graus){
   // guard: faixa desconhecida vinda do backend não pode crashar nem injetar HTML
   const x = BELTS[b] || { cor:'#9e9e9e', nome:safeTxt(b||'—') }; const g = graus!=null ? ` · ${graus}º` : '';
-  return `<span class="belt-pill" style="background:${x.cor}22;color:${b==='branca'?'#888':x.cor}">
-    <span class="belt-bar" style="background:${x.cor}"></span>${x.nome}${g}</span>`;
+  return `<span class="belt-pill" style="background:${x.cor}22;color:${b==='branca'?'#888':x.cor}">${beltSvg(b, graus, {height:10})}${x.nome}${g}</span>`;
 }
-// Mini-faixa visual: corpo colorido + ponteira dos graus (preta; VERMELHA na faixa preta — regra CBJJ) + ponta colorida
+// Wrapper de compatibilidade: contém o SVG único num span com altura controlada por CSS.
 function beltMini(b, graus){
-  const x = BELTS[b] || { cor:'#9e9e9e' };
-  const stripes = '<i></i>'.repeat(graus||0);
-  const red = b==='preta' ? ' red-tip' : '';
-  const bic = x.bar ? ' bicolor' : '';   // faixas infantis/corais: listra central
-  const barVar = x.bar ? `;--bar:${x.bar}` : '';
-  return `<span class="belt-mini${bic}" style="--bc:${x.cor}${barVar}">
-    <span class="bm-body"></span><span class="bm-tip${red}">${stripes}</span><span class="bm-end"></span></span>`;
+  return `<span class="belt-mini">${beltSvg(b, graus)}</span>`;
 }
 // Seletor de faixa: folha com a lista de mini-faixas + o NOME da faixa ao lado.
 // onPick(faixa) ao escolher.
@@ -670,7 +697,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v285';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v286';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -2744,7 +2771,7 @@ function evoluirGraduacao(){
 
   w.appendChild(el(`<div class="mod-card" style="margin-top:6px">
     <div class="mod-title">Faixa atual: <b style="color:var(--ink)">${belt.nome} · ${me.graus}º grau</b></div>
-    <div class="belt-rank${belt.bar?' bicolor':''}" style="--bc:${belt.cor}${belt.bar?';--bar:'+belt.bar:''}"><span class="br-body"></span><span class="br-tip${curRed?' red-tip':''}">${stripes}</span><span class="br-end"></span></div>
+    <div class="belt-rank">${beltSvg(me.faixa, me.graus, {height:20})}</div>
     <div class="mod-grid">
       <div class="mc"><div class="big">${tempoTxt}</div>
         <div class="lbl">na faixa ${belt.nome.toLowerCase()}</div></div>
@@ -9515,18 +9542,19 @@ function selfTest(){
       probe.remove();
       if(snapT) document.documentElement.setAttribute('data-theme', snapT); else document.documentElement.removeAttribute('data-theme');
     }catch(e){ ok('heatmap dark mode', false); }
-    // faixa preta: ponteira VERMELHA (regra CBJJ); demais ponteira preta — regressão beltMini/CSS
+    // faixa preta: ponteira VERMELHA (regra CBJJ); demais ponteira preta — regressão beltSvg (v286: SVG único)
     try{
       const probe=document.createElement('div'); probe.style.position='fixed'; probe.style.left='-9999px';
       probe.innerHTML = beltMini('preta',1) + beltMini('azul',1);
       document.body.appendChild(probe);
-      const tipPreta=probe.querySelectorAll('.bm-tip')[0], tipAzul=probe.querySelectorAll('.bm-tip')[1];
-      ok('beltMini preta tem red-tip', tipPreta.classList.contains('red-tip'));
-      ok('beltMini azul sem red-tip', !tipAzul.classList.contains('red-tip'));
-      ok('ponteira da preta é vermelha', getComputedStyle(tipPreta).backgroundColor==='rgb(229, 57, 53)');
-      ok('ponteira da azul é preta',     getComputedStyle(tipAzul).backgroundColor==='rgb(20, 22, 27)');
+      const svgPreta = probe.querySelectorAll('svg')[0], svgAzul = probe.querySelectorAll('svg')[1];
+      const hasFill = (svg, f) => [...svg.querySelectorAll('rect')].some(r => (r.getAttribute('fill')||'').toLowerCase()===f);
+      ok('beltSvg preta: ponteira vermelha (#e53935)', hasFill(svgPreta, '#e53935'));
+      ok('beltSvg preta: sem ponteira preta', !hasFill(svgPreta, '#141414'));
+      ok('beltSvg azul: ponteira preta (#141414)', hasFill(svgAzul, '#141414'));
+      ok('beltSvg azul: sem ponteira vermelha', !hasFill(svgAzul, '#e53935'));
       probe.remove();
-    }catch(e){ ok('beltMini ponteira faixa preta', false); }
+    }catch(e){ ok('beltSvg ponteira faixa preta', false); }
     // seletor de faixa VISUAL (renderBeltField): campo mostra mini-faixa e NÃO mostra nome
     try{
       const host=document.createElement('div'); host.style.position='fixed'; host.style.left='-9999px'; document.body.appendChild(host);
