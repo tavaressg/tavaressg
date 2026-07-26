@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v309';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v311';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4648,10 +4648,13 @@ function _profErrosSheet(){
      Responsável nome, Responsável telefone, Responsável parentesco
    ============================================================ */
 const IMPORT_MAX = 200;
-const IMPORT_TPL_HEADERS = ['Nome','E-mail','Telefone','Ano nascimento','Data nascimento','CEP','Logradouro','Número','Bairro','Cidade','UF','Responsável nome','Responsável telefone','Responsável parentesco'];
+// v311: "Ano nascimento" saiu do modelo — o ano é DERIVADO da data. A coluna
+// continua sendo aceita na leitura (planilhas antigas), mas não se oferece mais
+// um campo que pode divergir da data e não serve pra nada além de confundir.
+const IMPORT_TPL_HEADERS = ['Nome','E-mail','Telefone','Data nascimento','CEP','Logradouro','Número','Bairro','Cidade','UF','Responsável nome','Responsável telefone','Responsável parentesco'];
 function _alunosImportTemplate(){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
-  const exemplo = ['Gabriel Tavares de Jesus','gabriel@email.com','(31) 99999-9999','1998','15/03/1998','33252-034','Rua Antônio José Buffe','123','Felipe Cláudio de Sales','Pedro Leopoldo','MG','Maria da Silva','(31) 98888-7777','Mãe'];
+  const exemplo = ['Gabriel Tavares de Jesus','gabriel@email.com','(31) 99999-9999','15/03/1998','33252-034','Rua Antônio José Buffe','123','Felipe Cláudio de Sales','Pedro Leopoldo','MG','Maria da Silva','(31) 98888-7777','Mãe'];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([IMPORT_TPL_HEADERS, exemplo]);
   ws['!cols'] = IMPORT_TPL_HEADERS.map(h=> ({wch: Math.max(12, h.length+2)}));
@@ -4695,7 +4698,13 @@ const _COL_MAP = {
   'responsavel parentesco':'resp_par','parentesco':'resp_par',
 };
 function _alunosImportValidate(rawRows){
-  const emailsExistentes = new Set(((_profData?.alunos)||[]).map(a=> (a.cad&&a.cad.email)||a.email||'').filter(Boolean).map(x=>x.toLowerCase()));
+  // Mapa email → aluno JÁ cadastrado. Antes era só um Set p/ bloquear duplicata;
+  // agora guarda o aluno inteiro pra permitir o modo ATUALIZAR (v311).
+  const existentesPorEmail = {};
+  ((_profData?.alunos)||[]).forEach(a=>{
+    const e = ((a.cad&&a.cad.email)||a.email||'').toLowerCase();
+    if(e) existentesPorEmail[e] = a;
+  });
   const emailsLote = new Set();
   return rawRows.map((r,idx)=>{
     // Normaliza cabeçalhos
@@ -4708,32 +4717,42 @@ function _alunosImportValidate(rawRows){
     const nome = _norm(d.nome);
     const tel = _norm(d.telefone);
     const erros = [], avisos = [];
+    let existente = null;
     if(!nome) erros.push('Nome vazio');
     if(!email || !email.includes('@')) erros.push('E-mail inválido');
-    else if(emailsExistentes.has(email)) erros.push('E-mail já cadastrado');
+    else if(existentesPorEmail[email]) existente = existentesPorEmail[email];   // não é erro: vira ATUALIZAR
     else if(emailsLote.has(email)) erros.push('E-mail duplicado na planilha');
     if(!tel) avisos.push('Sem telefone');
-    // Ano nascimento
-    let ano = null;
-    if(d.ano){
-      const n = parseInt(d.ano,10);
-      if(n>=1920 && n<=hoje.getFullYear()) ano = n;
-      else avisos.push('Ano de nascimento inválido — ignorado');
-    }
-    // Data nascimento (DD/MM/AAAA → ISO)
+    // Data nascimento (DD/MM/AAAA → ISO). É a fonte da verdade da idade.
     let dataNasc = null;
     if(d.data_nasc){
       const m = d.data_nasc.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/) || d.data_nasc.match(/^(\d{4})-(\d{2})-(\d{2})$/);
       if(m){
         if(m[1].length===4) dataNasc = `${m[1]}-${m[2]}-${m[3]}`;
         else dataNasc = `${m[3]}-${m[2]}-${m[1]}`;
-      } else avisos.push('Data de nascimento no formato errado — use DD/MM/AAAA');
+      } else erros.push('Data de nascimento no formato errado — use DD/MM/AAAA');
     }
+    // v311: DATA de nascimento é obrigatória. Ela define a faixa etária, a turma
+    // e as regras CBJJ — sem ela o aluno entra "cego" no sistema. Antes era só
+    // aviso e 53 alunos acabaram sem data.
+    if(!d.data_nasc) erros.push('Data de nascimento obrigatória');
+
+    // ANO derivado da DATA. A coluna "Ano nascimento" existe só por compatibilidade
+    // com planilhas antigas: se a data veio, ela manda. Ter os dois campos livres
+    // permitia divergirem (ano 1998 + data 15/03/1999) sem ninguém perceber.
+    let ano = dataNasc ? parseInt(dataNasc.slice(0,4),10) : null;
+    if(ano==null && d.ano){
+      const n = parseInt(d.ano,10);
+      if(n>=1920 && n<=hoje.getFullYear()) ano = n;
+      else avisos.push('Ano de nascimento inválido — ignorado');
+    }
+    if(existente && !erros.length) avisos.push('Já cadastrado — será ATUALIZADO');
     if(!erros.length && email) emailsLote.add(email);
     return {
       linha: idx+2,   // +1 header +1 base-1
-      status: erros.length ? 'erro' : (avisos.length ? 'aviso' : 'ok'),
+      status: erros.length ? 'erro' : (existente ? 'atualizar' : (avisos.length ? 'aviso' : 'ok')),
       erros, avisos,
+      existenteId: existente ? (existente.id||null) : null,
       dados: {
         nome_completo: nome,
         apelido: nome.split(/\s+/)[0]||'',
@@ -4881,9 +4900,10 @@ function profAcessoAlunos(){
 function profImportAlunos(){
   const state = DB.importAlunosOpen;
   const rows = state.rows || [];
-  const stats = { ok:0, aviso:0, erro:0 };
+  const stats = { ok:0, aviso:0, erro:0, atualizar:0 };
   rows.forEach(r=> stats[r.status]++);
   const importaveis = rows.filter(r=> r.status!=='erro');
+  const nNovos = stats.ok + stats.aviso;
   const excedeu = importaveis.length > IMPORT_MAX;
   const close = ()=>{ DB.importAlunosOpen=null; render(); window.scrollTo(0,0); };
   const page = el(`<div class="erp-batch-page">
@@ -4894,21 +4914,22 @@ function profImportAlunos(){
     </div>
     <div class="im-meta">
       <span class="im-file">${safeTxt(state.filename||'planilha.xlsx')}</span>
-      <span class="im-stat ok"><b>${stats.ok}</b> pronto${stats.ok!==1?'s':''}</span>
-      <span class="im-stat warn"><b>${stats.aviso}</b> aviso${stats.aviso!==1?'s':''}</span>
+      <span class="im-stat ok"><b>${nNovos}</b> novo${nNovos!==1?'s':''}</span>
+      <span class="im-stat upd"><b>${stats.atualizar}</b> a atualizar</span>
       <span class="im-stat err"><b>${stats.erro}</b> bloqueado${stats.erro!==1?'s':''}</span>
       ${excedeu?`<span class="im-limit">Limite: ${IMPORT_MAX}/vez — só as primeiras ${IMPORT_MAX} serão importadas</span>`:''}
+      ${stats.atualizar?`<span class="im-hint">Quem já existe tem os dados preenchidos da planilha atualizados (data de nascimento, telefone, endereço). Campo em branco na planilha não apaga o que já está salvo.</span>`:''}
     </div>
     <div class="im-list" id="im-list"></div>
     <div class="erp-batch-foot">
-      <button class="erp-batch-go" id="im-go"${importaveis.length?'':' disabled'}>Importar ${Math.min(importaveis.length,IMPORT_MAX)} aluno${importaveis.length!==1?'s':''}</button>
+      <button class="erp-batch-go" id="im-go"${importaveis.length?'':' disabled'}>${[nNovos?`Importar ${Math.min(nNovos,IMPORT_MAX)}`:'', stats.atualizar?`Atualizar ${stats.atualizar}`:''].filter(Boolean).join(' · ')||'Nada a fazer'}</button>
     </div>
   </div>`);
   page.querySelector('#im-close').onclick = close;
   const listEl = page.querySelector('#im-list');
   rows.forEach(r=>{
-    const cls = r.status==='erro'?'im-err':(r.status==='aviso'?'im-warn':'im-ok');
-    const ic = r.status==='erro'?'✗':(r.status==='aviso'?'⚠':'✓');
+    const cls = r.status==='erro'?'im-err':(r.status==='atualizar'?'im-upd':(r.status==='aviso'?'im-warn':'im-ok'));
+    const ic = r.status==='erro'?'✗':(r.status==='atualizar'?'↻':(r.status==='aviso'?'⚠':'✓'));
     const msgs = [...r.erros, ...r.avisos].join(' · ');
     listEl.appendChild(el(`<div class="im-row ${cls}">
       <span class="im-ic">${ic}</span>
@@ -4923,10 +4944,10 @@ function profImportAlunos(){
     const goBtn = page.querySelector('#im-go');
     const alvo = importaveis.slice(0, IMPORT_MAX);
     goBtn.disabled = true;
-    let ok=0, fail=0, feitos=0, abortou=false;
+    let ok=0, upd=0, fail=0, feitos=0, abortou=false;
     const motivos = {};   // mensagem de erro → quantas vezes ocorreu
     const total = alvo.length;
-    const atualiza = ()=>{ goBtn.textContent = `Importando ${feitos}/${total}…`; };
+    const atualiza = ()=>{ goBtn.textContent = `Processando ${feitos}/${total}…`; };
     atualiza();
     if(DEMO || typeof sbProf==='undefined' || !sbProf.criarAluno){
       // Offline: só simula
@@ -4937,17 +4958,38 @@ function profImportAlunos(){
       for(const r of alvo){
         try{
           const d = r.dados;
-          const payload = { nome_completo:d.nome_completo, apelido:d.apelido, email:d.email,
-            faixa:'branca', graus:0, nascimento:d.nascimento, desde: HOJE_ISO.slice(0,7),
-            telefone:d.telefone, cep:d.cep, logradouro:d.logradouro, numero:d.numero,
-            bairro:d.bairro, cidade:d.cidade, uf:d.uf,
-            resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
-            data_inicio: HOJE_ISO, observacoes: '' };
-          const rr = await _impComRetry(()=>sbProf.criarAluno(payload));
-          if(d.nascData && rr && (rr.user_id||rr.id) && sbProf.atualizarAluno){
-            try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
+          if(r.status==='atualizar' && r.existenteId){
+            // ATUALIZAR quem já existe (v311). Só campos PREENCHIDOS na planilha:
+            // célula em branco não pode apagar dado bom que já está no sistema.
+            const patch = {};
+            if(d.nascData)  patch.nascimento_data = d.nascData;
+            if(d.nascimento)patch.nascimento      = d.nascimento;
+            if(d.telefone)  patch.telefone        = d.telefone;
+            if(d.cep)       patch.cep             = d.cep;
+            if(d.logradouro)patch.logradouro      = d.logradouro;
+            if(d.numero)    patch.numero          = d.numero;
+            if(d.bairro)    patch.bairro          = d.bairro;
+            if(d.cidade)    patch.cidade          = d.cidade;
+            if(d.uf)        patch.uf              = d.uf;
+            if(d.resp_nome) patch.resp_nome       = d.resp_nome;
+            if(d.resp_telefone)  patch.resp_telefone  = d.resp_telefone;
+            if(d.resp_parentesco)patch.resp_parentesco= d.resp_parentesco;
+            if(Object.keys(patch).length) await _impComRetry(()=>sbProf.atualizarAluno(r.existenteId, patch));
+            upd++;
+          } else {
+            const payload = { nome_completo:d.nome_completo, apelido:d.apelido, email:d.email,
+              faixa:'branca', graus:0, nascimento:d.nascimento, desde: HOJE_ISO.slice(0,7),
+              telefone:d.telefone, cep:d.cep, logradouro:d.logradouro, numero:d.numero,
+              bairro:d.bairro, cidade:d.cidade, uf:d.uf,
+              resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
+              data_inicio: HOJE_ISO, observacoes: '' };
+            const rr = await _impComRetry(()=>sbProf.criarAluno(payload));
+            if(d.nascData && rr && (rr.user_id||rr.id) && sbProf.atualizarAluno){
+              // best-effort: se falhar, a reimportação corrige pelo modo ATUALIZAR
+              try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
+            }
+            ok++;
           }
-          ok++;
         } catch(e){
           fail++;
           // v307: guarda o MOTIVO. Antes o catch era mudo e a importação só dizia
@@ -4966,18 +5008,18 @@ function profImportAlunos(){
     }
     _profData=null; _profTs=0; _loadProfData();
     const restantes = total - feitos;
+    const resumo = [ok?`${ok} criado${ok!==1?'s':''} ✓`:'', upd?`${upd} atualizado${upd!==1?'s':''} ↻`:''].filter(Boolean).join('\n');
     if(abortou){
       alert(`Importação interrompida no ${feitos}º de ${total}.\n\n`+
-        `LIMITE POR HORA ATINGIDO no servidor.\n\n`+
-        `${ok} aluno${ok!==1?'s':''} criado${ok!==1?'s':''} com sucesso.\n`+
-        `${restantes} ainda não importado${restantes!==1?'s':''}.\n\n`+
-        `Espere 1 hora e importe a mesma planilha de novo — quem já entrou é `+
-        `detectado como "E-mail já cadastrado" e não duplica.`);
+        `LIMITE POR HORA ATINGIDO no servidor.\n\n${resumo}\n`+
+        `${restantes} ainda não processado${restantes!==1?'s':''}.\n\n`+
+        `Espere 1 hora e importe a mesma planilha de novo — quem já entrou vira `+
+        `"atualizar" e não duplica.`);
     } else if(fail){
       const det = Object.entries(motivos).map(([m,n])=>`• ${n}× ${_impMotivoPT(m)}`).join('\n');
-      alert(`Importação concluída.\n\n${ok} criado${ok!==1?'s':''} ✓\n${fail} falha${fail!==1?'s':''} ✕\n\nMotivos:\n${det}`);
+      alert(`Importação concluída.\n\n${resumo}\n${fail} falha${fail!==1?'s':''} ✕\n\nMotivos:\n${det}`);
     } else {
-      toast(`${ok} aluno${ok!==1?'s':''} importado${ok!==1?'s':''} ✓`);
+      toast(resumo.replace(/\n/g,' · ') || 'Nada a fazer');
     }
     close();
   };
@@ -5137,7 +5179,7 @@ function profAlunos(){
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', etaria:'', turma:'', plano:'' };
+  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'' };
   const PAGE = 20; let shown = PAGE;
 
   const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
@@ -5164,15 +5206,20 @@ function profAlunos(){
   chipsRow.appendChild(kpiChip('aptos',    'Aptos a grau', aptosN,        'purple'));
   chipsRow.appendChild(kpiChip('vencidos', 'Vencidos',     vencidosN,     'red'));
 
-  // Filtros avançados colapsáveis (fica escondido — abre pelo botão "Filtros")
-  const chipsEt = el(`<div class="erp-adv-panel" style="display:none"></div>`);
+  // Faixa etária: chips SEMPRE visíveis (v311). Antes ficava escondido atrás do
+  // painel de filtros avançados; o professor filtra por idade o tempo todo, então
+  // não faz sentido custar dois cliques. Fonte ÚNICA do filtro — o select que
+  // existia no painel avançado foi removido pra não haver dois controles
+  // disputando o mesmo estado.
+  const chipsEt = el(`<div class="erp-et-bar"></div>`);
   const _mkFxChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
     b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); renderList(); };
     return b; };
-  chipsEt.appendChild(el('<div class="erp-adv-lbl">Faixa etária</div>'));
+  chipsEt.appendChild(el('<div class="erp-et-lbl">Faixa etária</div>'));
   const fxRow = el('<div class="et-chips"></div>');
   fxRow.appendChild(_mkFxChip('todos','Todas'));
   FAIXA_ETARIA_OPCOES.forEach(op=> fxRow.appendChild(_mkFxChip(op,op)));
+  fxRow.appendChild(_mkFxChip('__sem','Sem data'));
   chipsEt.appendChild(fxRow);
 
   // Mantém referência dummy pra "seg" (código antigo usa) — não renderiza mais.
@@ -5262,17 +5309,13 @@ function profAlunos(){
       if(filtro==='aptos') return typeof _aptosGraduar==='function' && _aptosGraduar().some(x=> (x.id||x.nm)===(a.id||a.nm));
       return true;
     });
-    if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
+    if(filtroEt==='__sem') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null);
+    else if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
     // Busca da barra: procura no apelido E no nome completo (a coluna mostra o
     // completo — buscar só pelo apelido "escondia" quem foi digitado por inteiro).
     if(busca){ const q=busca.toLowerCase();
       arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
     // Filtro por faixa etária (v309: espelha a coluna nova da tabela)
-    if(advF.etaria){
-      arr = advF.etaria==='__sem'
-        ? arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null)
-        : arr.filter(a=> _faixaEtariaLbl(a.nascimento)===advF.etaria);
-    }
     // Filtros avançados
     if(advF.matricula){ const q=String(advF.matricula).replace(/\D/g,''); if(q) arr = arr.filter(a=> String(a.matricula||'').includes(q) || String(a.matricula||'').padStart(5,'0').includes(q)); }
     if(advF.nome){ const q=advF.nome.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
@@ -5374,9 +5417,8 @@ function profAlunos(){
   // Toolbar mobile: [busca] [Filtros ▾] — botão + Novo vira FAB
   const toolbar = el('<div class="erp-alunos-toolbar block"></div>');
   toolbar.appendChild(srch);
-  const filtBtn = el(`<button class="erp-alunos-filt${filtroEt!=='todos'?' on':''}" type="button">Filtros${filtroEt!=='todos'?' •':''}</button>`);
-  filtBtn.onclick = ()=>{ showAdv = !showAdv; chipsEt.style.display = showAdv?'block':'none'; filtBtn.classList.toggle('open', showAdv); };
-  toolbar.appendChild(filtBtn);
+  // v311: o botão "Filtros" do mobile escondia a barra de faixa etária, que agora
+  // é permanente. Sem ele — a barra fica sempre à vista, em qualquer largura.
 
   // Header desktop: título + ações (Filtros toggle | Colunas | Exportar | + Novo)
   const advWrap = el(`<div class="erp-alunos-adv-wrap"></div>`);
@@ -5399,7 +5441,6 @@ function profAlunos(){
       <label><span>Aguardando faixa</span><select class="inp" id="advf-agu"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
       <label><span>Recebe mensagens</span><select class="inp" id="advf-msg"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
       <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
-      <label><span>Faixa etária</span><select class="inp" id="advf-etaria"><option value="">Todas</option>${FAIXA_ETARIA_OPCOES.map(o=>`<option value="${safeAttr(o)}">${safeTxt(o)}</option>`).join('')}<option value="__sem">Sem data de nascimento</option></select></label>
       <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
       <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
     </div>
@@ -5417,7 +5458,6 @@ function profAlunos(){
     advF.aguardando= advPanel.querySelector('#advf-agu').value;
     advF.mensagens = advPanel.querySelector('#advf-msg').value;
     advF.faixa     = advPanel.querySelector('#advf-faixa').value;
-    advF.etaria    = advPanel.querySelector('#advf-etaria').value;
     advF.turma     = advPanel.querySelector('#advf-turma').value;
     advF.plano     = advPanel.querySelector('#advf-plano').value;
     shown=PAGE; renderList();
