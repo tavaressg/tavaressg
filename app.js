@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v301';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v302';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -8637,37 +8637,59 @@ function _turmaMatricularSheet(t, done){
    OU default global). Editar meta ali mesmo (persistente em
    academies.config.metaAulas — v0003).
    ============================================================ */
-/* Aba "Aptos a graduar" no menu Graduação — cards com semáforo por eixo
-   (tempo CBJJ · aulas · técnicas) + próxima faixa/grau + ação Graduar. */
+/* Aba "Aptos a graduar" no menu Graduação (v302).
+   Critério simplificado: só TEMPO na faixa (regra CBJJ). O eixo GRAUS é
+   informativo — mostra grau atual/máximo e sinaliza se pode ir pra nova
+   faixa (CBJJ permite pular do 3º grau direto). Sem aulas, sem técnicas. */
+function _gradEixosSimples(a){
+  const info = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
+  const next = info ? info.next : null;
+  const maxG = maxGrausDe(a.faixa);
+  const meses = tempoNaFaixaMeses(a.faixaDesde);
+  const minMeses = info ? info.min_months : null;
+  // Tempo: verde se cumpriu; cinza se sem data; vermelho se falta
+  let tempo;
+  if(!minMeses) tempo = { ok:true, txt:'sem tempo mínimo' };
+  else if(meses==null) tempo = { ok:null, txt:'sem data da faixa' };
+  else tempo = { ok: meses>=minMeses, txt: `${meses}/${minMeses} meses` };
+  // Graus: informativo — verde se já tem grau suficiente pra próxima faixa
+  // (CBJJ: qualquer grau ≥0 vale; pode pular do 0 direto pra nova faixa se tempo cumprido)
+  const graus = { ok: true, txt: `${a.graus||0}/${maxG} graus` };
+  return { next, tempo, graus };
+}
 function _gradAptosSection(w){
-  const cand = _profAlunosArr().map(a=>({a, s:_semaforoGrad(a)}))
-    .filter(x=> x.s.next)
-    .map(x=>{ x.score=[x.s.tempo,x.s.aulas,x.s.tec].filter(e=>e&&e.ok===true).length; return x; })
-    .sort((x,y)=> y.score-x.score || ((y.a.aulasNoGrau||0)-(x.a.aulasNoGrau||0)));
-  const aptos = cand.filter(x=> x.score>0 && x.s.aulas && x.s.aulas.ok===true && (!x.s.tempo || x.s.tempo.ok!==false));
-  const outros = cand.filter(x=> !aptos.includes(x)).slice(0,8);
-  // Resumo
+  const cand = _profAlunosArr().map(a=>({a, s:_gradEixosSimples(a)})).filter(x=> x.s.next);
+  const aptos = cand.filter(x=> x.s.tempo.ok===true);
+  const proximos = cand.filter(x=> x.s.tempo.ok===false).sort((x,y)=>{
+    // Ordena os "quase lá" pelos que estão mais próximos (%tempo cumprido)
+    const pctX = _pctTempo(x.a), pctY = _pctTempo(y.a);
+    return pctY - pctX;
+  }).slice(0,10);
+  const semData = cand.filter(x=> x.s.tempo.ok===null).length;
+  // KPIs
   const kpi = el(`<div class="stat-grid block">
     <div class="stat-card"><div class="si green">${icoPulse()}</div><div class="sv">${aptos.length}</div><div class="sl">Aptos agora</div></div>
-    <div class="stat-card"><div class="si gold">${icoAlert()}</div><div class="sv">${outros.length}</div><div class="sl">Próximos (1 eixo)</div></div>
-    <div class="stat-card"><div class="si blue">${icoRoster()}</div><div class="sv">${_profAlunosArr().length}</div><div class="sl">Total alunos</div></div>
+    <div class="stat-card"><div class="si gold">${icoAlert()}</div><div class="sv">${proximos.length}</div><div class="sl">Próximos (falta tempo)</div></div>
+    <div class="stat-card"><div class="si blue">${icoRoster()}</div><div class="sv">${semData}</div><div class="sl">Sem data de faixa</div></div>
   </div>`);
   w.appendChild(kpi);
-  // Lista aptos
+  // Aptos
   w.appendChild(el(`<div class="sec-title">Aptos a graduar</div>`));
   if(!aptos.length){
-    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno com todos os eixos verdes agora. Ajuste a meta de aulas por faixa na aba ao lado se necessário.</div>'));
+    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno cumpriu o tempo mínimo da faixa ainda.</div>'));
   } else {
     const list = el('<div class="grad-aptos-list block"></div>');
     aptos.forEach(({a,s})=>{
-      const next = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
-      const nextTipo = s.next && a.faixa===s.next ? 'Novo grau' : 'Nova faixa';
+      const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
+      const maxG = maxGrausDe(a.faixa);
+      const podeFaixa = (a.graus||0) >= 3;   // CBJJ: com 3+ graus, pode pular pra nova faixa
+      const hint = podeFaixa ? `Pode ir pra <b>${safeTxt(nextNome)}</b> ou ganhar próximo grau` : `Próximo grau (${(a.graus||0)+1}/${maxG}) ou <b>${safeTxt(nextNome)}</b>`;
       const row = el(`<div class="grad-aptos-row">
         <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
         <div class="grad-aptos-info">
           <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
-          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º grau → <b>${safeTxt(nextTipo)}: ${safeTxt(next)}</b></div>
-          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.aulas)}${_semChip(s.tec)}</div>
+          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º grau → ${hint}</div>
+          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
         </div>
         <button class="grad-aptos-go" type="button">Graduar</button>
       </div>`);
@@ -8681,18 +8703,18 @@ function _gradAptosSection(w){
     });
     w.appendChild(list);
   }
-  // Próximos (1+ eixo verde mas não todos)
-  if(outros.length){
-    w.appendChild(el(`<div class="sec-title">Próximos — ao menos 1 eixo verde</div>`));
+  // Próximos (falta tempo — sinaliza quanto falta)
+  if(proximos.length){
+    w.appendChild(el(`<div class="sec-title">Próximos — falta tempo mínimo</div>`));
     const list = el('<div class="grad-aptos-list block"></div>');
-    outros.forEach(({a,s})=>{
-      const next = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
+    proximos.forEach(({a,s})=>{
+      const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
       const row = el(`<div class="grad-aptos-row muted">
         <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
         <div class="grad-aptos-info">
           <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
-          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(next)}</div>
-          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.aulas)}${_semChip(s.tec)}</div>
+          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(nextNome)}</div>
+          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
         </div>
       </div>`);
       row.onclick = ()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
@@ -8700,14 +8722,23 @@ function _gradAptosSection(w){
     });
     w.appendChild(list);
   }
-  // Legenda dos eixos
+  // Legenda enxuta
   w.appendChild(el(`<div class="grad-legenda block">
-    <b>Eixos do semáforo:</b>
-    <span><i class="dot ok"></i> verde: critério cumprido</span>
-    <span><i class="dot no"></i> vermelho: falta</span>
-    <span><i class="dot na"></i> cinza: sem dado</span>
-    <div style="margin-top:6px;color:var(--muted);font-size:11px;font-style:italic">Tempo CBJJ = meses na faixa · Aulas = presenças desde a última graduação · Técnicas = ≥${PROF_METAS.META_TEC} em nível "treinando" (aproximação até haver currículo)</div>
+    <b>Como funciona:</b>
+    <div style="margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6">
+      <b>Tempo</b> = meses na faixa atual vs. mínimo CBJJ (Azul 24m · Roxa 18m · Marrom 12m).
+      <b>Graus</b> = quantos graus o aluno tem na faixa atual (0-4 na adulto, 0-6 na preta).
+      A partir de <b>3 graus</b>, o professor pode pular pra nova faixa (regra CBJJ).
+      A decisão final é sempre do professor.
+    </div>
   </div>`));
+}
+function _pctTempo(a){
+  const info = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
+  if(!info || !info.min_months) return 100;
+  const meses = tempoNaFaixaMeses(a.faixaDesde);
+  if(meses==null) return 0;
+  return Math.min(100, Math.round(meses*100/info.min_months));
 }
 
 function profGraduacao(){
