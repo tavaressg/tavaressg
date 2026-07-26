@@ -3215,6 +3215,7 @@ function alunoPerfil(){
     // clone virava um card duplicado do mesmo item.
     const podeAnimar = _prodsAtivos.length > 1;
     if(podeAnimar) _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
+    else track.classList.add('ld-track-single');   // 1 produto só: sem loop, centraliza
     w.appendChild(lojaWrap);
     // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa só enquanto o
     // dedo/mouse está PRESSIONADO; retoma imediato ao soltar. Loop: quando passa
