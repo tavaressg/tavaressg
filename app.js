@@ -7347,7 +7347,7 @@ function _relAlunosExcel(w, secTitle, note){
   scroll.appendChild(table);
 
   const COLS = [
-    ['Nome',        a => a.nm],
+    ['Nome',        a => (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nm || ''],
     ['E-mail',      a => (a.cad&&a.cad.email)||''],
     ['Telefone',    a => (a.cad&&a.cad.telefone)||''],
     ['Nascimento',  a => (a.nascData ? a.nascData.split('-').reverse().join('/') : (a.nascimento||''))],
