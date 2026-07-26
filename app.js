@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v308';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v309';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -5137,7 +5137,7 @@ function profAlunos(){
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'' };
+  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', etaria:'', turma:'', plano:'' };
   const PAGE = 20; let shown = PAGE;
 
   const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
@@ -5182,8 +5182,9 @@ function profAlunos(){
   const head = el(`<div class="erp-head" role="row">
     <div class="erp-c erp-c-check" aria-hidden="true"></div>
     <div class="erp-c erp-c-avatar" aria-hidden="true"></div>
-    <button class="erp-c erp-c-name"   data-sort="nm">Nome</button>
+    <button class="erp-c erp-c-name"   data-sort="nm">Nome completo</button>
     <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
+    <button class="erp-c erp-c-etaria" data-sort="etaria">Faixa etária</button>
     <div class="erp-c erp-c-turmas">Turmas</div>
     <button class="erp-c erp-c-pres"   data-sort="pres">Últ. presença</button>
     <button class="erp-c erp-c-days"   data-sort="diasSem">Dias sem</button>
@@ -5223,10 +5224,26 @@ function profAlunos(){
       return ((a.graus||0)-(b.graus||0))*dir;
     }
     if(sortKey==='diasSem') return ((a.diasSem||0)-(b.diasSem||0))*dir;
+    if(sortKey==='etaria'){
+      // Ordena por IDADE (não alfabético do rótulo): Kids 3-5 antes de Adulto.
+      // Sem data de nascimento vai pro fim, independente da direção.
+      const ai=idadeCBJJ(a.nascimento), bi=idadeCBJJ(b.nascimento);
+      if(ai==null && bi==null) return 0;
+      if(ai==null) return 1;
+      if(bi==null) return -1;
+      if(ai!==bi) return (ai-bi)*dir;
+      return String(a.nm||'').localeCompare(String(b.nm||''));
+    }
     if(sortKey==='pres'){
       const ap=a.pres?1:0, bp=b.pres?1:0;
       if(ap!==bp) return (bp-ap)*dir;   // presentes primeiro (asc)
       return String(a.pres||'').localeCompare(String(b.pres||''))*dir;
+    }
+    if(sortKey==='nm'){
+      // A coluna mostra o nome COMPLETO — ordenar pelo apelido divergiria do que se vê.
+      const an=(a.cad&&a.cad.nomeCompleto)||a.nomeCompleto||a.nm||'';
+      const bn=(b.cad&&b.cad.nomeCompleto)||b.nomeCompleto||b.nm||'';
+      return an.localeCompare(bn)*dir;
     }
     return String(a.nm||'').localeCompare(String(b.nm||''))*dir;
   };
@@ -5246,7 +5263,16 @@ function profAlunos(){
       return true;
     });
     if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
-    if(busca){ const q=busca.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q)); }
+    // Busca da barra: procura no apelido E no nome completo (a coluna mostra o
+    // completo — buscar só pelo apelido "escondia" quem foi digitado por inteiro).
+    if(busca){ const q=busca.toLowerCase();
+      arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
+    // Filtro por faixa etária (v309: espelha a coluna nova da tabela)
+    if(advF.etaria){
+      arr = advF.etaria==='__sem'
+        ? arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null)
+        : arr.filter(a=> _faixaEtariaLbl(a.nascimento)===advF.etaria);
+    }
     // Filtros avançados
     if(advF.matricula){ const q=String(advF.matricula).replace(/\D/g,''); if(q) arr = arr.filter(a=> String(a.matricula||'').includes(q) || String(a.matricula||'').padStart(5,'0').includes(q)); }
     if(advF.nome){ const q=advF.nome.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
@@ -5271,15 +5297,20 @@ function profAlunos(){
       const [cls,txt]=payMap[a.pago]||['pay-ok','—'];
       const sel=_selAlunos.has(_alunoKey(a));
       const turmasTx = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', ') || '—';
+      // Nome COMPLETO na coluna (o apelido é o rótulo curto usado no resto do app).
+      // Sem nome completo cadastrado, cai no apelido — melhor que célula vazia.
+      const nomeTx = (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nm || '—';
+      const etariaTx = _faixaEtariaLbl(a.nascimento) || '—';
       const presTx = a.pres ? '✓ '+safeTxt(a.pres) : 'ausente';
       const daysTx = (a.diasSem||0) > 0 ? (a.diasSem+'d') : '—';
       const metaMobile = filtro==='sumidos' ? ((a.diasSem||0)+'d sem treinar') : (a.pres?'✓ '+safeTxt(a.pres):'ausente hoje');
       const row=el(`<div class="st-row dt-row${sel?' sel':''}${a._self?' dt-self':''}" style="cursor:pointer">
         <button class="row-check${sel?' on':''}" aria-label="Selecionar ${safeAttr(a.nm)}">${sel?'✓':''}</button>
         ${avatarAluno(a)}
-        <div class="st-mid"><div class="nm">${safeTxt(a.nm)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
+        <div class="st-mid"><div class="nm" title="${safeAttr(nomeTx)}">${safeTxt(nomeTx)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
           <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
         <div class="erp-c erp-c-belt-cell">${beltPill(a.faixa,a.graus)}</div>
+        <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
         <div class="erp-c erp-c-pres-cell">${presTx}</div>
         <div class="erp-c erp-c-days-cell${(a.diasSem||0)>=7?' warn':''}">${daysTx}</div>
@@ -5368,15 +5399,17 @@ function profAlunos(){
       <label><span>Aguardando faixa</span><select class="inp" id="advf-agu"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
       <label><span>Recebe mensagens</span><select class="inp" id="advf-msg"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
       <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
+      <label><span>Faixa etária</span><select class="inp" id="advf-etaria"><option value="">Todas</option>${FAIXA_ETARIA_OPCOES.map(o=>`<option value="${safeAttr(o)}">${safeTxt(o)}</option>`).join('')}<option value="__sem">Sem data de nascimento</option></select></label>
       <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
       <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
     </div>
     <div class="erp-alunos-adv-acts">
       <button class="erp-alunos-adv-clear" type="button" id="advf-clear">Limpar</button>
-      <button class="erp-alunos-adv-go" type="button" id="advf-go">Pesquisar</button>
     </div>
   </div>`);
-  // Filtro ao vivo (change/input) + botão Pesquisar redundante (força refresh)
+  // Filtro AO VIVO (change/input). O botão "Pesquisar" foi removido (v309): a lista
+  // já refiltra a cada alteração, então ele não fazia nada além de sugerir que
+  // era preciso clicar pra valer.
   const _readAdv = ()=>{
     advF.matricula = advPanel.querySelector('#advf-mat').value.trim();
     advF.nome      = advPanel.querySelector('#advf-nome').value.trim();
@@ -5384,6 +5417,7 @@ function profAlunos(){
     advF.aguardando= advPanel.querySelector('#advf-agu').value;
     advF.mensagens = advPanel.querySelector('#advf-msg').value;
     advF.faixa     = advPanel.querySelector('#advf-faixa').value;
+    advF.etaria    = advPanel.querySelector('#advf-etaria').value;
     advF.turma     = advPanel.querySelector('#advf-turma').value;
     advF.plano     = advPanel.querySelector('#advf-plano').value;
     shown=PAGE; renderList();
@@ -5392,7 +5426,6 @@ function profAlunos(){
     const ev = el0.tagName==='SELECT' ? 'change' : 'input';
     el0.addEventListener(ev, _readAdv);
   });
-  advPanel.querySelector('#advf-go').onclick = _readAdv;
   advPanel.querySelector('#advf-clear').onclick = ()=>{
     advPanel.querySelectorAll('input').forEach(i=> i.value='');
     advPanel.querySelectorAll('select').forEach(s=> s.value='');

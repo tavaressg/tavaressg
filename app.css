@@ -1743,7 +1743,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 @media (min-width:1024px){
   body[data-role="professor"] .erp-head{
     display:grid;
-    grid-template-columns: 32px 44px minmax(180px,1.4fr) 170px minmax(120px,1fr) 120px 78px 90px 36px;
+    grid-template-columns: 32px 44px minmax(190px,1.6fr) 150px 106px minmax(110px,1fr) 108px 74px 84px 36px;
     gap:12px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
@@ -1761,7 +1761,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   /* linha vira grid com as mesmas colunas do header */
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
     display:grid;
-    grid-template-columns: 32px 44px minmax(180px,1.4fr) 170px minmax(120px,1fr) 120px 78px 90px 36px;
+    grid-template-columns: 32px 44px minmax(190px,1.6fr) 150px 106px minmax(110px,1fr) 108px 74px 84px 36px;
     gap:12px;align-items:center;
     border-radius:12px;padding:10px 15px;
   }
@@ -1777,6 +1777,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-days-cell.warn{color:var(--red-strong)}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-pres-cell{color:var(--muted)}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{color:var(--muted)}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell{color:var(--muted);font-weight:700;font-size:11.5px}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .st-right{justify-self:end}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .avatar{width:36px;height:36px;font-size:13px}
 
