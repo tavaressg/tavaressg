@@ -1740,11 +1740,25 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-head, .erp-c{display:none}
 .btn-cad.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line);box-shadow:none;flex:none}
 .btn-cad.ghost:hover{background:var(--field)}
+/* Grid da tabela ERP. As colunas são quase todas FIXAS em px, então a soma tem
+   que caber na largura útil — não há scroll horizontal, quem não cabe SAI da
+   tela em silêncio (foi o que aconteceu com o Pgto).
+   A largura útil já desconta a sidebar (~200px): em 1024 sobram ~705px.
+   Por isso as colunas entram em degraus, da mais pra menos essencial:
+     1024+ → 8 colunas (sem Turmas, sem Faixa etária)
+     1200+ → + Turmas
+     1320+ → + Faixa etária
+   A coluna FAIXA nunca desce de 138px: abaixo disso "Marrom · 3º" corta o "º"
+   (bug já corrigido no v288 — não reintroduzir). */
 @media (min-width:1024px){
+  body[data-role="professor"] .erp-c-etaria,
+  body[data-role="professor"] .erp-c-etaria-cell,
+  body[data-role="professor"] .erp-c-turmas,
+  body[data-role="professor"] .erp-c-turmas-cell{display:none !important}
   body[data-role="professor"] .erp-head{
     display:grid;
-    grid-template-columns: 32px 44px minmax(190px,1.6fr) 150px 106px minmax(110px,1fr) 108px 74px 84px 36px;
-    gap:12px;align-items:center;
+    grid-template-columns: 30px 40px minmax(140px,1.6fr) 138px 88px 56px 72px 32px;
+    gap:8px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
   }
@@ -1761,9 +1775,9 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   /* linha vira grid com as mesmas colunas do header */
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
     display:grid;
-    grid-template-columns: 32px 44px minmax(190px,1.6fr) 150px 106px minmax(110px,1fr) 108px 74px 84px 36px;
-    gap:12px;align-items:center;
-    border-radius:12px;padding:10px 15px;
+    grid-template-columns: 30px 40px minmax(140px,1.6fr) 138px 88px 56px 72px 32px;
+    gap:8px;align-items:center;
+    border-radius:12px;padding:10px 12px;
   }
   /* nome: some a "meta" mobile (belt+status inline) — colunas dedicadas exibem esses dados */
   body[data-role="professor"] .erp-tbl .st-row.dt-row .st-mid .meta{display:none}
@@ -1786,6 +1800,24 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"][data-erp-density="compact"] .erp-tbl .st-row.dt-row .avatar{width:28px;height:28px;font-size:11px}
   body[data-role="professor"][data-erp-density="compact"] .erp-head{padding:4px 12px}
   body[data-role="professor"][data-erp-density="compact"] .erp-tbl{gap:4px}
+}
+/* 1200px+: volta a coluna Turmas (9) */
+@media (min-width:1200px){
+  body[data-role="professor"] .erp-c-turmas{display:block !important}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{display:block !important}
+  body[data-role="professor"] .erp-head,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row{
+    grid-template-columns: 30px 40px minmax(150px,1.6fr) 138px minmax(96px,1fr) 92px 58px 74px 32px;
+  }
+}
+/* 1320px+: cabe a 10ª coluna (Faixa etária) */
+@media (min-width:1320px){
+  body[data-role="professor"] .erp-c-etaria{display:block !important}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell{display:block !important}
+  body[data-role="professor"] .erp-head,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row{
+    grid-template-columns: 30px 40px minmax(160px,1.6fr) 140px 92px minmax(100px,1fr) 94px 58px 74px 32px;
+  }
 }
 
 /* ---- Chips de filtro por faixa etária (Alunos + Excel) ---- */
