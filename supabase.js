@@ -576,7 +576,19 @@
         base.aulasNoGrau = aulasNoGrau;   // exposto p/ o semáforo de graduação (relatórios)
         base.aptoGrad = aulasNoGrau >= _METAS().META_GRAU;
         // Data da faixa ATUAL (última graduação tipo 'faixa' dessa faixa) → eixo "tempo CBJJ"
-        base.faixaDesde = gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa).map(g => g.data).sort().pop() || null;
+        // "Desde quando é a faixa atual":
+        //  1) última data de faixa|inicio na faixa atual (canônico)
+        //  2) fallback: 1ª data de grau na faixa atual (aluno já era essa faixa)
+        //  3) null se não houver evento na faixa atual
+        {
+          const arr = gs.filter(g => g && g.faixa === p.faixa && g.data);
+          const fx = arr.filter(g => g.tipo === 'faixa' || g.tipo === 'inicio').map(g => g.data).sort();
+          if (fx.length) base.faixaDesde = fx[fx.length - 1];
+          else {
+            const gr = arr.filter(g => g.tipo === 'grau').map(g => g.data).sort();
+            base.faixaDesde = gr[0] || null;
+          }
+        }
         // Tendência de queda (risco v2): dias treinados nas últimas 4 semanas vs a média
         // por 4 semanas do trimestre anterior (semanas 5–16). Queda ≥50% = sinal de churn.
         if (a) {

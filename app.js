@@ -48,6 +48,8 @@ document.addEventListener('error', (e)=>{
 const _CLICK_ACTIONS = {
   verHistorico: ()=>{ DB.jornadaTab='historico'; goAluno('jornada'); },
   verAlunos:    ()=>goProf('alunos'),
+  verAlunosAniv:()=>{ DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); },
+  verAnivFull:  ()=>{ DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); },
   fecharRetro:  ()=>fecharRetro(),
   fecharTreino: ()=>fecharTreino(),
   fecharShare:  ()=>fecharShare(),
@@ -677,8 +679,23 @@ const APP_VERSION = 'v311';   // bate com app.js?v=N — mostrado no Perfil p/ c
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
+// Normaliza telefone BR pra sempre gravar 12/13 dígitos com DDI 55.
+// Espelho do _normalize_tel_br em SQL (migration 0021). Mesmo shape para casar dados.
+// null / string vazia / lixo → null (não força; ficha aparece vazia e professor corrige).
+function _normTelBR(v){
+  if(v==null) return null;
+  const d = String(v).replace(/\D/g,'');
+  if(!d) return null;
+  if((d.length===13 || d.length===12) && d.startsWith('55')) return d;
+  if(d.length===11 || d.length===10) return '55'+d;
+  if(d.length===9) return '5531'+d;   // sem DDD → assume 31 (Yama BH)
+  return null;
+}
 // Loja da academia. LOJA_WHATSAPP = só dígitos com DDI. LOJA_PIX = chave PIX (telefone).
 const LOJA_WHATSAPP = '5531996248909'; const LOJA_PIX = '31996248909';
+// Overrides configuráveis (persistem em DB.loja.config → user_state JSONB).
+function _lojaPix(){ return (DB.loja && DB.loja.config && DB.loja.config.pix) || LOJA_PIX; }
+function _lojaWa(){ return (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || LOJA_WHATSAPP; }
 // Código de presença do totem (fixo — ver CLAUDE.md). Com backend vira o código rotativo da aula.
 const PRESENCA_CODE = '0000';
 // DEMO já definido no topo (vitrine ?demo=1)
@@ -3194,13 +3211,16 @@ function alunoPerfil(){
       return card;
     };
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
-    _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));   // clone p/ loop infinito
+    // Clone p/ loop infinito só faz sentido se há mais de 1 produto — com 1 só, o
+    // clone virava um card duplicado do mesmo item.
+    const podeAnimar = _prodsAtivos.length > 1;
+    if(podeAnimar) _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
     w.appendChild(lojaWrap);
     // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa só enquanto o
     // dedo/mouse está PRESSIONADO; retoma imediato ao soltar. Loop: quando passa
     // da metade (cards duplicados), volta scrollLeft. Respeita reduced-motion.
     const ticker = lojaWrap.querySelector('.ld-ticker');
-    if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+    if(podeAnimar && !matchMedia('(prefers-reduced-motion: reduce)').matches){
       let held=false;
       const step = ()=>{
         if(!held){
@@ -3258,7 +3278,7 @@ function alunoPerfil(){
   const _rowLes = acadCard.querySelector('#row-lesoes');
   if(_rowLes){ const _gl=()=>abrirLesoes(); _rowLes.onclick=_gl; _rowLes.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gl(); } }; }
   const _rowWa = acadCard.querySelector('#row-wa');
-  if(_rowWa){ const _gw=()=>toast('Fale com o professor pelo WhatsApp da academia'); _rowWa.onclick=_gw; _rowWa.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gw(); } }; }
+  if(_rowWa){ const _gw=()=>{ const w=_lojaWa(); if(!w){ toast('WhatsApp da academia não configurado'); return; } window.open(`https://wa.me/${w}`, '_blank', 'noopener'); }; _rowWa.onclick=_gw; _rowWa.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gw(); } }; }
   w.appendChild(acadCard);
 
   // App — tema, notificações, backup, instalar, configurações
@@ -3912,9 +3932,10 @@ function abrirCarrinho(){
   DB.loja.carrinho = DB.loja.carrinho.filter(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return p && p.ativo!==false; });
   if (DB.loja.carrinho.length < antes){ toast('Itens indisponíveis foram removidos da sacola'); if(DB.lojaOpen) render(); }
   if (!DB.loja.carrinho.length){ toast('Sua sacola está vazia'); return; }
-  const pixRow = LOJA_PIX ? `<div style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">
+  const _pix = _lojaPix();
+  const pixRow = _pix ? `<div style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">
     <span style="font-size:11px;font-weight:800;color:var(--muted)">PIX</span>
-    <code style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(LOJA_PIX)}</code>
+    <code style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(_pix)}</code>
     <button id="cart-pix-copy" style="border:none;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer">Copiar</button>
   </div>` : '';
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
@@ -3962,21 +3983,22 @@ function abrirCarrinho(){
   };
   renderItems();
   const pixBtn = sheet.querySelector('#cart-pix-copy');
-  if(pixBtn) pixBtn.onclick = async ()=>{ try{ await navigator.clipboard.writeText(LOJA_PIX); toast('Chave PIX copiada ✓'); }catch(e){ toast('Copie a chave: '+LOJA_PIX); } };
+  if(pixBtn) pixBtn.onclick = async ()=>{ const k=_lojaPix(); try{ await navigator.clipboard.writeText(k); toast('Chave PIX copiada ✓'); }catch(e){ toast('Copie a chave: '+k); } };
   sheet.querySelector('.btn-save').onclick = ()=>{ close(); finalizarCompra(); };
 }
 
 // Monta o pedido e abre o WhatsApp da academia (sem backend; pagamento via PIX).
 function finalizarCompra(){
-  if (!LOJA_WHATSAPP){ toast('⚠️ Loja sem WhatsApp configurado'); return; }
+  const _wa=_lojaWa(), _pix=_lojaPix();
+  if (!_wa){ toast('⚠️ Loja sem WhatsApp configurado'); return; }
   const linhas = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
     return `• ${p.nome} (${i.tam}) x${i.qtd} — ${moneyBR(p.preco*i.qtd)}`; }).join('\n');
-  const pix = LOJA_PIX ? `\nPagamento via PIX: ${LOJA_PIX}` : '\nPagamento via PIX.';
+  const pix = _pix ? `\nPagamento via PIX: ${_pix}` : '\nPagamento via PIX.';
   const msg = `Olá! Quero comprar na Loja Yama:\n${linhas}\n\nTotal: ${moneyBR(carrinhoTotal())}${pix}\nVou retirar na recepção.`;
   // A3 (auditoria): popup bloqueado retorna null SEM lançar exceção — só limpamos
   // a sacola quando a janela do WhatsApp realmente abriu, senão o pedido se perdia.
   let win = null;
-  try{ win = window.open(`https://wa.me/${LOJA_WHATSAPP}?text=${encodeURIComponent(msg)}`, '_blank'); }catch(e){ win = null; }
+  try{ win = window.open(`https://wa.me/${_wa}?text=${encodeURIComponent(msg)}`, '_blank'); }catch(e){ win = null; }
   if(!win){ toast('⚠️ Não consegui abrir o WhatsApp — permita pop-ups e tente de novo. Sua sacola foi mantida.'); return; }
   // Registra o pedido (pendente) no backend p/ o professor confirmar depois → baixa de estoque.
   // Guardado: só com backend real (offline/demo não registra). Não bloqueia o fluxo se falhar.
@@ -4148,6 +4170,19 @@ function renderTrocarSenha(){
 let _profData = null;
 let _profTs   = 0;
 
+// "Desde quando o aluno é a faixa atual". Regra:
+//  1) Última data de evento tipo `faixa` ou `inicio` na faixa atual (canônico).
+//  2) Se não houver: primeira data de evento tipo `grau` na faixa atual —
+//     o aluno já era essa faixa quando ganhou o grau (cobre o caso de graduar
+//     por grau sem registrar o evento `faixa` antes).
+//  3) null se não houver nenhum evento na faixa atual.
+function _faixaDesde(gs, faixa){
+  const arr = (gs||[]).filter(g=>g && g.faixa===faixa && g.data);
+  const fx = arr.filter(g=>g.tipo==='faixa'||g.tipo==='inicio').map(g=>g.data).sort();
+  if(fx.length) return fx[fx.length-1];
+  const gr = arr.filter(g=>g.tipo==='grau').map(g=>g.data).sort();
+  return gr[0] || null;
+}
 // Entrada do ALUNO LOGADO (DB.eu) na lista do professor — derivada dos dados reais.
 // É o fio que faz presença/graduação conversarem offline: as ações neste item
 // (marcado _self) escrevem em DB.checkinHoje / DB.graduacoes / DB.eu (ver _profSet*).
@@ -4160,7 +4195,7 @@ function _selfAluno(){
   const freq = Math.min(100, Math.round(diasMes/PROF_METAS.META_MES*100));
   let apto=false, aulasNoGrau=null; try{ const ag=aulasStats(); apto = ag.atual>=ag.meta; aulasNoGrau=ag.atual; }catch(e){}
   // eixos do semáforo de graduação + tendência de queda (mesmos campos do adapter)
-  const fg=(DB.graduacoes||[]).filter(g=>g.tipo==='faixa'&&g.faixa===me.faixa).map(g=>g.data).sort().pop()||null;
+  const fg=_faixaDesde(DB.graduacoes||[], me.faixa);
   const dias=[...new Set(datas)];
   const _dISO=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const d28=_dISO(28), d120=_dISO(120);
@@ -4512,20 +4547,21 @@ function profPainel(){
   grid.appendChild(kpiCard('blue', icoRoster(), total, 'Alunos totais', ()=>goProf('alunos')));
   grid.appendChild(kpiCard('green', icoPulse(), ativos, 'Ativos (14d)', ()=>goProf('alunos')));
   grid.appendChild(kpiCard('gold', icoAlert(), ausentes, 'Ausentes 7+ dias', ()=>{ DB.relTab='risco'; goProf('relatorios'); }));
-  grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', ()=>{ DB.relTab='graduacao'; goProf('relatorios'); }));
-  grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }));
+  grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', ()=>goProf('graduacao')));
+  grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', ()=>{ DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); }));
   grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', ()=>goProf('alunos')));
   w.appendChild(grid);
 
   // "O que fazer hoje" — alertas acionáveis (mantido, é o coração do painel)
-  const _baixos=_produtosBaixos();
+  _ensureLojaAdmin();
+  const _zerados=DB.loja.produtos.filter(p=> p.ativo!==false && _estoqueTotal(p)===0).length;
   const _pend=_pedidosPendentesN();
   const _anivHj=_aniversariantesHoje().length;
   const alerts=[];
   if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
   if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
   if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante hoje`, 'Mandar parabéns ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'good']);
-  if(_baixos>0) alerts.push(['📦', `${_baixos} produto${_baixos>1?'s':''} com estoque baixo`, 'Ver loja ›', ()=>goProf('loja'), 'gold']);
+  if(_zerados>0) alerts.push(['📦', `${_zerados} produto${_zerados>1?'s':''} com estoque zerado`, 'Ver loja ›', ()=>goProf('loja'), 'red']);
   if(alerts.length){
     w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">O que fazer hoje</div>`));
     alerts.forEach(([ic,tx,go,fn,kind])=>{
@@ -4757,12 +4793,12 @@ function _alunosImportValidate(rawRows){
         nome_completo: nome,
         apelido: nome.split(/\s+/)[0]||'',
         email,
-        telefone: tel,
+        telefone: _normTelBR(tel),
         nascimento: ano,
         nascData: dataNasc,
         cep: _norm(d.cep), logradouro: _norm(d.logradouro), numero: _norm(d.numero),
         bairro: _norm(d.bairro), cidade: _norm(d.cidade), uf: _norm(d.uf).toUpperCase(),
-        resp_nome: _norm(d.resp_nome), resp_telefone: _norm(d.resp_tel), resp_parentesco: _norm(d.resp_par),
+        resp_nome: _norm(d.resp_nome), resp_telefone: _normTelBR(_norm(d.resp_tel)), resp_parentesco: _norm(d.resp_par),
       },
     };
   });
@@ -4814,7 +4850,10 @@ function _impMotivoPT(msg){
    retorno do cadastro. Na importação em lote ela se perde e o professor fica
    sem como dar acesso a ninguém — e o aluno não sabe nem o link do app.
    ============================================================ */
-const SENHA_PADRAO = 'YamaJiuJitsu';
+// Senha padrão da academia. Precisa passar na política do Supabase (upper+lower+digit).
+// Configurável em Configurações da academia (persiste em DB.loja.config.senhaPadrao).
+const SENHA_PADRAO_DEFAULT = 'YamaJiuJitsu2026';
+function _senhaPadrao(){ return (DB.loja && DB.loja.config && DB.loja.config.senhaPadrao) || SENHA_PADRAO_DEFAULT; }
 function profAcessoAlunos(){
   const close = ()=>{ DB.acessoAlunosOpen=false; render(); window.scrollTo(0,0); };
   const page = el(`<div class="erp-batch-page">
@@ -4824,7 +4863,7 @@ function profAcessoAlunos(){
       <span></span>
     </div>
     <div class="ac-intro">
-      <div class="ac-senha">Senha padrão: <b>${safeTxt(SENHA_PADRAO)}</b></div>
+      <div class="ac-senha">Senha padrão: <b>${safeTxt(_senhaPadrao())}</b> <button type="button" id="ac-edit-senha" style="margin-left:8px;background:none;border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer">Trocar</button></div>
       <div class="ac-hint">Vale só pra quem <b>nunca acessou</b>. No primeiro login o app obriga a criar uma senha nova.</div>
       <div class="ac-warn">⚠️ Enquanto o aluno não fizer o primeiro acesso, quem souber esta senha e o e-mail dele consegue entrar na conta e ver o diário de treinos. Peça pra acessarem logo.</div>
     </div>
@@ -4834,6 +4873,7 @@ function profAcessoAlunos(){
     </div>
   </div>`);
   page.querySelector('#ac-close').onclick = close;
+  page.querySelector('#ac-edit-senha').onclick = ()=>abrirConfigAcademia();
   const listEl = page.querySelector('#ac-list');
   const goBtn  = page.querySelector('#ac-go');
 
@@ -4850,7 +4890,7 @@ function profAcessoAlunos(){
       // Casa com o aluno da lista carregada pra reaproveitar telefone/ficha do _waLink
       const a = ((_profData?.alunos)||[]).find(x=> x.id===p.id) || {nm:p.nome, cad:{email:p.email}};
       const temTel = !!_waLink(a);
-      const row = el(`<div class="im-row ${temTel?'im-ok':'im-warn'}">
+      const row = el(`<div class="im-row im-row-acesso ${temTel?'im-ok':'im-warn'}">
         <span class="im-ic">${temTel?'💬':'⚠'}</span>
         <div class="im-info">
           <div class="im-nm">${safeTxt(p.nome||a.nm||'—')}</div>
@@ -4860,7 +4900,7 @@ function profAcessoAlunos(){
       </div>`);
       const btn = row.querySelector('.ac-wa');
       if(btn) btn.onclick = ()=>{
-        const url = _waLink(a, _waConviteBody(a, SENHA_PADRAO));
+        const url = _waLink(a, _waConviteBody(a, _senhaPadrao()));
         if(!url){ toast('Sem telefone cadastrado'); return; }
         try{ window.open(url,'_blank','noopener'); }catch(_){ location.href=url; }
         row.classList.add('ac-enviado'); btn.textContent='Enviado ✓';
@@ -4870,7 +4910,7 @@ function profAcessoAlunos(){
   };
 
   // dry_run: só conta/lista, não altera senha nenhuma
-  sbProf.senhaPadraoLote(SENHA_PADRAO, true).then(r=>{
+  sbProf.senhaPadraoLote(_senhaPadrao(), true).then(r=>{
     pendentes = (r && r.alunos) || [];
     pintar();
     goBtn.disabled = !pendentes.length;
@@ -4882,7 +4922,7 @@ function profAcessoAlunos(){
   });
 
   goBtn.onclick = async ()=>{
-    if(!confirm(`Definir a senha "${SENHA_PADRAO}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
+    if(!confirm(`Definir a senha "${_senhaPadrao()}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
     goBtn.disabled = true; goBtn.textContent = 'Aplicando…';
     try{
       const r = await sbProf.senhaPadraoLote(SENHA_PADRAO, false);
@@ -5179,7 +5219,8 @@ function profAlunos(){
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'' };
+  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'' };
+  if(DB._pendingAlunosAniv){ advF.aniversario = DB._pendingAlunosAniv; DB._pendingAlunosAniv=null; }
   const PAGE = 20; let shown = PAGE;
 
   const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
@@ -5330,6 +5371,7 @@ function profAlunos(){
     if(advF.plano==='ok') arr = arr.filter(a=> a.pago==='ok');
     else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
     else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
+    if(advF.aniversario) arr = arr.filter(a=> (a.nascData||'').slice(5,7) === advF.aniversario);
     // "Sumidos" ignora o sort escolhido (contexto exige quem sumiu mais)
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
     else arr.sort(_cmp);
@@ -5351,7 +5393,7 @@ function profAlunos(){
         <button class="row-check${sel?' on':''}" aria-label="Selecionar ${safeAttr(a.nm)}">${sel?'✓':''}</button>
         ${avatarAluno(a)}
         <div class="st-mid"><div class="nm" title="${safeAttr(nomeTx)}">${safeTxt(nomeTx)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
-          <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
+          <div class="meta">${beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
         <div class="erp-c erp-c-belt-cell">${beltPill(a.faixa,a.graus)}</div>
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
@@ -5443,6 +5485,7 @@ function profAlunos(){
       <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
       <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
       <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
+      <label><span>Aniversário no mês</span><select class="inp" id="advf-aniv"><option value="">Todos</option>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label>
     </div>
     <div class="erp-alunos-adv-acts">
       <button class="erp-alunos-adv-clear" type="button" id="advf-clear">Limpar</button>
@@ -5460,6 +5503,7 @@ function profAlunos(){
     advF.faixa     = advPanel.querySelector('#advf-faixa').value;
     advF.turma     = advPanel.querySelector('#advf-turma').value;
     advF.plano     = advPanel.querySelector('#advf-plano').value;
+    advF.aniversario = advPanel.querySelector('#advf-aniv').value;
     shown=PAGE; renderList();
   };
   advPanel.querySelectorAll('input,select').forEach(el0=>{
@@ -5485,6 +5529,14 @@ function profAlunos(){
   advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
   advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
+  // Preset vindo do painel (KPI/Ver todos aniversariantes): abre o painel avançado com o mês já selecionado.
+  if(advF.aniversario){
+    advPanel.querySelector('#advf-aniv').value = advF.aniversario;
+    advPanel.style.display='block';
+    advBar.querySelector('#adv-toggle')?.classList.add('on');
+    const mesLbl = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(advF.aniversario,10)-1] || advF.aniversario;
+    setTimeout(()=>{ toast(`Filtrando aniversariantes de ${mesLbl}`); advPanel.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
+  }
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
   const fab = el(`<button class="erp-fab" type="button" aria-label="Cadastrar aluno">＋</button>`);
@@ -5843,9 +5895,9 @@ function renderCadastroAluno(){
     const nascVal=parseInt(val('ca-nasc'));
     const nascimento=(nascVal>=1920 && nascVal<=hoje.getFullYear())?nascVal:null;
     const nascData=dateBRRead(sheet.querySelector('#ca-nascdata'))||null;
-    const telefone=val('ca-tel');
+    const telefone=_normTelBR(val('ca-tel'));
     const cep=val('ca-cep'), logradouro=val('ca-logr'), numero=val('ca-num'), bairro=val('ca-bairro'), cidade=val('ca-cidade'), uf=val('ca-uf').toUpperCase();
-    const resp_nome=val('ca-rnome'), resp_telefone=val('ca-rtel'), resp_parentesco=val('ca-rpar');
+    const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
     // v296: início = hoje, sem obs, faixa/grau default (branca/0). Ajusta na ficha.
     const data_inicio=HOJE_ISO, observacoes='';
     const senha=_gerarSenhaProvisoria();
@@ -5928,7 +5980,7 @@ function _profCadastrarProfessorSheet(refresh){
     const nv=parseInt(val('cpf-nasc')); const nascimento=(nv>=1920 && nv<=hoje.getFullYear())?nv:null;
     const apelido=val('cpf-apelido') || (nome.split(/\s+/)[0]||'');
     const dados={ nome_completo:nome, apelido, email, faixa:selFaixa, graus:selGraus, nascimento,
-      desde:HOJE_ISO.slice(0,7), telefone:val('cpf-tel'), data_inicio:HOJE_ISO };
+      desde:HOJE_ISO.slice(0,7), telefone:_normTelBR(val('cpf-tel')), data_inicio:HOJE_ISO };
     if(typeof sbProf==='undefined' || !sbProf.criarProfessor){ toast('Requer backend ativo'); return; }
     saveBtn.disabled=true; saveBtn.textContent='Cadastrando…';
     try{
@@ -6228,9 +6280,9 @@ function _erpFicha(a, c, paint, refresh){
     a.cad = a.cad || {};
     a.cad.nomeCompleto = nomeCompleto;
     a.cad.nascimento = nascimento;
-    a.cad.telefone = g('fc-tel'); a.cad.email = g('fc-email');
+    a.cad.telefone = _normTelBR(g('fc-tel')); a.cad.email = g('fc-email');
     a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf').toUpperCase() };
-    a.cad.responsavel = { nome:g('fc-rnm'), telefone:g('fc-rtel'), parentesco:g('fc-rpar') };
+    a.cad.responsavel = { nome:g('fc-rnm'), telefone:_normTelBR(g('fc-rtel')), parentesco:g('fc-rpar') };
     a.cad.dataInicio = dataInicio; a.cad.obs = g('fc-obs');
     a.cad.aceitaContato = form.querySelector('#fc-contato').value === '1';
     if(apelidoNovo){ a.nm = apelidoNovo; a.ini = _iniciaisDe(apelidoNovo); }
@@ -6318,7 +6370,7 @@ function _erpActions(a, tab, refresh, paint, hora){
 function _erpTimelineGrad(a, paint){
   const box=el('<div class="erp-card"></div>');
   box.appendChild(el(`<div class="erp-card-h">Linha do tempo de graduação
-    <button class="erp-btn sm" id="tl-add">+ Novo evento</button></div>`));
+    <button class="btn-cad primary" id="tl-add" style="width:auto;flex:none;padding:8px 14px;font-size:13px;white-space:nowrap">＋ Novo evento</button></div>`));
   const grads = (a.graduacoes||[]).filter(g=>g&&g.data);
   // Estatísticas embaixo
   const stats = _erpGradStats(grads);
@@ -6394,8 +6446,8 @@ function _erpGradForm(a, existing, paint){
     <select class="inp" id="gf-faixa">${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select>
     <label class="flbl">Grau (0-4)</label>
     <input class="inp" id="gf-graus" type="number" min="0" max="4" value="0">
-    <label class="flbl">Data</label>
-    <input class="inp" id="gf-data" type="date">
+    <label class="flbl">Data <span style="color:var(--muted);font-weight:500">(DD/MM/AAAA)</span></label>
+    <input class="inp" id="gf-data" type="text" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA">
     <label class="flbl">Nota (opcional)</label>
     <input class="inp" id="gf-nota" placeholder="Motivo, cerimônia, etc.">
     <button class="btn-save" id="gf-save">${existing?'Salvar':'Adicionar'}</button>
@@ -6403,16 +6455,21 @@ function _erpGradForm(a, existing, paint){
   </div></div>`);
   const close=()=>{ sh.classList.remove('open'); setTimeout(()=>sh.remove(),260); };
   const tSel=sh.querySelector('#gf-tipo'), fSel=sh.querySelector('#gf-faixa'), gInp=sh.querySelector('#gf-graus'), dInp=sh.querySelector('#gf-data'), nInp=sh.querySelector('#gf-nota');
+  const isoToBr=(iso)=>{ if(!iso||iso.length<10) return ''; const [y,m,d]=iso.slice(0,10).split('-'); return `${d}/${m}/${y}`; };
+  const brToIso=(br)=>{ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return null; const [_,d,mo,y]=m; const iso=`${y}-${mo}-${d}`; const dt=new Date(iso+'T12:00:00'); if(isNaN(dt.getTime())||dt.getDate()!=+d||dt.getMonth()+1!=+mo) return null; return iso; };
   if(existing){
     tSel.value=existing.tipo||'grau'; fSel.value=existing.faixa||'branca';
-    gInp.value=existing.graus||0; dInp.value=existing.data||''; nInp.value=existing.nota||'';
-  } else { dInp.value = new Date().toISOString().slice(0,10); fSel.value = a.faixa||'branca'; gInp.value = (a.graus||0)+1; }
+    gInp.value=existing.graus||0; dInp.value=isoToBr(existing.data||''); nInp.value=existing.nota||'';
+  } else { dInp.value = isoToBr(new Date().toISOString().slice(0,10)); fSel.value = a.faixa||'branca'; gInp.value = (a.graus||0)+1; }
+  // Máscara DD/MM/AAAA: só dígitos, insere as barras automaticamente.
+  dInp.oninput=(e)=>{ let v=e.target.value.replace(/\D/g,'').slice(0,8); if(v.length>4) v=v.slice(0,2)+'/'+v.slice(2,4)+'/'+v.slice(4); else if(v.length>2) v=v.slice(0,2)+'/'+v.slice(2); e.target.value=v; };
   sh.querySelector('#gf-cancel').onclick=close;
   sh.onclick=(e)=>{ if(e.target===sh) close(); };
   sh.querySelector('#gf-save').onclick=()=>{
-    if(!dInp.value){ toast('Informe a data'); return; }
-    if(dInp.value > HOJE_ISO){ toast('Data no futuro'); return; }
-    const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: dInp.value, nota: nInp.value.trim() };
+    const iso = brToIso(dInp.value.trim());
+    if(!iso){ toast('Data inválida — use DD/MM/AAAA'); return; }
+    if(iso > HOJE_ISO){ toast('Data no futuro'); return; }
+    const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: iso, nota: nInp.value.trim() };
     // v300: unifica "Novo evento" + "Graduação retroativa". Regra:
     //  - Se este evento é o MAIS RECENTE da timeline E tipo faixa/grau →
     //    chama graduarAluno (trigger M3 sincroniza profiles.faixa/graus).
@@ -6444,8 +6501,11 @@ function _erpGradForm(a, existing, paint){
       }
       // Atualiza faixa/grau atual local quando é o último evento faixa/grau
       if(dispara){ a.faixa = novo.faixa; a.graus = novo.graus; }
+      // Recalcula a data da faixa atual (usada pelo semáforo de graduação): pega o último
+      // evento tipo faixa OU inicio na faixa atual. Espelha a mesma regra do adapter.
+      a.faixaDesde = _faixaDesde(a.graduacoes||[], a.faixa);
       toast(existing ? 'Evento atualizado ✔' : (dispara ? 'Graduação registrada ✔' : 'Evento retroativo registrado ✔'));
-      close(); paint();
+      close(); paint(); render();
     }).catch(e=> toast('Erro ao salvar: '+(e.message||e)));
   };
   document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
@@ -6626,13 +6686,13 @@ function _profEditarFichaSheet(a, refresh){
   sheet.querySelector('#fe-cancel').onclick=close;
   sheet.querySelector('#fe-save').onclick=()=>{
     const val=id=>{ const el2=sheet.querySelector('#'+id); return el2?el2.value.trim():''; };
-    const nome=val('fe-nome'), email=val('fe-email').toLowerCase(), telefone=val('fe-tel');
+    const nome=val('fe-nome'), email=val('fe-email').toLowerCase(), telefone=_normTelBR(val('fe-tel'));
     const nascData=dateBRRead(sheet.querySelector('#fe-nascdata'))||null;
     let nascVal=parseInt(val('fe-nasc'));
     if(!(nascVal>=1920) && nascData) nascVal=parseInt(nascData.slice(0,4));   // ano deriva da data completa
     const nascimento=(nascVal>=1920&&nascVal<=hoje.getFullYear())?nascVal:(c.nascimento||null);
     const apelido=val('fe-apelido')||nome.split(/\s+/)[0]||'';
-    const resp_nome=val('fe-rnome'), resp_telefone=val('fe-rtel');
+    const resp_nome=val('fe-rnome'), resp_telefone=_normTelBR(val('fe-rtel'));
     if(!nome){ toast('Informe o nome completo'); return; }
     if(!email || !email.includes('@')){ toast('Informe um e-mail válido'); return; }
     if(!telefone){ toast('Informe o telefone/WhatsApp'); return; }
@@ -6772,6 +6832,7 @@ function _waLink(a, msg){
 
 /* ---- Templates de WhatsApp: textos prontos por contexto (professor edita antes de enviar) ---- */
 const WA_TEMPLATES = {
+  abrir:     { icon:'💬', label:'Só abrir chat',      body:()=>'' },
   sumido7:   { icon:'👋', label:'Sumido 1 semana',    body:(a)=>`Oi ${_waNome(a)}, senti sua falta no tatame essa semana. Tá tudo bem? Te espero na próxima aula 🥋` },
   sumido30:  { icon:'💪', label:'Sumido 1 mês',       body:(a)=>`Oi ${_waNome(a)}, notei que faz um tempo que você não vem treinar. Vamos marcar sua volta? Se precisar de qualquer ajuda, chama aqui.` },
   aniv:      { icon:'🎂', label:'Aniversário',        body:(a)=>`Oi ${_waNome(a)}, parabéns pelo seu dia! 🎂 Que venha mais um ano de tatame — a Yama torce por você.` },
@@ -7190,7 +7251,7 @@ function profRelatorios(){
   }
 
   // Sub-navegação dos relatórios
-  const TABS=[['visao','Visão geral'],['risco','Risco'],['alunos','Alunos (Excel)'],['retencao','Retenção'],['tecnicas','Técnicas'],['graduacao','Graduação'],['loja','Loja']];
+  const TABS=[['visao','Visão geral'],['retencao','Retenção'],['alunos','Alunos (Excel)'],['tecnicas','Técnicas'],['loja','Loja']];
   const seg=el('<div class="filter-seg rel-seg"></div>');
   TABS.forEach(([id,lbl])=>{
     const b=el(`<button class="${(DB.relTab||'visao')===id?'active':''}">${lbl}</button>`);
@@ -7257,7 +7318,7 @@ function _relRisco(w, secTitle, note){
 /* Relatórios · Alunos (Excel) — tabela ampla estilo planilha, muitas colunas visíveis.
    Sem paginação (500 alunos cabem numa scroll interna). Export CSV nativo. */
 function _relAlunosExcel(w, secTitle, note){
-  const alunos = _profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono'));
+  const alunos = _profAlunosArr().slice();
   _loadTurmas(); const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
 
   let busca='', filtroEt='todos', filtroRisco='todos';
@@ -7716,21 +7777,9 @@ function _relDetLesoes(w, secTitle, note){
 
 /* ---- Relatórios · Retenção: risco v2 + contato 1 toque, coortes, faixa, aniversários ---- */
 function _relRetencao(w, secTitle, note, alunoRow){
-  w.appendChild(secTitle(`Em risco de evasão (ausência ${RISCO_DIAS}+ dias ou queda ≥50%)`));
-  const risco=_emRisco();
-  const riscoList=el('<div class="list block"></div>');
-  if(!risco.length) riscoList.appendChild(el('<div class="empty-line">Ninguém em risco. 🎉</div>'));
-  else risco.sort((a,b)=>(b.diasSem||0)-(a.diasSem||0)).forEach(a=>{
-    const wa=_waLink(a);
-    const right = wa
-      ? `<a class="wa-btn" href="${safeAttr(wa)}" target="_blank" rel="noopener" aria-label="Chamar ${safeAttr(a.nm)} no WhatsApp">WhatsApp</a>`
-      : '<span style="color:var(--muted)">›</span>';
-    const row=alunoRow(a, `<span style="font-size:11px;color:var(--red-strong);font-weight:700">${safeTxt(_riscoMotivo(a)||'')}</span>`, right);
-    const waEl=row.querySelector('.wa-btn');
-    if(waEl) waEl.onclick=(e)=>e.stopPropagation();   // o toque no botão não abre o detalhe
-    riscoList.appendChild(row);
-  });
-  w.appendChild(riscoList);
+  // Segmentação por dias sem treinar (Crítico/Em risco/Atenção/Engajados) — antes ficava
+  // na aba "Risco" separada, mas era duplicata do topo de Retenção. Consolidado aqui.
+  _relRisco(w, secTitle, note);
 
   w.appendChild(secTitle('Retenção por faixa (ativos ≤14d)'));
   const rf=_retencaoPorFaixa();
@@ -8224,6 +8273,11 @@ function profLoja(){
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
   pedBtn.onclick=()=>goProf('pedidos');
   w.appendChild(pedBtn);
+  const cfgBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
+    <span>⚙️ Configurações da academia <span style="color:var(--muted);font-weight:500;font-size:12px">· PIX e WhatsApp</span></span>
+    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
+  cfgBtn.onclick=()=>abrirConfigAcademia();
+  w.appendChild(cfgBtn);
   const addBtn = el(`<div class="dt-add-wrap"><button class="btn-cad">＋ Novo produto</button></div>`);
   addBtn.querySelector('button').onclick=()=>abrirProdutoForm(null);
   w.appendChild(addBtn);
@@ -8498,43 +8552,17 @@ function profTurmas(){
    Presença média: heurística estável até a migration 0010 (checkin por
    aula) desbloquear a query real das últimas N semanas.
    ============================================================ */
-function _hashSeed(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))|0; return Math.abs(h); }
-function _ocupCell(turma, modo, semanas){
-  const cap = turma.capacidade_max || 0;
-  const matr = _turmaAlunos(turma.id).length;
-  if(modo==='freq'){
-    // Heurística estável (fator 0.45–0.85 por turma). ponytail: heurística até 0010
-    // — trocar por SELECT avg(count) FROM checkins JOIN aulas WHERE ... GROUP BY data
-    const seed = _hashSeed(turma.id + (semanas||8));
-    const fator = 0.45 + (seed%40)/100;
-    return { n: Math.round(matr*fator), cap };
-  }
-  return { n: matr, cap };
+function _ocupCell(turma){
+  return { n: _turmaAlunos(turma.id).length, cap: turma.capacidade_max || 0 };
 }
 function _viewHeatmap(turmas){
   const wrap = el('<div></div>');
-  const modo = DB._heatMode || 'freq';
-  const semanas = DB._heatSemanas || 8;
-  const ctrl = el(`<div class="heat-ctrl">
-    <div class="heat-toggle">
-      <button class="heat-tog${modo==='freq'?' on':''}" data-m="freq">Presença média</button>
-      <button class="heat-tog${modo==='matr'?' on':''}" data-m="matr">Matriculados</button>
-    </div>
-    <label class="heat-weeks${modo!=='freq'?' hidden':''}">
-      <span>Janela</span>
-      <select id="heat-w">
-        ${[4,8,12,24].map(x=>`<option value="${x}"${x===semanas?' selected':''}>${x} semanas</option>`).join('')}
-      </select>
-    </label>
-  </div>`);
-  ctrl.querySelectorAll('[data-m]').forEach(b=> b.onclick=()=>{ DB._heatMode = b.dataset.m; render(); });
-  ctrl.querySelector('#heat-w').onchange = (e)=>{ DB._heatSemanas = parseInt(e.target.value,10)||8; render(); };
-  wrap.appendChild(ctrl);
+  const modo = 'matr';
   const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
   const cells = {}, horasSet = new Set(), diasSet = new Set();
   turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
     const k = s.dia+'|'+s.hora;
-    const oc = _ocupCell(t, modo, semanas);
+    const oc = _ocupCell(t);
     cells[k] = cells[k] || {n:0,cap:0,turmas:[],ids:[]};
     cells[k].n += oc.n; cells[k].cap += oc.cap;
     cells[k].turmas.push(t.nome); cells[k].ids.push(t.id);
@@ -8569,7 +8597,7 @@ function _viewHeatmap(turmas){
     <span><i class="green"></i> 40-70%</span>
     <span><i class="gold"></i> 70-90%</span>
     <span><i class="red"></i> ≥90%</span>
-    ${modo==='freq'?'<span class="heat-note">Presença média: heurística estável até migration 0010 (checkin por aula)</span>':''}
+    <span class="heat-note">Matriculados por sessão (n / capacidade).</span>
   </div>`));
   return wrap;
 }
@@ -9268,7 +9296,13 @@ function tabbarProf(){
 /* ---------------- navegação ---------------- */
 function setRole(r){ DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
 function goAluno(id){ DB.navAluno=id; render(); window.scrollTo(0,0); }
-function goProf(id){ DB.navProf=id; render(); window.scrollTo(0,0); }
+function goProf(id){
+  // Ao trocar de menu, fecha telas em foco (ficha do aluno, cadastro, import etc).
+  DB.navProf=id; DB.alunoAberto=null; DB._alunoTab=null;
+  DB.produtoFormOpen=false; DB.cadastroAlunoOpen=false;
+  DB.importAlunosOpen=null; DB.acessoAlunosOpen=false;
+  render(); window.scrollTo(0,0);
+}
 function _isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
 function _updateThemeColor(){
   const meta = document.querySelector('meta[name="theme-color"]');
@@ -9730,6 +9764,42 @@ function abrirEditarPerfil(){
   };
   document.body.appendChild(sheet);
   requestAnimationFrame(()=> sheet.classList.add('open'));
+}
+
+// ---- Configurações da academia (professor): PIX + WhatsApp ----
+function abrirConfigAcademia(){
+  const cfg = (DB.loja && DB.loja.config) || {};
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Configurações da academia</div>
+    <div class="sheet-desc">Chave PIX e WhatsApp usados nos pedidos da Loja e no contato com o professor.</div>
+    <label class="flbl">Chave PIX</label>
+    <input class="inp" id="ca-pix" placeholder="CPF, telefone, e-mail ou chave aleatória" value="${safeAttr(cfg.pix||'')}">
+    <label class="flbl" style="margin-top:12px">WhatsApp da academia <span style="color:var(--muted);font-weight:500">(só dígitos, com DDI 55)</span></label>
+    <input class="inp" id="ca-wa" inputmode="numeric" placeholder="5531999999999" value="${safeAttr(cfg.whatsapp||'')}">
+    <label class="flbl" style="margin-top:12px">Senha padrão dos alunos <span style="color:var(--muted);font-weight:500">(letras + números, mín. 8)</span></label>
+    <input class="inp" id="ca-senha" placeholder="Ex: YamaJiuJitsu2026" value="${safeAttr(cfg.senhaPadrao||SENHA_PADRAO_DEFAULT)}">
+    <button class="btn-save" id="ca-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="ca-close">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#ca-close').onclick=close;
+  sheet.querySelector('#ca-save').onclick=()=>{
+    const pix = sheet.querySelector('#ca-pix').value.trim();
+    const wa  = sheet.querySelector('#ca-wa').value.replace(/\D/g,'');
+    const senha = sheet.querySelector('#ca-senha').value.trim();
+    if(wa && wa.length<12){ toast('WhatsApp precisa DDI + DDD + número (ex: 5531999999999)'); return; }
+    // Política do Supabase: minúscula + MAIÚSCULA + dígito. Sem isso, senhaPadraoLote falha em massa.
+    if(senha.length<8 || !/[a-z]/.test(senha) || !/[A-Z]/.test(senha) || !/\d/.test(senha)){
+      toast('Senha precisa 8+ caracteres com minúscula, MAIÚSCULA e número');
+      return;
+    }
+    DB.loja = DB.loja || {}; DB.loja.config = { pix, whatsapp: wa, senhaPadrao: senha };
+    if(typeof scheduleSave==='function') scheduleSave();
+    toast('Configurações salvas ✔'); close();
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 // ---- Configurações ----

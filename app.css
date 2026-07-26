@@ -1604,7 +1604,10 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .phone{padding-left:232px}
   body[data-role="professor"] .tabbar{width:232px;max-width:232px}
   body[data-role="professor"] .save-bar{left:232px}
-  body[data-role="professor"] .view{max-width:1120px}
+  body[data-role="professor"] .view{max-width:1280px}
+}
+@media (min-width:1440px){
+  body[data-role="professor"] .view{max-width:1440px}
 }
 
 /* ===== DataTable de alunos: busca + seleção múltipla + ações em lote ===== */
@@ -1757,7 +1760,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-c-turmas-cell{display:none !important}
   body[data-role="professor"] .erp-head{
     display:grid;
-    grid-template-columns: 30px 40px minmax(140px,1.6fr) 138px 88px 56px 72px 32px;
+    grid-template-columns: 30px 40px minmax(140px,1.6fr) 172px 88px 56px 74px 44px;
     gap:8px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
@@ -1775,7 +1778,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   /* linha vira grid com as mesmas colunas do header */
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
     display:grid;
-    grid-template-columns: 30px 40px minmax(140px,1.6fr) 138px 88px 56px 72px 32px;
+    grid-template-columns: 30px 40px minmax(140px,1.6fr) 172px 88px 56px 74px 44px;
     gap:8px;align-items:center;
     border-radius:12px;padding:10px 12px;
   }
@@ -1807,7 +1810,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 30px 40px minmax(150px,1.6fr) 138px minmax(96px,1fr) 92px 58px 74px 32px;
+    grid-template-columns: 30px 40px minmax(160px,1.8fr) 172px minmax(120px,1fr) 96px 60px 76px 44px;
   }
 }
 /* 1320px+: cabe a 10ª coluna (Faixa etária) */
@@ -1816,7 +1819,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 30px 40px minmax(160px,1.6fr) 140px 92px minmax(100px,1fr) 94px 58px 74px 32px;
+    grid-template-columns: 30px 40px minmax(180px,2fr) 176px 108px minmax(140px,1.2fr) 100px 64px 80px 44px;
   }
 }
 
@@ -1834,7 +1837,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .wa-ico{border:none;background:var(--green-tint);color:var(--green);font-size:14px;line-height:1;padding:6px 8px;
   border-radius:8px;cursor:pointer;flex:none}
 .wa-ico:hover{background:var(--green);color:#fff}
-@media (max-width:1023px){ .erp-c-wa-btn{display:none !important} }
+@media (max-width:1023px){ .erp-c-wa-btn{display:inline-flex !important; align-items:center; justify-content:center; width:34px; height:34px; padding:0; font-size:16px; border-radius:10px} }
 
 /* ---- Sheet de templates de WhatsApp ---- */
 .wa-tpl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
@@ -2223,6 +2226,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .im-row.im-upd .im-ic{color:var(--blue)}
 .im-list{padding:12px 20px 120px;display:flex;flex-direction:column;gap:4px}
 .im-row{display:grid;grid-template-columns:24px 40px 1fr;gap:10px;align-items:center;padding:10px 12px;background:var(--card);border-radius:8px;border-left:4px solid var(--line)}
+.im-row.im-row-acesso{grid-template-columns:24px 1fr auto}
 .im-row.im-ok{border-left-color:var(--good)}
 .im-row.im-warn{border-left-color:#c98a2f}
 .im-row.im-err{border-left-color:var(--red);opacity:.85}
