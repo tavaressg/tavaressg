@@ -514,7 +514,9 @@
       endereco: { cep: p.cep, logradouro: p.logradouro, numero: p.numero, bairro: p.bairro, cidade: p.cidade, uf: p.uf },
       responsavel: { nome: p.resp_nome, telefone: p.resp_telefone, parentesco: p.resp_parentesco },
       dataInicio: p.data_inicio, obs: p.observacoes,
-      aceitaContato: !!p.aceita_contato,   // 0013: consentimento de contato (LGPD, opt-in)
+      // 0017: opt-OUT — default true no banco. `undefined` (perfil antigo em
+      // cache) vira true; só um false explícito desliga. Antes era opt-in (0013).
+      aceitaContato: p.aceita_contato !== false,
     };
   }
   function corDoNome(nm) {
@@ -1066,8 +1068,96 @@
     }),
   };
 
+  /* ========================================================
+     sbPush — Web Push (0014). Aviso de check-in pendente.
+     O cliente só registra/remove o PRÓPRIO aparelho: quem decide o que
+     enviar é o cron no banco (enviar_avisos_checkin), nunca o app.
+     Desativar = apagar a subscription; sem row, não há o que entregar.
+     ======================================================== */
+  const sbPush = {
+    // Chave pública VAPID — pública por definição (vai no cliente).
+    // Trocar aqui invalida todas as subscriptions existentes.
+    VAPID_PUBLIC: 'BK-Bqte0ZY6fKKz_Y9wN0bp1e1g7SbgCjuzqnSoPgzQptnqTBccwHMvVPZ3WgPwKrsH1s_wgterUwsBZ6s_ItUE',
+
+    suportado() {
+      return typeof navigator !== 'undefined' && 'serviceWorker' in navigator &&
+             typeof window !== 'undefined' && 'PushManager' in window && 'Notification' in window;
+    },
+    configurado() {
+      return this.VAPID_PUBLIC && !this.VAPID_PUBLIC.startsWith('COLE_');
+    },
+    // base64url (formato VAPID) → Uint8Array (formato da PushManager API)
+    _b64(base64) {
+      const pad = '='.repeat((4 - base64.length % 4) % 4);
+      const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+    },
+
+    async registrarSW() {
+      if (!this.suportado()) return null;
+      return navigator.serviceWorker.register('sw.js');
+    },
+    async estado() {
+      if (!this.suportado()) return 'nao_suportado';
+      if (Notification.permission === 'denied') return 'bloqueado';
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg && await reg.pushManager.getSubscription();
+        return sub ? 'ativo' : 'inativo';
+      } catch (_) { return 'inativo'; }
+    },
+
+    // Precisa ser chamado a partir de um clique do usuário (exigência do browser).
+    ativar: wrap(async function () {
+      if (!sbPush.suportado()) throw new Error('Este aparelho não suporta avisos');
+      if (!sbPush.configurado()) throw new Error('Avisos ainda não configurados pela academia');
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') throw new Error('Permissão de avisos negada');
+
+      const reg = await sbPush.registrarSW();
+      await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: sbPush._b64(sbPush.VAPID_PUBLIC),
+      });
+      const j = sub.toJSON();
+      const { data: u } = await SB.auth.getUser();
+      if (!u?.user) throw new Error('sem sessão');
+      const { error } = await SB.from('push_subscriptions').upsert({
+        user_id: u.user.id,
+        endpoint: j.endpoint,
+        p256dh: j.keys.p256dh,
+        auth: j.keys.auth,
+        user_agent: (navigator.userAgent || '').slice(0, 200),
+        ultimo_erro: null,
+      }, { onConflict: 'endpoint' });
+      if (error) throw error;
+      return true;
+    }),
+
+    desativar: wrap(async function () {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) {
+        const ep = sub.endpoint;
+        try { await sub.unsubscribe(); } catch (_) {}
+        await SB.from('push_subscriptions').delete().eq('endpoint', ep);
+      }
+      return true;
+    }),
+
+    // Marca o aviso como lido (alimenta o backoff: 4 sem abrir → pausa 15 dias).
+    marcarAberto: wrap(async () => {
+      const { data: u } = await SB.auth.getUser();
+      if (!u?.user) return;
+      await SB.from('push_log').update({ aberto_em: new Date().toISOString() })
+        .eq('user_id', u.user.id).is('aberto_em', null);
+    }),
+  };
+
   global.sbAuth = sbAuth;
   global.sbSync = sbSync;
   global.sbProf = sbProf;
   global.sbVideos = sbVideos;
+  global.sbPush = sbPush;
 })(window);

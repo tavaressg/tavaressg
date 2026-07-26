@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v305';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v306';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -3248,8 +3248,10 @@ function alunoPerfil(){
       if (isStandalone) return '';
       return `<div class="info-row" id="row-install" role="button" tabindex="0" aria-label="Instalar app" style="cursor:pointer"><div class="ii">📥</div><div class="it"><div class="t">Instalar app</div><div class="s">Adicionar à tela inicial</div></div><div class="iv">›</div></div>`;
     })()}
+    <div class="info-row" id="row-push" role="switch" tabindex="0" aria-label="Avisos no celular" aria-checked="false" style="cursor:pointer"><div class="ii">🔔</div><div class="it"><div class="t">Avisos no celular</div><div class="s" id="row-push-s">Verificando…</div></div><div class="iv"><span class="switch" id="row-push-sw" aria-hidden="true"><span class="switch-dot"></span></span></div></div>
     <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
+  _pushBindRow(app);
   const _bindRow=(sel,fn)=>{ const r=app.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
   _bindRow('#row-tema', ()=> toggleTheme());
   _bindRow('#row-install', ()=> abrirInstalarPWA());
@@ -3275,6 +3277,60 @@ function alunoPerfil(){
   w.appendChild(el(`<div class="pf-footer">Yama · Jiu-Jitsu · ${safeTxt(APP_VERSION)}</div>`));
 
   return w;
+}
+
+/* === AVISOS NO CELULAR (Web Push, v306) ===
+   Toggle no Perfil. O app só registra/remove o APARELHO — quem decide o que
+   enviar é o cron no banco (0014). Desligar = apagar a subscription.
+   iOS: só entrega com o PWA instalado na tela de início (regra da Apple). */
+function _pushBindRow(root){
+  const row = root.querySelector('#row-push'); if(!row) return;
+  const sub = row.querySelector('#row-push-s');
+  const sw  = row.querySelector('#row-push-sw');
+  const paint = (estado)=>{
+    const on = estado==='ativo';
+    sw.classList.toggle('on', on);
+    row.setAttribute('aria-checked', String(on));
+    sub.textContent =
+      estado==='ativo'        ? 'Ligado — avisamos se esquecer o check-in' :
+      estado==='bloqueado'    ? 'Bloqueado nas configurações do navegador' :
+      estado==='nao_suportado'? 'Não disponível neste aparelho' :
+      estado==='sem_config'   ? 'Ainda não configurado pela academia' :
+                                'Desligado — toque para ligar';
+    row.dataset.estado = estado;
+  };
+  if(DEMO || typeof sbPush==='undefined'){ paint('nao_suportado'); return; }
+  if(!sbPush.suportado()){ paint('nao_suportado'); return; }
+  if(!sbPush.configurado()){ paint('sem_config'); return; }
+  sbPush.estado().then(paint).catch(()=>paint('inativo'));
+
+  const toggle = async ()=>{
+    const est = row.dataset.estado;
+    if(est==='nao_suportado'||est==='sem_config'){ toast(sub.textContent); return; }
+    if(est==='bloqueado'){ toast('Libere as notificações nas configurações do navegador'); return; }
+    try{
+      if(est==='ativo'){ await sbPush.desativar(); paint('inativo'); toast('Avisos desligados'); }
+      else{ await sbPush.ativar(); paint('ativo'); toast('Avisos ligados 🔔'); }
+    }catch(e){ paint(Notification.permission==='denied'?'bloqueado':'inativo'); }
+  };
+  row.onclick = toggle;
+  row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+}
+/* Boot: registra o SW se o aluno JÁ tinha avisos ligados (não pede permissão
+   — só reata o registro perdido quando o kill-switch antigo se desregistrou).
+   E, se o app abriu por um toque na notificação (?checkin=1), marca como lida
+   (alimenta o backoff) e leva direto pra tela de registrar presença. */
+function _pushBoot(){
+  if(DEMO || typeof sbPush==='undefined' || !sbPush.suportado()) return;
+  try{
+    if(Notification.permission==='granted' && sbPush.configurado()) sbPush.registrarSW();
+  }catch(_){}
+  try{
+    if(new URLSearchParams(location.search).get('checkin')==='1'){
+      if(sbPush.marcarAberto) sbPush.marcarAberto().catch(()=>{});
+      DB.flow = { phase:1 };   // abre direto o teclado de código do check-in
+    }
+  }catch(_){}
 }
 
 function tabbarAluno(){
@@ -3374,7 +3430,15 @@ function feelBadge(t){ return t.feel ? `<div class="feel-chip lvl${t.feel}">${t.
 
 // === Presença por sessão: sessões da grade de HOJE (a partir de DB.turmas) ===
 const DOW_KEY = ['dom','seg','ter','qua','qui','sex','sab'];
-const CHECKIN_JANELA_MIN = 30;   // janela de ±30 min p/ liberar o check-in de uma sessão
+// Janela de check-in — ASSIMÉTRICA (v306). Antes era ±30 min, o que tornava o
+// aviso de check-in pendente impossível de atender: a notificação sai 30–120 min
+// DEPOIS da aula terminar, sempre fora da janela.
+// O app conta do INÍCIO, o aviso conta do FIM — então a janela precisa cobrir
+// duração + 120. Com 240 min cabe aula de até 2h (120 + 120). Aula mais longa
+// que isso avisaria sem dar como atender: se um dia existir, subir aqui.
+// Só no mesmo dia — o check-in grava em CURRENT_DATE, nada de pós-meia-noite.
+const CHECKIN_JANELA_MIN = 30;    // antes do início
+const CHECKIN_JANELA_POS = 240;   // depois do início (dur. máx 120 + 120 do aviso)
 function _sessaoLabel(s){ return `${s.turmaNome} · ${s.hora}${s.variacao?' · '+s.variacao:''}`; }
 function sessoesDeHoje(){
   const dk = DOW_KEY[hoje.getDay()]; const out=[];
@@ -3390,10 +3454,11 @@ function _minutosAte(hora){
 }
 // Sessões de hoje dentro da janela ±minutos do agora. Ordenadas por proximidade ao início
 // (aulas próximas: a mais perto do "agora" fica em primeiro — resolve a sobreposição).
-function _sessoesNaJanela(min){
-  min = min || CHECKIN_JANELA_MIN;
+function _sessoesNaJanela(min, pos){
+  min = min || CHECKIN_JANELA_MIN;   // futuro (_dt > 0)
+  pos = pos || CHECKIN_JANELA_POS;   // passado (_dt < 0)
   const arr = sessoesDeHoje().map(s=>({ ...s, _dt:_minutosAte(s.hora) }))
-    .filter(s => s._dt!=null && Math.abs(s._dt) <= min);
+    .filter(s => s._dt!=null && s._dt <= min && s._dt >= -pos);
   arr.sort((a,b)=> Math.abs(a._dt) - Math.abs(b._dt));
   return arr;
 }
@@ -3427,7 +3492,7 @@ function _flowCheckin(){
     const feitas = _turmasComCheckin();
     const restantes = todas.filter(s => !feitas.has(s.turmaId));
     if(restantes.length === 0){ toast('Você já fez check-in em todas as aulas de hoje ✔'); DB.flow=null; render(); return; }
-    toast('Fora do horário da aula (janela de ±' + CHECKIN_JANELA_MIN + ' min)'); DB.flow=null; render(); return;
+    toast('Fora do horário da aula (até ' + CHECKIN_JANELA_POS + ' min após o início)'); DB.flow=null; render(); return;
   }
   if(ses.length > 1){ _sessaoPickSheet(ses, s=>_finalizarCheckin(s)); return; }
   _finalizarCheckin(ses[0]);   // 1 sessão elegível: direto
@@ -10628,6 +10693,8 @@ function _restoreScroll(viewKey){
 
 // ?test=1 → roda o smoke test e guarda o resultado em window.__selfTest
 try{ if (new URLSearchParams(location.search).has('test')) setTimeout(()=>{ window.__selfTest = selfTest(); }, 500); }catch(_){}
+// Push: reata o SW de quem já tinha avisos ligados + trata ?checkin=1 (v306)
+try{ setTimeout(()=>{ try{ _pushBoot(); render(); }catch(e){} }, 400); }catch(_){}
 // PWA shortcuts: ?flow=registrar | ?go=biblioteca
 try{
   const qp = new URLSearchParams(location.search);
