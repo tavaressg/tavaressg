@@ -7541,7 +7541,7 @@ function _xlsExportCSV(rows){
   _loadTurmas(); const turmaMap={}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
   rows.forEach(a=>{
     linhas.push([
-      a.nm, a.cad?.email||'', a.cad?.telefone||'',
+      a.cad?.nomeCompleto || a.nomeCompleto || a.nm || '', a.cad?.email||'', a.cad?.telefone||'',
       a.nascData ? a.nascData.split('-').reverse().join('/') : (a.nascimento||''),
       idadeCBJJ(a.nascimento)||'',
       _faixaEtariaLbl(a.nascimento)||'',
