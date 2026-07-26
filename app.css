@@ -312,7 +312,9 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .grad-aptos-row:last-child{border-bottom:none}
 .grad-aptos-row:hover{background:var(--field)}
 .grad-aptos-row.muted{opacity:.72}
-.grad-aptos-belt{flex:none;width:60px;display:flex;align-items:center;justify-content:center}
+/* Faixa maior aqui (graus legíveis) — escala PROPORCIONAL das 4 vars (~100px, 15.5px de altura). */
+.grad-aptos-belt{flex:none;display:flex;align-items:center;justify-content:center}
+.grad-aptos-belt .belt-mini{--bm-h:15.5px;--bm-body:40.5px;--bm-tip:51.4px;--bm-end:8.3px}
 .grad-aptos-info{flex:1;min-width:0}
 .grad-aptos-nm{font-size:14px;font-weight:800;color:var(--ink)}
 .grad-aptos-sub{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
@@ -1072,6 +1074,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .stat-card .si svg{width:21px;height:21px;display:block}
 .stat-card .si.red{background:var(--red-tint);color:var(--red)} .stat-card .si.blue{background:var(--blue-tint);color:var(--blue)}
 .stat-card .si.green{background:var(--green-tint);color:var(--good)} .stat-card .si.gold{background:var(--gold-tint);color:#d99400}
+.stat-card .si.gray{background:var(--field);color:var(--muted)}
 .stat-card .chg{font-size:11.5px;font-weight:700;margin-top:4px}
 .chg.up{color:var(--green)} .chg.down{color:var(--red-strong)}
 
@@ -2219,7 +2222,9 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 
 /* Presenças — histórico */
 .erp-pres-list{display:flex;flex-direction:column}
-.erp-pres-row{display:grid;grid-template-columns:64px 1fr 60px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.erp-pres-row{display:grid;grid-template-columns:64px 1fr 60px 28px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.erp-pres-del{width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--field);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:0}
+.erp-pres-del:hover{background:var(--red-tint);color:var(--red);border-color:#e5393555}
 .erp-pres-row:last-child{border-bottom:none}
 .erp-pres-dt{display:flex;flex-direction:column;align-items:center;line-height:1.1}
 .erp-pres-dt b{font-size:14px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
@@ -2274,6 +2279,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .sem-chips{display:inline-flex;flex-wrap:wrap;gap:4px;margin-top:2px}
 .sem-chip{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:99px;border:1px solid var(--line);color:var(--muted);background:var(--field)}
 .sem-chip.ok{color:#2fa86a;border-color:#2fa86a55;background:var(--green-tint,#e7f6ef)}
+.sem-chip.warn{color:#d99400;border-color:#d9940055;background:var(--gold-tint,#fff4dc)}
 .sem-chip.no{color:var(--red-strong);border-color:#e5393555;background:var(--red-tint,#fdecec)}
 .wa-btn{display:inline-block;font-size:11.5px;font-weight:800;color:#1fa855;border:1.5px solid #1fa85566;border-radius:99px;padding:5px 11px;text-decoration:none;white-space:nowrap}
 .wa-btn:active{background:#1fa85518}

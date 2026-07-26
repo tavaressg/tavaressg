@@ -644,7 +644,7 @@
     getAlunoDetalhe: wrap(async (id) => {
       const [prof, freq, grads, lesoes, prog, notas] = await Promise.all([
         SB.from('profiles').select('*').eq('id', id).single(),
-        SB.from('checkins').select('data,tipo,hora').eq('user_id', id).order('data', { ascending: false }).limit(90),
+        SB.from('checkins').select('id,data,tipo,hora').eq('user_id', id).order('data', { ascending: false }).limit(90),
         SB.from('graduations').select('*').eq('user_id', id).order('data'),
         SB.from('lesoes').select('*').eq('user_id', id).order('data', { ascending: false }),
         SB.from('technique_progress').select('*').eq('user_id', id), // objetivo, sem privado
@@ -677,6 +677,30 @@
       // Remove só os check-ins SEM aula_id (legados) do dia. Batch check-in por aula
       // é gerenciado individualmente pela aba Presenças (roadmap).
       const { error } = await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE()).is('aula_id', null);
+      if (error) throw error;
+    }),
+    // v305: apaga um check-in específico do batch (clique errado no aluno).
+    // Prefere aula_id real (turma+data+hora); cai em legado (turma+data sem aula_id).
+    removerPresencaBatch: wrap(async (userId, turmaId, data, horaAula) => {
+      let aulaId = null;
+      try {
+        let q = SB.from('aulas').select('id').eq('turma_id', turmaId).eq('data', data);
+        q = horaAula ? q.eq('hora', horaAula) : q.is('hora', null);
+        const { data: found } = await q.maybeSingle();
+        if (found) aulaId = found.id;
+      } catch (_) { /* segue p/ fallback legado */ }
+      if (aulaId) {
+        const { error } = await SB.from('checkins').delete().eq('user_id', userId).eq('aula_id', aulaId);
+        if (error) throw error;
+        return;
+      }
+      const { error } = await SB.from('checkins').delete().eq('user_id', userId).eq('turma_id', turmaId).eq('data', data).is('aula_id', null);
+      if (error) throw error;
+    }),
+
+    // v305: apaga um check-in pelo id (histórico da ficha do aluno).
+    removerCheckinId: wrap(async (checkinId) => {
+      const { error } = await SB.from('checkins').delete().eq('id', checkinId);
       if (error) throw error;
     }),
 

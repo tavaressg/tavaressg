@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v304';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v305';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4234,12 +4234,24 @@ function profBatchCheckin(turma, sessao, dataISO){
           <div class="erp-batch-nm">${safeTxt(a.nm)}</div>
           <div class="erp-batch-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)} · ${a.graus||0}º grau</div>
         </div>
-        ${jaPres?'<span class="erp-batch-flag">Já presente</span>':''}
+        ${jaPres?'<span class="erp-batch-flag" title="Clique para remover">Presente · remover</span>':''}
       </div>`);
       if(!jaPres){
         const toggle = ()=>{ if(marcados.has(key)) marcados.delete(key); else marcados.add(key); paintList(); refreshCount(); };
         row.onclick = toggle;
         row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+      } else {
+        // v305: clique errado — apaga o check-in dessa aula.
+        const undo = ()=>{
+          if(!confirm(`Remover a presença de ${a.nm} nessa aula?`)) return;
+          const done = ()=>{ jaPresIds.delete(key); paintList(); toast('Presença removida'); };
+          if(!DEMO && typeof sbProf!=='undefined' && sbProf.removerPresencaBatch && turma.id){
+            sbProf.removerPresencaBatch(a.id, turma.id, dataFinal, sessao.hora||null)
+              .then(done).catch(e=> toast('Erro: '+(e.message||e)));
+          } else { done(); }
+        };
+        row.onclick = undo;
+        row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); undo(); } };
       }
       listEl.appendChild(row);
     });
@@ -5809,7 +5821,7 @@ function _erpMain(a, tab, refresh, paint, c, hora){
   else if(tab==='grad'){ box.appendChild(_erpTimelineGrad(a, paint)); }
   else if(tab==='les'){ box.appendChild(_lesoesPanelNode(a.lesoes||[])); }
   else if(tab==='tec'){ box.appendChild(_progressoPanelNode(a.progresso||[])); }
-  else if(tab==='pres'){ box.appendChild(_erpPresencas(a.frequencia||[])); }
+  else if(tab==='pres'){ box.appendChild(_erpPresencas(a.frequencia||[], a, refresh, paint)); }
   return box;
 }
 
@@ -5925,7 +5937,7 @@ function _erpFicha(a, c, paint, refresh){
 }
 
 /* --- ERP: Presenças — histórico cronológico de check-ins, não KPIs --- */
-function _erpPresencas(freq){
+function _erpPresencas(freq, aluno, refresh, paint){
   const box=el('<div class="erp-card"></div>');
   box.appendChild(el(`<div class="erp-card-h">Histórico de presenças</div>`));
   const arr=(freq||[]).filter(c=>c&&c.data).slice().sort((a,b)=>{
@@ -5941,11 +5953,22 @@ function _erpPresencas(freq){
     const dow = DIA[dt.getDay()];
     const hora = c.hora ? String(c.hora).slice(0,5) : '—';
     const tipo = c.tipo || 'Aula';
-    list.appendChild(el(`<div class="erp-pres-row">
+    const row = el(`<div class="erp-pres-row">
       <div class="erp-pres-dt"><b>${d}/${m}</b><span>${dow}</span></div>
       <div class="erp-pres-tp">${safeTxt(tipo)}</div>
       <div class="erp-pres-hr">${safeTxt(hora)}</div>
-    </div>`));
+      ${c.id?'<button class="erp-pres-del" type="button" aria-label="Remover presença" title="Remover presença">×</button>':''}
+    </div>`);
+    const del = row.querySelector('.erp-pres-del');
+    if(del) del.onclick = (e)=>{
+      e.stopPropagation();
+      if(!confirm(`Remover a presença de ${d}/${m}?`)) return;
+      const done = ()=>{ const i=(freq||[]).indexOf(c); if(i>=0) freq.splice(i,1); if(paint) paint(); toast('Presença removida'); };
+      if(!DEMO && typeof sbProf!=='undefined' && sbProf.removerCheckinId){
+        sbProf.removerCheckinId(c.id).then(done).catch(err=> toast('Erro: '+(err.message||err)));
+      } else { done(); }
+    };
+    list.appendChild(row);
   });
   box.appendChild(list);
   return box;
@@ -6794,8 +6817,8 @@ function _lojaAgg(){
 const _DIA_LBL={seg:'Seg',ter:'Ter',qua:'Qua',qui:'Qui',sex:'Sex',sab:'Sáb',dom:'Dom'};
 function _semChip(x){
   if(!x) return '';
-  const cls=x.ok===true?'ok':x.ok===false?'no':'na';
-  const ic=x.ok===true?'✓':x.ok===false?'✗':'·';
+  const cls = x.ok===true?'ok': x.ok==='warn'?'warn': x.ok===false?'no':'na';
+  const ic  = x.ok===true?'✓': x.ok==='warn'?'!': x.ok===false?'✗':'·';
   return `<span class="sem-chip ${cls}">${ic} ${safeTxt(x.txt)}</span>`;
 }
 
@@ -8669,29 +8692,36 @@ function _gradEixosSimples(a){
   if(!minMeses) tempo = { ok:true, txt:'sem tempo mínimo' };
   else if(meses==null) tempo = { ok:null, txt:'sem data da faixa' };
   else tempo = { ok: meses>=minMeses, txt: `${meses}/${minMeses} meses` };
-  // Graus: informativo — verde se já tem grau suficiente pra próxima faixa
-  // (CBJJ: qualquer grau ≥0 vale; pode pular do 0 direto pra nova faixa se tempo cumprido)
-  const graus = { ok: true, txt: `${a.graus||0}/${maxG} graus` };
+  // Graus: semáforo real — verde no máx, amarelo em 3 (pode pular faixa CBJJ), neutro < 3.
+  const g = a.graus||0;
+  let grausOk;
+  if(g>=maxG) grausOk = true;             // completo → ok (verde)
+  else if(g>=3) grausOk = 'warn';         // 3+ → amarelo (pode pular)
+  else grausOk = null;                    // 0-2 → neutro
+  const graus = { ok: grausOk, txt: `${g}/${maxG} graus` };
   return { next, tempo, graus };
 }
 function _gradAptosSection(w){
   const cand = _profAlunosArr().map(a=>({a, s:_gradEixosSimples(a)})).filter(x=> x.s.next);
   const aptos = cand.filter(x=> x.s.tempo.ok===true);
-  const proximos = cand.filter(x=> x.s.tempo.ok===false).sort((x,y)=>{
-    // Ordena os "quase lá" pelos que estão mais próximos (%tempo cumprido)
+  const proximos = cand.filter(x=> x.s.tempo.ok===false || x.s.tempo.ok===null).sort((x,y)=>{
     const pctX = _pctTempo(x.a), pctY = _pctTempo(y.a);
     return pctY - pctX;
-  }).slice(0,10);
-  const semData = cand.filter(x=> x.s.tempo.ok===null).length;
-  // KPIs
+  });
+  // KPIs clicáveis (scroll pras seções)
+  const aptosCor = aptos.length ? 'green' : 'gray';
   const kpi = el(`<div class="stat-grid block">
-    <div class="stat-card"><div class="si green">${icoPulse()}</div><div class="sv">${aptos.length}</div><div class="sl">Aptos agora</div></div>
-    <div class="stat-card"><div class="si gold">${icoAlert()}</div><div class="sv">${proximos.length}</div><div class="sl">Próximos (falta tempo)</div></div>
-    <div class="stat-card"><div class="si blue">${icoRoster()}</div><div class="sv">${semData}</div><div class="sl">Sem data de faixa</div></div>
+    <div class="stat-card kpi-click" data-goto="aptos" tabindex="0" role="button"><div class="si ${aptosCor}">${icoPulse()}</div><div class="sv">${aptos.length}</div><div class="sl">Aptos agora</div></div>
+    <div class="stat-card kpi-click" data-goto="prox"  tabindex="0" role="button"><div class="si gold">${icoAlert()}</div><div class="sv">${proximos.length}</div><div class="sl">Próximos (falta tempo)</div></div>
   </div>`);
+  kpi.querySelectorAll('.kpi-click').forEach(c=>{
+    const scroll = ()=>{ const id = c.dataset.goto==='aptos'?'grad-sec-aptos':'grad-sec-prox'; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
+    c.onclick = scroll;
+    c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); scroll(); } };
+  });
   w.appendChild(kpi);
   // Aptos
-  w.appendChild(el(`<div class="sec-title">Aptos a graduar</div>`));
+  w.appendChild(el(`<div class="sec-title" id="grad-sec-aptos">Aptos a graduar</div>`));
   if(!aptos.length){
     w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno cumpriu o tempo mínimo da faixa ainda.</div>'));
   } else {
@@ -8722,7 +8752,7 @@ function _gradAptosSection(w){
   }
   // Próximos (falta tempo — sinaliza quanto falta)
   if(proximos.length){
-    w.appendChild(el(`<div class="sec-title">Alunos</div>`));
+    w.appendChild(el(`<div class="sec-title" id="grad-sec-prox">Alunos</div>`));
     const list = el('<div class="grad-aptos-list block"></div>');
     proximos.forEach(({a,s})=>{
       const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
@@ -8733,7 +8763,10 @@ function _gradAptosSection(w){
           <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(nextNome)}</div>
           <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
         </div>
+        ${s.tempo.ok===null?'<button class="grad-aptos-go" type="button">Definir data</button>':''}
       </div>`);
+      const bt = row.querySelector('.grad-aptos-go');
+      if(bt) bt.onclick = (e)=>{ e.stopPropagation(); DB.alunoAberto=a; DB._alunoTab='grad'; render(); window.scrollTo(0,0); };
       row.onclick = ()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
       list.appendChild(row);
     });
