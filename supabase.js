@@ -728,7 +728,17 @@
 
     criarAluno: wrap(async (dados) => {
       const { data, error } = await SB.functions.invoke('create-student', { body: dados });
-      if (error) throw error;
+      if (error) {
+        // v307: supabase-js embrulha non-2xx em FunctionsHttpError com mensagem
+        // genérica ("non-2xx status code"); o código real ({error:"rate_limited"})
+        // vive em error.context. Sem extrair, a importação em lote não consegue
+        // distinguir limite-por-hora de e-mail repetido — mesmo padrão do excluirAluno.
+        let code = null;
+        try { const body = await error.context.json(); code = body && body.error; }
+        catch (_) { /* corpo não-JSON — mantém a mensagem crua */ }
+        if (code) { const e = new Error(code); e.code = code; throw e; }
+        throw error;
+      }
       _alunosMemo = { t: 0, data: null };   // M4: invalida o memo p/ o novo aluno aparecer na lista
       return data; // { ok, user_id, email, senha_provisoria, warnings }
     }),

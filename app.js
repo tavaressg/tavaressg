@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v306';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v307';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -1311,6 +1311,28 @@ function alunoInicio(){
 
   // ---- Selo de consistência (streak) leve, abaixo da faixa (some pro aluno novo) ----
   const _sb = streakBadge(); if(_sb) w.appendChild(_sb);
+
+  // ---- Banner de avisos: insiste enquanto o toggle não é ligado ----
+  // Não dá pra ativar push sem um toque do próprio usuário (regra do navegador,
+  // nenhum app/site consegue pedir permissão sozinho). O banner é a alternativa:
+  // aparece de novo a cada visita (dismiss é só da SESSÃO, não persiste) até o
+  // aluno ligar. Some de vez quando ele ativa; não aparece se bloqueado/sem suporte
+  // (nesses casos insistir não ajuda, só irrita).
+  if(!DB._pushBannerOculto && !DEMO && typeof sbPush!=='undefined' && sbPush.suportado() && sbPush.configurado()){
+    sbPush.estado().then(est=>{
+      if(est!=='inativo') return;   // só insiste quando dá pra agir (não bloqueado, não já ativo)
+      const b = el(`<div class="push-nudge" role="button" tabindex="0">
+        <div class="pn-ic">🔔</div>
+        <div class="pn-tx"><div class="pn-t">Ative os avisos</div><div class="pn-s">Saiba quando esquecer o check-in — mesmo com o app fechado</div></div>
+        <button class="pn-x" type="button" aria-label="Fechar">✕</button>
+      </div>`);
+      const ir = async ()=>{ try{ await sbPush.ativar(); toast('Avisos ligados 🔔'); b.remove(); }catch(e){ toast(e.message||'Não deu pra ativar'); } };
+      b.onclick = (e)=>{ if(e.target.classList.contains('pn-x')) return; ir(); };
+      b.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); ir(); } };
+      b.querySelector('.pn-x').onclick = (e)=>{ e.stopPropagation(); DB._pushBannerOculto=true; b.remove(); };
+      w.insertBefore(b, _sb ? _sb.nextSibling : prog.nextSibling);
+    }).catch(()=>{});
+  }
 
   // ---- Onboarding: 1 vídeo destacado + link "Ver todos" pra biblioteca completa ----
   // Boot em background: se com backend, puxa lista da nuvem e re-renderiza se veio novidade
@@ -4725,6 +4747,19 @@ function _alunosImportValidate(rawRows){
     };
   });
 }
+// Traduz o código de erro do backend pra algo que o professor entenda e saiba
+// o que fazer. Desconhecido cai no texto cru — melhor que esconder.
+function _impMotivoPT(msg){
+  const m = String(msg);
+  if(/rate_limited|429/.test(m))            return 'Limite por hora do servidor — espere 1h e reimporte';
+  if(/already|registered|exists|409/.test(m)) return 'E-mail já cadastrado no sistema';
+  if(/email_invalido/.test(m))              return 'E-mail inválido';
+  if(/nascimento_invalido/.test(m))         return 'Ano de nascimento inválido';
+  if(/faixa_invalida/.test(m))              return 'Faixa inválida';
+  if(/sem_academia|forbidden|403/.test(m))  return 'Sem permissão (refaça o login)';
+  if(/Failed to fetch|NetworkError|network/i.test(m)) return 'Falha de conexão';
+  return m;
+}
 function profImportAlunos(){
   const state = DB.importAlunosOpen;
   const rows = state.rows || [];
@@ -4770,7 +4805,8 @@ function profImportAlunos(){
     const goBtn = page.querySelector('#im-go');
     const alvo = importaveis.slice(0, IMPORT_MAX);
     goBtn.disabled = true;
-    let ok=0, fail=0, feitos=0;
+    let ok=0, fail=0, feitos=0, abortou=false;
+    const motivos = {};   // mensagem de erro → quantas vezes ocorreu
     const total = alvo.length;
     const atualiza = ()=>{ goBtn.textContent = `Importando ${feitos}/${total}…`; };
     atualiza();
@@ -4794,12 +4830,33 @@ function profImportAlunos(){
             try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
           }
           ok++;
-        } catch(e){ fail++; }
+        } catch(e){
+          fail++;
+          // v307: guarda o MOTIVO. Antes o catch era mudo e a importação só dizia
+          // "N falhas" — o professor não tinha como saber que era rate-limit, e-mail
+          // repetido ou queda de rede. Sem isso o erro vira adivinhação.
+          const msg = String((e && (e.code || e.message)) || e);
+          motivos[msg] = (motivos[msg]||0) + 1;
+          if(/rate_limited|429/.test(msg)){ abortou = true; break; }   // insistir só gera mais 429
+        }
         feitos++; atualiza();
       }
     }
     _profData=null; _profTs=0; _loadProfData();
-    toast(`${ok} criado${ok!==1?'s':''} ✓${fail?` · ${fail} falha${fail!==1?'s':''}`:''}`);
+    const restantes = total - feitos;
+    if(abortou){
+      alert(`Importação interrompida no ${feitos}º de ${total}.\n\n`+
+        `LIMITE POR HORA ATINGIDO no servidor.\n\n`+
+        `${ok} aluno${ok!==1?'s':''} criado${ok!==1?'s':''} com sucesso.\n`+
+        `${restantes} ainda não importado${restantes!==1?'s':''}.\n\n`+
+        `Espere 1 hora e importe a mesma planilha de novo — quem já entrou é `+
+        `detectado como "E-mail já cadastrado" e não duplica.`);
+    } else if(fail){
+      const det = Object.entries(motivos).map(([m,n])=>`• ${n}× ${_impMotivoPT(m)}`).join('\n');
+      alert(`Importação concluída.\n\n${ok} criado${ok!==1?'s':''} ✓\n${fail} falha${fail!==1?'s':''} ✕\n\nMotivos:\n${det}`);
+    } else {
+      toast(`${ok} aluno${ok!==1?'s':''} importado${ok!==1?'s':''} ✓`);
+    }
     close();
   };
   return page;
