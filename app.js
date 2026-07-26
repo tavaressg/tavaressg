@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v307';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v308';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4237,6 +4237,7 @@ function renderProfessor(){
   if (DB.batchCheckin){ body.appendChild(profBatchCheckin(DB.batchCheckin.t, DB.batchCheckin.s, DB.batchCheckin.data)); v.appendChild(body); return v; }   // modo foco: sem tabbar (botão "Adicionar" fica visível no mobile)
   if (DB.turmaEditOpen){ body.appendChild(profTurmaEdit(DB.turmaEditOpen==='new'?null:DB.turmaEditOpen)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   if (DB.importAlunosOpen){ body.appendChild(profImportAlunos()); v.appendChild(body); return v; }   // modo foco
+  if (DB.acessoAlunosOpen){ body.appendChild(profAcessoAlunos()); v.appendChild(body); return v; }   // modo foco
   const nav = DB.navProf;
   if (nav==='painel')    body.appendChild(profPainel());
   if (nav==='alunos')    body.appendChild(profAlunos());
@@ -4747,11 +4748,39 @@ function _alunosImportValidate(rawRows){
     };
   });
 }
+/* Falha TRANSITÓRIA (rede/infra) vs. definitiva (e-mail repetido, dado inválido).
+   Só a transitória vale retentar — repetir um e-mail duplicado 3× só perde tempo. */
+function _impErroTransitorio(e){
+  const m = String((e && (e.code || e.message)) || e);
+  if(/rate_limited|429/.test(m)) return false;              // esperar 1h, não retentar
+  if(/already|registered|exists|409/.test(m)) return false; // determinístico
+  if(/invalido|invalid|curta|forbidden|403|401/.test(m)) return false;
+  // "Failed to send a request to the Edge Function", Failed to fetch, 5xx, timeout
+  return /failed to send|failed to fetch|networkerror|network|timeout|abort|50\d/i.test(m);
+}
+/* Reexecuta a chamada em falha de rede. O laço serial de importação atravessa
+   dezenas de requisições; uma queda pontual derrubava o aluno inteiro e o
+   professor via "erro" sem entender por quê (alguns entravam, outros não).
+   3 tentativas com espera crescente (0,6s / 1,2s) resolve o caso comum. */
+async function _impComRetry(fn, tentativas){
+  tentativas = tentativas || 3;
+  let ultimo;
+  for(let i=0;i<tentativas;i++){
+    try{ return await fn(); }
+    catch(e){
+      ultimo = e;
+      if(!_impErroTransitorio(e) || i===tentativas-1) throw e;
+      await new Promise(r=>setTimeout(r, 600*(i+1)));
+    }
+  }
+  throw ultimo;
+}
 // Traduz o código de erro do backend pra algo que o professor entenda e saiba
 // o que fazer. Desconhecido cai no texto cru — melhor que esconder.
 function _impMotivoPT(msg){
   const m = String(msg);
   if(/rate_limited|429/.test(m))            return 'Limite por hora do servidor — espere 1h e reimporte';
+  if(/failed to send|Failed to fetch/i.test(m)) return 'Conexão caiu (já tentei 3×) — reimporte a planilha';
   if(/already|registered|exists|409/.test(m)) return 'E-mail já cadastrado no sistema';
   if(/email_invalido/.test(m))              return 'E-mail inválido';
   if(/nascimento_invalido/.test(m))         return 'Ano de nascimento inválido';
@@ -4760,6 +4789,95 @@ function _impMotivoPT(msg){
   if(/Failed to fetch|NetworkError|network/i.test(m)) return 'Falha de conexão';
   return m;
 }
+/* ============================================================
+   ACESSO DOS ALUNOS (v308) — senha padrão + convite em lote.
+   Problema que resolve: a senha provisória individual aparece UMA vez, no
+   retorno do cadastro. Na importação em lote ela se perde e o professor fica
+   sem como dar acesso a ninguém — e o aluno não sabe nem o link do app.
+   ============================================================ */
+const SENHA_PADRAO = 'YamaJiuJitsu';
+function profAcessoAlunos(){
+  const close = ()=>{ DB.acessoAlunosOpen=false; render(); window.scrollTo(0,0); };
+  const page = el(`<div class="erp-batch-page">
+    <div class="erp-batch-hd">
+      <button class="erp-batch-close" id="ac-close" aria-label="Voltar">‹</button>
+      <div class="erp-batch-title">Acesso dos alunos</div>
+      <span></span>
+    </div>
+    <div class="ac-intro">
+      <div class="ac-senha">Senha padrão: <b>${safeTxt(SENHA_PADRAO)}</b></div>
+      <div class="ac-hint">Vale só pra quem <b>nunca acessou</b>. No primeiro login o app obriga a criar uma senha nova.</div>
+      <div class="ac-warn">⚠️ Enquanto o aluno não fizer o primeiro acesso, quem souber esta senha e o e-mail dele consegue entrar na conta e ver o diário de treinos. Peça pra acessarem logo.</div>
+    </div>
+    <div class="im-list" id="ac-list"><div class="loading-center">Carregando…</div></div>
+    <div class="erp-batch-foot">
+      <button class="erp-batch-go" id="ac-go" disabled>Carregando…</button>
+    </div>
+  </div>`);
+  page.querySelector('#ac-close').onclick = close;
+  const listEl = page.querySelector('#ac-list');
+  const goBtn  = page.querySelector('#ac-go');
+
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.senhaPadraoLote){
+    listEl.innerHTML = '<div class="empty-line">Indisponível no modo demo.</div>';
+    return page;
+  }
+
+  let pendentes = [];
+  const pintar = ()=>{
+    listEl.innerHTML='';
+    if(!pendentes.length){ listEl.innerHTML='<div class="empty-line">Todos os alunos já fizeram o primeiro acesso 🎉</div>'; return; }
+    pendentes.forEach(p=>{
+      // Casa com o aluno da lista carregada pra reaproveitar telefone/ficha do _waLink
+      const a = ((_profData?.alunos)||[]).find(x=> x.id===p.id) || {nm:p.nome, cad:{email:p.email}};
+      const temTel = !!_waLink(a);
+      const row = el(`<div class="im-row ${temTel?'im-ok':'im-warn'}">
+        <span class="im-ic">${temTel?'💬':'⚠'}</span>
+        <div class="im-info">
+          <div class="im-nm">${safeTxt(p.nome||a.nm||'—')}</div>
+          <div class="im-sub">${safeTxt(p.email||'sem e-mail')}${temTel?'':' · sem telefone cadastrado'}</div>
+        </div>
+        ${temTel?'<button class="ac-wa" type="button">Enviar</button>':''}
+      </div>`);
+      const btn = row.querySelector('.ac-wa');
+      if(btn) btn.onclick = ()=>{
+        const url = _waLink(a, _waConviteBody(a, SENHA_PADRAO));
+        if(!url){ toast('Sem telefone cadastrado'); return; }
+        try{ window.open(url,'_blank','noopener'); }catch(_){ location.href=url; }
+        row.classList.add('ac-enviado'); btn.textContent='Enviado ✓';
+      };
+      listEl.appendChild(row);
+    });
+  };
+
+  // dry_run: só conta/lista, não altera senha nenhuma
+  sbProf.senhaPadraoLote(SENHA_PADRAO, true).then(r=>{
+    pendentes = (r && r.alunos) || [];
+    pintar();
+    goBtn.disabled = !pendentes.length;
+    goBtn.textContent = pendentes.length
+      ? `Aplicar senha padrão a ${pendentes.length} aluno${pendentes.length!==1?'s':''}`
+      : 'Nada a fazer';
+  }).catch(e=>{
+    listEl.innerHTML = `<div class="empty-line">Falha ao carregar: ${safeTxt(e.message||e)}</div>`;
+  });
+
+  goBtn.onclick = async ()=>{
+    if(!confirm(`Definir a senha "${SENHA_PADRAO}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
+    goBtn.disabled = true; goBtn.textContent = 'Aplicando…';
+    try{
+      const r = await sbProf.senhaPadraoLote(SENHA_PADRAO, false);
+      const f = (r.falhas||[]).length;
+      alert(`${r.aplicadas} senha(s) definida(s) ✓${f?`\n${f} falha(s):\n`+r.falhas.join('\n'):''}\n\nAgora use o botão "Enviar" de cada aluno pra mandar o convite no WhatsApp.`);
+      goBtn.textContent = 'Senha aplicada ✓';
+    }catch(e){
+      goBtn.disabled=false; goBtn.textContent='Tentar de novo';
+      alert('Falha: '+(e.message||e));
+    }
+  };
+  return page;
+}
+
 function profImportAlunos(){
   const state = DB.importAlunosOpen;
   const rows = state.rows || [];
@@ -4825,7 +4943,7 @@ function profImportAlunos(){
             bairro:d.bairro, cidade:d.cidade, uf:d.uf,
             resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
             data_inicio: HOJE_ISO, observacoes: '' };
-          const rr = await sbProf.criarAluno(payload);
+          const rr = await _impComRetry(()=>sbProf.criarAluno(payload));
           if(d.nascData && rr && (rr.user_id||rr.id) && sbProf.atualizarAluno){
             try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
           }
@@ -4840,6 +4958,10 @@ function profImportAlunos(){
           if(/rate_limited|429/.test(msg)){ abortou = true; break; }   // insistir só gera mais 429
         }
         feitos++; atualiza();
+        // Respiro entre chamadas: o laço serial disparando sem pausa derrubava
+        // conexões no meio da importação ("Failed to send a request"). 150 ms
+        // não muda a percepção de tempo e estabiliza bastante.
+        await new Promise(r=>setTimeout(r,150));
       }
     }
     _profData=null; _profTs=0; _loadProfData();
@@ -5230,6 +5352,7 @@ function profAlunos(){
   const advBar = el(`<div class="erp-alunos-adv-bar">
     <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados</button>
     <div class="erp-alunos-tool-spacer"></div>
+    <button class="erp-alunos-tool" id="adv-acesso" type="button">🔑 Acesso</button>
     <button class="erp-alunos-tool" id="adv-import" type="button">↑ Importar</button>
     <button class="erp-alunos-tool" id="adv-tpl" type="button">↓ Modelo</button>
     <button class="erp-alunos-tool" id="adv-csv" type="button">↓ Excel</button>
@@ -5287,6 +5410,7 @@ function profAlunos(){
   advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSX((_profData?.alunos)||[], turmaMap);
   advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF((_profData?.alunos)||[], turmaMap);
   advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
+  advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
@@ -6581,6 +6705,21 @@ const WA_TEMPLATES = {
   gradProx:  { icon:'🥋', label:'Graduação próxima',  body:(a)=>`Oi ${_waNome(a)}, você tá quase pronto pra próxima graduação — continue firme, tá muito perto!` },
   bemVindo:  { icon:'🙌', label:'Boas-vindas',        body:(a)=>`Oi ${_waNome(a)}, seja bem-vindo(a) à Yama Jiu-Jitsu! Qualquer dúvida sobre horários ou material, me chama aqui.` },
 };
+
+/* === CONVITE DE ACESSO (v308) ===
+   O aluno importado não sabe o link do app, nem que tem conta. Esta mensagem
+   entrega as 3 coisas que faltam: link, e-mail (o login dele) e a senha padrão.
+   Fica FORA do WA_TEMPLATES porque precisa da senha, que não vem do objeto `a`. */
+const APP_URL = 'https://tavaressg.github.io/tavaressg/';
+function _waConviteBody(a, senha){
+  const email = (a.cad && a.cad.email) || a.email || '';
+  return `Oi ${_waNome(a)}, seu acesso ao app da Yama Jiu-Jitsu está pronto 🥋\n\n`
+       + `📱 Link: ${APP_URL}\n`
+       + `📧 E-mail: ${email}\n`
+       + `🔑 Senha: ${senha}\n\n`
+       + `No primeiro acesso o app pede pra você criar uma senha nova — escolha uma que só você saiba.\n\n`
+       + `Dica: abra o link no celular e use "Adicionar à Tela de Início" pra ficar igual a um aplicativo.`;
+}
 function _waNome(a){
   const c=a.cad||{}; const r=c.responsavel||{};
   const idade=idadeCBJJ(a.nascimento);

@@ -1068,6 +1068,16 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* ---------- PROFESSOR ---------- */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 20px}
 .stat-card{background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow)}
+/* Acesso dos alunos (v308): senha padrão + convite em lote */
+.ac-intro{padding:14px 20px;background:var(--card);margin:0 0 8px}
+.ac-senha{font-size:15px;margin-bottom:6px}
+.ac-senha b{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--field);padding:2px 8px;border-radius:6px}
+.ac-hint{font-size:12px;color:var(--muted);line-height:1.45}
+.ac-warn{font-size:11.5px;line-height:1.45;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--gold-tint,#fff4dc);color:#8a6100}
+[data-theme="dark"] .ac-warn{background:var(--gold-tint);color:#e0a83c}
+.ac-wa{flex:none;border:none;border-radius:8px;background:var(--good);color:#fff;font-weight:800;font-size:12px;padding:7px 12px;cursor:pointer}
+.im-row.ac-enviado{opacity:.55}
+.im-row.ac-enviado .ac-wa{background:var(--muted)}
 .push-nudge{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin:12px 20px;padding:14px 16px;cursor:pointer}
 .push-nudge .pn-ic{font-size:22px;flex:none}
 .push-nudge .pn-tx{flex:1;min-width:0}

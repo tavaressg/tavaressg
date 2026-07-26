@@ -760,6 +760,23 @@
       return data; // { ok, deleted }
     }),
 
+    // v308: aplica UMA senha padrão a todos os alunos que NUNCA acessaram.
+    // A senha provisória individual só aparece uma vez, no retorno do cadastro —
+    // na importação em lote ela se perde e o professor fica sem como dar acesso.
+    // `dryRun` só conta/lista (usado pra montar a tela antes de aplicar).
+    // Quem JÁ acessou nunca é tocado: trocar a senha de conta em uso é sequestro.
+    senhaPadraoLote: wrap(async (senha, dryRun) => {
+      const { data, error } = await SB.functions.invoke('senha-padrao', { body: { senha, dry_run: !!dryRun } });
+      if (error) {
+        let code = null;
+        try { const b = await error.context.json(); code = b && (b.detail || b.error); }
+        catch (_) { /* corpo não-JSON */ }
+        if (code) { const e = new Error(code); e.code = code; throw e; }
+        throw error;
+      }
+      return data;   // { ok, aplicadas, falhas, alunos:[{id,email,nome}] }
+    }),
+
     // Atualiza a ficha cadastral de um aluno existente (sob RLS de professor da academia).
     atualizarAluno: wrap(async (id, campos) => {
       const { error } = await SB.from('profiles').update(campos).eq('id', id);
