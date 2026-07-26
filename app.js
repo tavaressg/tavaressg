@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v303';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v304';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4201,7 +4201,7 @@ function profBatchCheckin(turma, sessao, dataISO){
       <div class="erp-batch-chip active" style="--tc:${safeAttr(turma.cor||'#334155')}"><b>${safeTxt(turma.nome)}</b><span>${safeTxt(sessao.variacao||turma.faixaEtaria||'')}</span></div>
       <label class="erp-batch-toggle">
         <input type="checkbox" id="bc-pending" checked>
-        <span>Só sem frequência hoje</span>
+        <span>Ocultar quem já marquei</span>
       </label>
     </div>
     <div class="erp-batch-list" id="bc-list"></div>
@@ -4214,15 +4214,18 @@ function profBatchCheckin(turma, sessao, dataISO){
   const goBtn = page.querySelector('#bc-go');
   const nEl = page.querySelector('#bc-n');
   const refreshCount = ()=>{ nEl.textContent = marcados.size; goBtn.disabled = marcados.size===0; };
+  // Set de user_ids que já têm check-in NESSA data (não só "hoje"). Preenchido
+  // async abaixo — enquanto isso, mostra lista neutra sem "já presente" fantasma.
+  const jaPresIds = new Set();
   const paintList = ()=>{
     listEl.innerHTML='';
     if(!alunos.length){ listEl.appendChild(el('<div class="erp-batch-empty">Nenhum aluno matriculado nessa turma.</div>')); return; }
-    const arr = onlyPending ? alunos.filter(a=>!a.pres) : alunos;
-    if(!arr.length){ listEl.appendChild(el('<div class="erp-batch-empty">Todos já com presença hoje. ✔</div>')); return; }
+    const arr = onlyPending ? alunos.filter(a=>!jaPresIds.has(a.id||a.nm)) : alunos;
+    if(!arr.length){ listEl.appendChild(el('<div class="erp-batch-empty">Todos já com presença nessa aula. ✔</div>')); return; }
     arr.forEach(a=>{
       const key = a.id || a.nm;
       const isCk = marcados.has(key);
-      const jaPres = !!a.pres;
+      const jaPres = jaPresIds.has(key);
       const belt = BELTS[a.faixa] || {cor:'#888',nome:a.faixa||''};
       const row = el(`<div class="erp-batch-row${isCk?' on':''}${jaPres?' done':''}" role="button" tabindex="0">
         <span class="erp-batch-check">${isCk?'✓':(jaPres?'✓':'')}</span>
@@ -4241,6 +4244,20 @@ function profBatchCheckin(turma, sessao, dataISO){
       listEl.appendChild(row);
     });
   };
+  // Busca no backend quem já tem check-in NESSA aula (turma+data+hora) — usa a
+  // mesma dedup do UNIQUE (user_id, aula_id). Filtra por turma_id/data/hora pra
+  // pegar tanto a aula real (com aula_id) quanto legados (via='app' sem aula_id).
+  (async ()=>{
+    if(typeof SB==='undefined' || !turma.id) return;
+    try{
+      const { data } = await SB.from('checkins')
+        .select('user_id')
+        .eq('turma_id', turma.id)
+        .eq('data', dataFinal);
+      (data||[]).forEach(r=> jaPresIds.add(r.user_id));
+      paintList();
+    }catch(e){ /* silencia — pior caso mostra tudo desmarcado */ }
+  })();
   page.querySelector('#bc-pending').onchange = (e)=>{ onlyPending = e.target.checked; paintList(); };
   goBtn.onclick = ()=>{
     if(!marcados.size) return;
