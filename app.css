@@ -254,6 +254,59 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .grade-fchip{border:1.5px solid var(--line);background:var(--card);color:var(--muted);border-radius:99px;padding:6px 14px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px}
 .grade-fchip.on{background:var(--ink);border-color:var(--ink);color:#fff}
 
+/* Abas de views de Turmas */
+.turmas-tabs{display:flex;gap:4px;margin:0 20px 12px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line)}
+.turmas-tabs::-webkit-scrollbar{display:none}
+.turmas-tab{flex:none;border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13px;padding:10px 14px;border-bottom:3px solid transparent;cursor:pointer;font-family:inherit;white-space:nowrap}
+.turmas-tab.on{color:var(--ink);border-bottom-color:var(--red)}
+
+/* Heatmap de ocupação (toggle Presença média / Matriculados) */
+.heat-ctrl{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;padding:0 2px}
+.heat-toggle{display:inline-flex;border:1.5px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.heat-tog{border:none;background:transparent;color:var(--muted);font-weight:800;font-size:12px;padding:8px 14px;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:.3px}
+.heat-tog.on{background:var(--ink);color:#fff}
+.heat-weeks{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.heat-weeks.hidden{visibility:hidden}
+.heat-weeks select{font-family:inherit;font-size:12px;padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-weight:700}
+.heat{display:grid;gap:3px;min-width:max-content}
+.heat-corner{background:transparent}
+.heat-dh{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:6px 2px;text-transform:uppercase;letter-spacing:.3px}
+.heat-hh{font-size:11px;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
+.heat-c{border-radius:0;padding:8px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;line-height:1;min-height:44px}
+.heat-c.empty{background:var(--field)}
+.heat-c b{font-weight:800;font-size:13px}
+.heat-c i{font-style:normal;opacity:.85;font-size:9.5px;margin-top:2px}
+.heat-c.blue{background:#7fb1e8}
+.heat-c.green{background:#2fa86a}
+.heat-c.gold{background:#c98a2f}
+.heat-c.red{background:#c62828}
+.heat-c.nocap{background:var(--field);color:var(--muted);border:1px dashed var(--line)}
+.heat-c.nocap i{opacity:.5}
+.heat-legend{display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:11px;color:var(--muted);font-weight:600;flex-wrap:wrap}
+.heat-legend span{display:inline-flex;align-items:center;gap:5px}
+.heat-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.heat-legend i.blue{background:#7fb1e8}
+.heat-legend i.green{background:#2fa86a}
+.heat-legend i.gold{background:#c98a2f}
+.heat-legend i.red{background:#c62828}
+.heat-note{font-style:italic;opacity:.75;font-size:10.5px}
+
+/* Menu Graduação (professor) */
+.grad-note{margin:12px 20px;padding:12px 14px;background:var(--field);border-radius:10px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.grad-note b{color:var(--ink)}
+.grad-list{background:var(--card);border-radius:12px;box-shadow:var(--shadow);margin:0 20px 20px;overflow:hidden}
+.grad-row{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.grad-row:last-child{border-bottom:none}
+.grad-row.ref{opacity:.75}
+.grad-belt-wrap{flex:none;width:60px;display:flex;align-items:center;justify-content:center}
+.grad-info{flex:1;min-width:0}
+.grad-nome{font-size:14px;font-weight:800;color:var(--ink);letter-spacing:-.1px}
+.grad-sub{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.grad-sub b{color:var(--ink);font-weight:800}
+.grad-tag{display:inline-block;font-size:9.5px;font-weight:800;color:var(--red-strong);background:var(--red-tint);padding:1px 6px;border-radius:99px;text-transform:uppercase;letter-spacing:.3px;margin-left:4px}
+.grad-edit{flex:none;border:1px solid var(--line);background:var(--card);color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px}
+.grad-edit:hover{color:var(--ink);background:var(--field)}
+
 /* Página cheia de edição de turma (não modal sheet) */
 .erp-turma-page{background:var(--bg,#f4f4f6);min-height:100vh}
 .erp-turma-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
@@ -834,11 +887,12 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .hello .date b{color:var(--red-strong)}
 
 /* ---------- Seções ---------- */
-.sec-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:800;padding:0 20px;margin-top:14px;margin-bottom:11px}
-.sec-row{display:flex;align-items:center;justify-content:space-between;padding:0 20px;margin-bottom:11px}
+.sec-title{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:800;padding:0 20px;margin-top:20px;margin-bottom:11px}
+.sec-row{display:flex;align-items:center;justify-content:space-between;padding:0 20px;margin-top:18px;margin-bottom:11px}
 .sec-row .sec-title{padding:0;margin:0}
 .sec-row a{font-size:13px;font-weight:700;color:var(--red-strong);text-decoration:none;cursor:pointer}
-.block{margin-bottom:24px}
+.block{margin-bottom:20px}
+.block + .block{margin-top:8px}   /* respiro extra entre dois cards colados */
 
 /* ---------- Card base ---------- */
 .card{background:var(--card);border-radius:18px;box-shadow:var(--shadow)}
@@ -2034,6 +2088,10 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 @media (min-width:1100px){ .erp-alunos-adv-grid{grid-template-columns:repeat(4,1fr)} }
 
 /* Strip de dias da semana (Kanri-style) */
+/* Setas ‹ › AO LADO da strip pra navegar entre semanas (limite: -2/+1). */
+.erp-weekbtn{flex:none;width:36px;align-self:stretch;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:18px;font-weight:800;cursor:pointer;line-height:1;padding:0;font-family:inherit}
+.erp-weekbtn:hover:not(:disabled){background:var(--field)}
+.erp-weekbtn:disabled{opacity:.3;cursor:not-allowed}
 .erp-daystrip{display:flex;gap:6px;padding:8px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:center}
 .erp-daystrip::-webkit-scrollbar{display:none}
 .erp-daycell{flex:none;min-width:56px;display:flex;flex-direction:column;align-items:center;padding:8px 10px 10px;background:var(--card);border:1px solid var(--line);border-radius:10px;cursor:pointer;font-family:inherit}
@@ -2069,6 +2127,34 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-batch-chip{background:var(--field);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;line-height:1.1;flex:none}
 .erp-batch-chip b{font-size:13px;color:var(--ink);font-weight:800}
 .erp-batch-chip span{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}
+/* Navegador de data (‹ ›) — retroativo até 14 dias */
+.erp-batch-datenav{display:inline-flex;gap:4px;flex:none}
+.erp-batch-nav{width:28px;height:28px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:16px;font-weight:800;cursor:pointer;line-height:1;padding:0;font-family:inherit}
+.erp-batch-nav:hover:not(:disabled){background:var(--field)}
+.erp-batch-nav:disabled{opacity:.35;cursor:not-allowed}
+
+/* Import de alunos (XLSX) */
+.im-meta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+.im-file{font-weight:800;color:var(--ink)}
+.im-stat b{font-weight:800;font-size:14px}
+.im-stat.ok b{color:var(--good)}
+.im-stat.warn b{color:#c98a2f}
+.im-stat.err b{color:var(--red-strong)}
+.im-limit{color:var(--red-strong);font-weight:700;padding:4px 10px;background:var(--red-tint);border-radius:6px}
+.im-list{padding:12px 20px 120px;display:flex;flex-direction:column;gap:4px}
+.im-row{display:grid;grid-template-columns:24px 40px 1fr;gap:10px;align-items:center;padding:10px 12px;background:var(--card);border-radius:8px;border-left:4px solid var(--line)}
+.im-row.im-ok{border-left-color:var(--good)}
+.im-row.im-warn{border-left-color:#c98a2f}
+.im-row.im-err{border-left-color:var(--red);opacity:.85}
+.im-ic{font-size:16px;font-weight:800;text-align:center}
+.im-row.im-ok .im-ic{color:var(--good)}
+.im-row.im-warn .im-ic{color:#c98a2f}
+.im-row.im-err .im-ic{color:var(--red-strong)}
+.im-linha{font-size:11px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.im-info{min-width:0}
+.im-nm{font-size:13.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.im-sub{font-size:11.5px;color:var(--muted);font-weight:500;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.im-sub i{color:var(--red-strong);font-style:normal;font-weight:600}
 .erp-batch-chip.active{background:#334155;color:#fff;border-left:4px solid var(--tc,#334155)}
 .erp-batch-chip.active b,.erp-batch-chip.active span{color:#fff}
 .erp-batch-toggle{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap;cursor:pointer}

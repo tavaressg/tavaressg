@@ -769,12 +769,19 @@
     }),
     // 0010: batch check-in por AULA. Cria/reusa aula por (turma,data,hora) e
     // insere check-ins de vários alunos em transação (RPC no backend).
-    marcarPresencaLote: wrap(async (turmaId, data, hora, userIds) => {
-      const { data: n, error } = await SB.rpc('marcar_presenca_lote', {
-        p_turma_id: turmaId, p_data: data, p_hora: hora || null, p_user_ids: userIds || [],
+    // 0010a v3: retorna {criados, ignorados} pra o UI mostrar quantos entraram
+    // e quantos foram ignorados (aluno já tinha check-in do dia). Se o backend
+    // ainda estiver na v2 (int simples), o fallback interpreta como criados.
+    marcarPresencaLote: wrap(async (turmaId, data, horaAula, userIds) => {
+      const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const { data: r, error } = await SB.rpc('marcar_presenca_lote', {
+        p_turma_id: turmaId, p_data: data,
+        p_hora_aula: horaAula || null, p_hora_checkin: agora,
+        p_user_ids: userIds || [],
       });
       if (error) throw error;
-      return n || 0;
+      if (r && typeof r === 'object') return r;   // { criados, ignorados }
+      return { criados: r || 0, ignorados: 0 };
     }),
     // 0011: append em graduations. O trigger M3 já sincroniza profiles.faixa/graus
     // pra tipo 'faixa'/'grau'. Outros tipos (inicio/honra/retroativo) só registram

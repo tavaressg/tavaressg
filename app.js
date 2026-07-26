@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v288';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v300';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4106,49 +4106,9 @@ function _profSetPago(a, status){
 }
 /* Graduação RETROATIVA: registra o histórico de faixas (aluno vindo de outra academia).
    Perfil só muda se a data for a mais recente (não rebaixa). Online exige a 0003. */
-function _gradRetroSheet(a){
-  const sh=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Graduação retroativa — ${safeTxt(a.nm)}</div>
-    <div class="sheet-desc">Registre faixas do passado para montar a linha do tempo. A faixa atual só muda se esta for a graduação mais recente.</div>
-    <label class="flbl">Faixa</label>
-    <select class="inp" id="gr-faixa">${CBJJ_CHAIN.map(f=>`<option value="${f}">${BELTS[f]?.nome||f}</option>`).join('')}</select>
-    <label class="flbl" style="margin-top:12px">Tipo</label>
-    <div class="seg" id="gr-tipo"><button class="active" data-t="faixa">Faixa nova</button><button data-t="grau">Grau</button></div>
-    <label class="flbl" style="margin-top:12px">Graus</label>
-    <select class="inp" id="gr-graus">${[0,1,2,3,4,5,6].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
-    <label class="flbl" style="margin-top:12px">Data da graduação</label>
-    <input class="inp" id="gr-data" type="date" max="${HOJE_ISO}">
-    <button class="btn-save" id="gr-save" style="margin-top:14px">Registrar</button>
-    <button class="sheet-cancel">Cancelar</button></div></div>`);
-  let tipo='faixa';
-  sh.querySelectorAll('#gr-tipo button').forEach(b=> b.onclick=()=>{ tipo=b.dataset.t;
-    sh.querySelectorAll('#gr-tipo button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
-  sh.querySelector('#gr-save').onclick=()=>{
-    const faixa=sh.querySelector('#gr-faixa').value;
-    const graus=parseInt(sh.querySelector('#gr-graus').value)||0;
-    const data=sh.querySelector('#gr-data').value;
-    if(!data){ toast('Informe a data'); return; }
-    if(data>HOJE_ISO){ toast('Data no futuro'); return; }
-    const por=(DB.professor&&DB.professor.nome)||'Professor';
-    const reg={faixa, graus, tipo, data, por};
-    if(a._self){
-      DB.graduacoes.push(reg); DB.graduacoes.sort((x,y)=>x.data.localeCompare(y.data));
-      const ultima=DB.graduacoes[DB.graduacoes.length-1];
-      if(ultima===reg){ DB.eu.faixa=faixa; DB.eu.graus=graus; }
-    } else {
-      a.graduacoes=(a.graduacoes||[]); a.graduacoes.push(reg); a.graduacoes.sort((x,y)=>x.data.localeCompare(y.data));
-      if(a.graduacoes[a.graduacoes.length-1]===reg){ a.faixa=faixa; a.graus=graus; }
-    }
-    if(!DEMO && typeof sbProf!=='undefined'){
-      sbProf.graduarAluno(a.id, faixa, graus, tipo, por, data)
-        .then(()=>toast('Graduação registrada ✔'))
-        .catch(()=>toast('Não salvou na nuvem — data retroativa exige a migration 0003'));
-    } else toast('Graduação registrada ✔');
-    sh.remove(); _profTs=0; _loadProfData(); render();
-  };
-  openSheet(sh,'.sheet-cancel');
-}
+// v300: _gradRetroSheet removido — unificado no "+ Novo evento" da timeline
+// (_erpGradForm decide automaticamente: mais recente + faixa/grau → graduarAluno
+// dispara trigger M3; retroativo/inicio → append puro via salvarGraduacao).
 
 function _profGraduarApply(a, faixa, graus, tipo){
   if(a._self){
@@ -4187,12 +4147,14 @@ function renderProfessor(){
   const body = el('<div></div>');
   // Ficha do aluno em tela cheia tem precedência sobre as abas (voltar limpa DB.alunoAberto).
   if (DB.alunoAberto){ body.appendChild(profAlunoDetalhe(DB.alunoAberto)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
-  if (DB.batchCheckin){ body.appendChild(profBatchCheckin(DB.batchCheckin.t, DB.batchCheckin.s)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.batchCheckin){ body.appendChild(profBatchCheckin(DB.batchCheckin.t, DB.batchCheckin.s, DB.batchCheckin.data)); v.appendChild(body); return v; }   // modo foco: sem tabbar (botão "Adicionar" fica visível no mobile)
   if (DB.turmaEditOpen){ body.appendChild(profTurmaEdit(DB.turmaEditOpen==='new'?null:DB.turmaEditOpen)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.importAlunosOpen){ body.appendChild(profImportAlunos()); v.appendChild(body); return v; }   // modo foco
   const nav = DB.navProf;
   if (nav==='painel')    body.appendChild(profPainel());
   if (nav==='alunos')    body.appendChild(profAlunos());
   if (nav==='turmas')    body.appendChild(profTurmas());
+  if (nav==='graduacao') body.appendChild(profGraduacao());
   if (nav==='relatorios')body.appendChild(profRelatorios());
   if (nav==='loja')      body.appendChild(profLoja());
   if (nav==='pedidos')   body.appendChild(profPedidos());
@@ -4213,12 +4175,19 @@ function renderProfessor(){
    e mostra toast. Ligar sbProf.marcarPresenca por aluno depois
    (ver análise de banco abaixo).
    ============================================================ */
-function profBatchCheckin(turma, sessao){
+// dataISO vem do PAINEL (strip de dias + navegação de semana). O batch não decide
+// mais data — só executa. Fonte única evita divergência entre as duas telas.
+function profBatchCheckin(turma, sessao, dataISO){
   const alunos = (typeof _turmaAlunos==='function' ? _turmaAlunos(turma.id) : []);
   const DIAS_K = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
   let onlyPending = true;
   const marcados = new Set();
   const close = ()=>{ DB.batchCheckin=null; render(); window.scrollTo(0,0); };
+  const _isoHoje = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const dataFinal = dataISO || _isoHoje();
+  const [_y,_m,_d] = dataFinal.split('-');
+  const isHoje = dataFinal === _isoHoje();
+  const dataLbl = `${DIAS_K[sessao.dia]||sessao.dia}, ${_d}/${_m}${isHoje?' (hoje)':''}`;
   const page = el(`<div class="erp-batch-page">
     <div class="erp-batch-hd">
       <button class="erp-batch-close" id="bc-close" aria-label="Voltar">‹</button>
@@ -4226,7 +4195,9 @@ function profBatchCheckin(turma, sessao){
       <span></span>
     </div>
     <div class="erp-batch-meta">
-      <div class="erp-batch-chip"><b>${safeTxt(sessao.hora||'—')}</b><span>${safeTxt(DIAS_K[sessao.dia]||sessao.dia||'')}</span></div>
+      <div class="erp-batch-chip">
+        <b>${safeTxt(sessao.hora||'—')}</b><span>${safeTxt(dataLbl)}</span>
+      </div>
       <div class="erp-batch-chip active" style="--tc:${safeAttr(turma.cor||'#334155')}"><b>${safeTxt(turma.nome)}</b><span>${safeTxt(sessao.variacao||turma.faixaEtaria||'')}</span></div>
       <label class="erp-batch-toggle">
         <input type="checkbox" id="bc-pending" checked>
@@ -4273,26 +4244,25 @@ function profBatchCheckin(turma, sessao){
   page.querySelector('#bc-pending').onchange = (e)=>{ onlyPending = e.target.checked; paintList(); };
   goBtn.onclick = ()=>{
     if(!marcados.size) return;
-    // Data do check-in: usa o dia SELECIONADO no strip (DB._painelDia) mapeado
-    // pra data real da semana atual. Isso permite marcar presença de outros dias.
-    const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
-    const hojeD = new Date();
-    const diff = jsToKey.indexOf(sessao.dia) - hojeD.getDay();
-    const dt = new Date(hojeD); dt.setDate(dt.getDate()+diff);
-    const dataISO = dt.toISOString().slice(0,10);
     const userIds = [...marcados];
     goBtn.disabled = true; goBtn.textContent = 'Salvando…';
-    const doLocal = (n)=>{
-      // Marca no _profData local pra a UI refletir sem re-fetch
-      userIds.forEach(uid=>{
-        const al = ((_profData?.alunos)||[]).find(x=> x.id===uid || x.nm===uid);
-        if(al){ al.pres = sessao.hora || new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); al.diasSem=0; }
-      });
-      toast(`${n} presença${n!==1?'s':''} adicionada${n!==1?'s':''} ✔`);
+    const doLocal = (r)=>{
+      const criados = (r && typeof r==='object') ? (r.criados||0) : (r||0);
+      const ignorados = (r && typeof r==='object') ? (r.ignorados||0) : 0;
+      // UI local: só marca "presente hoje" se a data gravada é hoje
+      if(isHoje){
+        userIds.forEach(uid=>{
+          const al = ((_profData?.alunos)||[]).find(x=> x.id===uid || x.nm===uid);
+          if(al){ al.pres = sessao.hora || new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); al.diasSem=0; }
+        });
+      }
+      const msgOK = criados ? `${criados} presença${criados!==1?'s':''} ✓` : '';
+      const msgSkip = ignorados ? `${ignorados} já existia${ignorados!==1?'m':''} (não sobrescrito)` : '';
+      toast([msgOK, msgSkip].filter(Boolean).join(' · ') || 'Nenhuma presença adicionada');
       close();
     };
     if(typeof sbProf!=='undefined' && sbProf.marcarPresencaLote && turma.id){
-      sbProf.marcarPresencaLote(turma.id, dataISO, sessao.hora, userIds)
+      sbProf.marcarPresencaLote(turma.id, dataFinal, sessao.hora, userIds)
         .then(n=> doLocal(n||userIds.length))
         .catch(e=>{ goBtn.disabled=false; goBtn.textContent='Adicionar frequência'; refreshCount(); toast('Erro: '+(e.message||e)); });
     } else {
@@ -4324,7 +4294,9 @@ function profPainel(){
     </div>
   </div>`));
 
-  // ---- Strip de dias da semana (só dias que TÊM turma cadastrada) ----
+  // ---- Strip de dias com navegação de SEMANA (‹ ›) ----
+  // DB._painelSemana = offset em semanas (0=atual, -1=passada, +1=próxima).
+  // Limite: 2 semanas atrás (cobre o retroativo de 14 dias) e 1 à frente.
   const DIAS_K = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
   const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
   const diaHoje = jsToKey[hoje.getDay()];
@@ -4332,24 +4304,40 @@ function profPainel(){
   const diasComTurma = new Set();
   turmas.forEach(t=> (t.sessoes||[]).forEach(s=> diasComTurma.add(s.dia)));
   const DIAS_ATIVOS = DIAS_K.filter(([k])=> diasComTurma.has(k));
-  // Se o dia salvo não tem turma, cai no atual (se tiver) ou no primeiro dia ativo
+  const semOff = DB._painelSemana || 0;
+  // Data de um dia-da-semana dentro da semana selecionada
+  const _dataDoDia = (k)=>{
+    const dt = new Date(hoje);
+    dt.setDate(dt.getDate() + (jsToKey.indexOf(k) - hoje.getDay()) + semOff*7);
+    dt.setHours(0,0,0,0);
+    return dt;
+  };
   let diaSel = DB._painelDia;
   if(!diasComTurma.has(diaSel)) diaSel = diasComTurma.has(diaHoje) ? diaHoje : (DIAS_ATIVOS[0]?.[0] || diaHoje);
-  const _dataDoDia = (k)=>{ const dt=new Date(hoje); dt.setDate(dt.getDate() + (jsToKey.indexOf(k) - hoje.getDay())); return dt; };
+  const dataSel = _dataDoDia(diaSel);
+  const hojeMid = new Date(hoje); hojeMid.setHours(0,0,0,0);
   if(DIAS_ATIVOS.length){
-    const strip = el('<div class="erp-daystrip block"></div>');
+    // Container único: ‹ · [dias...] · › — setas AO LADO da strip (não em cima)
+    const bar = el('<div class="erp-daystrip block"></div>');
+    // Só passado (até 2 semanas atrás). Futuro sem valor prático — turma da próxima semana ainda não rodou.
+    const btnPrev = el(`<button class="erp-weekbtn" id="wk-prev" aria-label="Semana anterior"${semOff<=-2?' disabled':''}>‹</button>`);
+    const btnNext = el(`<button class="erp-weekbtn" id="wk-next" aria-label="Próxima semana"${semOff>=0?' disabled':''}>›</button>`);
+    btnPrev.onclick = ()=>{ if(semOff>-2){ DB._painelSemana = semOff-1; render(); } };
+    btnNext.onclick = ()=>{ if(semOff<0){ DB._painelSemana = semOff+1; render(); } };
+    bar.appendChild(btnPrev);
     DIAS_ATIVOS.forEach(([k,lbl])=>{
       const dt = _dataDoDia(k);
-      const isHoje = k===diaHoje;
+      const isHoje = dt.getTime()===hojeMid.getTime();
       const isSel  = k===diaSel;
       const b = el(`<button class="erp-daycell${isSel?' on':''}${isHoje?' hoje':''}" type="button">
         <span class="erp-daynum">${dt.getDate()}</span>
         <span class="erp-daylbl">${lbl}</span>
       </button>`);
       b.onclick = ()=>{ DB._painelDia = k; render(); };
-      strip.appendChild(b);
+      bar.appendChild(b);
     });
-    w.appendChild(strip);
+    bar.appendChild(btnNext);
+    w.appendChild(bar);
   }
 
   // ---- Turmas do dia selecionado (horizontal scroll) ----
@@ -4367,7 +4355,8 @@ function profPainel(){
         <div class="erp-class-nome">${safeTxt(t.nome)}</div>
         ${sub?`<div class="erp-class-sub">${safeTxt(sub)}</div>`:''}
       </button>`);
-      c.onclick = ()=>{ DB.batchCheckin = {t, s}; render(); window.scrollTo(0,0); };
+      // Passa a DATA já resolvida — o batch não decide mais data, só executa.
+      c.onclick = ()=>{ DB.batchCheckin = {t, s, data: dataSel.toISOString().slice(0,10)}; render(); window.scrollTo(0,0); };
       strip2.appendChild(c);
     });
     w.appendChild(strip2);
@@ -4530,6 +4519,196 @@ function _profErrosSheet(){
         <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · v'+safeTxt(r.app_version):''}</span></div>`;
     }).join('');
   }).catch(()=>{ list.innerHTML='<div class="empty-line">Falha ao carregar os erros.</div>'; });
+}
+
+/* ============================================================
+   IMPORT DE ALUNOS EM LOTE — XLSX (SheetJS vendorizado).
+   Limite: 200 linhas/importação (proteção contra timeout e rate-limit
+   do Supabase Free). Acima disso, o professor quebra em lotes.
+   Cabeçalhos aceitos (case-insensitive, ordem livre):
+     Nome*, E-mail*, Telefone*, Ano nascimento, Data nascimento,
+     CEP, Logradouro, Número, Bairro, Cidade, UF,
+     Responsável nome, Responsável telefone, Responsável parentesco
+   ============================================================ */
+const IMPORT_MAX = 200;
+const IMPORT_TPL_HEADERS = ['Nome','E-mail','Telefone','Ano nascimento','Data nascimento','CEP','Logradouro','Número','Bairro','Cidade','UF','Responsável nome','Responsável telefone','Responsável parentesco'];
+function _alunosImportTemplate(){
+  if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
+  const exemplo = ['Gabriel Tavares de Jesus','gabriel@email.com','(31) 99999-9999','1998','15/03/1998','33252-034','Rua Antônio José Buffe','123','Felipe Cláudio de Sales','Pedro Leopoldo','MG','Maria da Silva','(31) 98888-7777','Mãe'];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([IMPORT_TPL_HEADERS, exemplo]);
+  ws['!cols'] = IMPORT_TPL_HEADERS.map(h=> ({wch: Math.max(12, h.length+2)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Alunos');
+  XLSX.writeFile(wb, `yama-modelo-import-alunos.xlsx`);
+}
+function _alunosImportOpen(){
+  const inp = document.createElement('input');
+  inp.type='file'; inp.accept='.xlsx,.xls,.csv';
+  inp.onchange = ()=>{
+    const f = inp.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try{
+        const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
+        if(!rows.length){ toast('Planilha vazia'); return; }
+        DB.importAlunosOpen = { rows: _alunosImportValidate(rows), filename: f.name };
+        render(); window.scrollTo(0,0);
+      } catch(e){ toast('Erro ao ler arquivo: '+(e.message||e)); }
+    };
+    reader.readAsArrayBuffer(f);
+  };
+  inp.click();
+}
+function _norm(s){ return String(s||'').trim(); }
+function _normEmail(s){ return _norm(s).toLowerCase(); }
+function _normHeader(k){ return _norm(k).toLowerCase().replace(/[àáâã]/g,'a').replace(/[éê]/g,'e').replace(/í/g,'i').replace(/[óô]/g,'o').replace(/ú/g,'u').replace(/ç/g,'c'); }
+const _COL_MAP = {
+  'nome':'nome','nome completo':'nome',
+  'e-mail':'email','email':'email',
+  'telefone':'telefone','whatsapp':'telefone','telefone / whatsapp':'telefone','telefone/whatsapp':'telefone',
+  'ano nascimento':'ano','ano de nascimento':'ano','nascimento':'ano',
+  'data nascimento':'data_nasc','data de nascimento':'data_nasc','dt. nasc.':'data_nasc',
+  'cep':'cep','logradouro':'logradouro','endereco':'logradouro',
+  'numero':'numero','n':'numero',
+  'bairro':'bairro','cidade':'cidade','uf':'uf',
+  'responsavel nome':'resp_nome','responsavel':'resp_nome','nome do responsavel':'resp_nome',
+  'responsavel telefone':'resp_tel','telefone responsavel':'resp_tel',
+  'responsavel parentesco':'resp_par','parentesco':'resp_par',
+};
+function _alunosImportValidate(rawRows){
+  const emailsExistentes = new Set(((_profData?.alunos)||[]).map(a=> (a.cad&&a.cad.email)||a.email||'').filter(Boolean).map(x=>x.toLowerCase()));
+  const emailsLote = new Set();
+  return rawRows.map((r,idx)=>{
+    // Normaliza cabeçalhos
+    const d = {};
+    Object.keys(r).forEach(k=>{
+      const key = _COL_MAP[_normHeader(k)];
+      if(key) d[key] = _norm(r[k]);
+    });
+    const email = _normEmail(d.email);
+    const nome = _norm(d.nome);
+    const tel = _norm(d.telefone);
+    const erros = [], avisos = [];
+    if(!nome) erros.push('Nome vazio');
+    if(!email || !email.includes('@')) erros.push('E-mail inválido');
+    else if(emailsExistentes.has(email)) erros.push('E-mail já cadastrado');
+    else if(emailsLote.has(email)) erros.push('E-mail duplicado na planilha');
+    if(!tel) avisos.push('Sem telefone');
+    // Ano nascimento
+    let ano = null;
+    if(d.ano){
+      const n = parseInt(d.ano,10);
+      if(n>=1920 && n<=hoje.getFullYear()) ano = n;
+      else avisos.push('Ano de nascimento inválido — ignorado');
+    }
+    // Data nascimento (DD/MM/AAAA → ISO)
+    let dataNasc = null;
+    if(d.data_nasc){
+      const m = d.data_nasc.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/) || d.data_nasc.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(m){
+        if(m[1].length===4) dataNasc = `${m[1]}-${m[2]}-${m[3]}`;
+        else dataNasc = `${m[3]}-${m[2]}-${m[1]}`;
+      } else avisos.push('Data de nascimento no formato errado — use DD/MM/AAAA');
+    }
+    if(!erros.length && email) emailsLote.add(email);
+    return {
+      linha: idx+2,   // +1 header +1 base-1
+      status: erros.length ? 'erro' : (avisos.length ? 'aviso' : 'ok'),
+      erros, avisos,
+      dados: {
+        nome_completo: nome,
+        apelido: nome.split(/\s+/)[0]||'',
+        email,
+        telefone: tel,
+        nascimento: ano,
+        nascData: dataNasc,
+        cep: _norm(d.cep), logradouro: _norm(d.logradouro), numero: _norm(d.numero),
+        bairro: _norm(d.bairro), cidade: _norm(d.cidade), uf: _norm(d.uf).toUpperCase(),
+        resp_nome: _norm(d.resp_nome), resp_telefone: _norm(d.resp_tel), resp_parentesco: _norm(d.resp_par),
+      },
+    };
+  });
+}
+function profImportAlunos(){
+  const state = DB.importAlunosOpen;
+  const rows = state.rows || [];
+  const stats = { ok:0, aviso:0, erro:0 };
+  rows.forEach(r=> stats[r.status]++);
+  const importaveis = rows.filter(r=> r.status!=='erro');
+  const excedeu = importaveis.length > IMPORT_MAX;
+  const close = ()=>{ DB.importAlunosOpen=null; render(); window.scrollTo(0,0); };
+  const page = el(`<div class="erp-batch-page">
+    <div class="erp-batch-hd">
+      <button class="erp-batch-close" id="im-close" aria-label="Voltar">‹</button>
+      <div class="erp-batch-title">Importar alunos</div>
+      <span></span>
+    </div>
+    <div class="im-meta">
+      <span class="im-file">${safeTxt(state.filename||'planilha.xlsx')}</span>
+      <span class="im-stat ok"><b>${stats.ok}</b> pronto${stats.ok!==1?'s':''}</span>
+      <span class="im-stat warn"><b>${stats.aviso}</b> aviso${stats.aviso!==1?'s':''}</span>
+      <span class="im-stat err"><b>${stats.erro}</b> bloqueado${stats.erro!==1?'s':''}</span>
+      ${excedeu?`<span class="im-limit">Limite: ${IMPORT_MAX}/vez — só as primeiras ${IMPORT_MAX} serão importadas</span>`:''}
+    </div>
+    <div class="im-list" id="im-list"></div>
+    <div class="erp-batch-foot">
+      <button class="erp-batch-go" id="im-go"${importaveis.length?'':' disabled'}>Importar ${Math.min(importaveis.length,IMPORT_MAX)} aluno${importaveis.length!==1?'s':''}</button>
+    </div>
+  </div>`);
+  page.querySelector('#im-close').onclick = close;
+  const listEl = page.querySelector('#im-list');
+  rows.forEach(r=>{
+    const cls = r.status==='erro'?'im-err':(r.status==='aviso'?'im-warn':'im-ok');
+    const ic = r.status==='erro'?'✗':(r.status==='aviso'?'⚠':'✓');
+    const msgs = [...r.erros, ...r.avisos].join(' · ');
+    listEl.appendChild(el(`<div class="im-row ${cls}">
+      <span class="im-ic">${ic}</span>
+      <span class="im-linha">L${r.linha}</span>
+      <div class="im-info">
+        <div class="im-nm">${safeTxt(r.dados.nome_completo||'(sem nome)')}</div>
+        <div class="im-sub">${safeTxt(r.dados.email||'—')} · ${safeTxt(r.dados.telefone||'—')}${msgs?' · <i>'+safeTxt(msgs)+'</i>':''}</div>
+      </div>
+    </div>`));
+  });
+  page.querySelector('#im-go').onclick = async ()=>{
+    const goBtn = page.querySelector('#im-go');
+    const alvo = importaveis.slice(0, IMPORT_MAX);
+    goBtn.disabled = true;
+    let ok=0, fail=0, feitos=0;
+    const total = alvo.length;
+    const atualiza = ()=>{ goBtn.textContent = `Importando ${feitos}/${total}…`; };
+    atualiza();
+    if(DEMO || typeof sbProf==='undefined' || !sbProf.criarAluno){
+      // Offline: só simula
+      alvo.forEach(r=>{ ok++; feitos++; });
+      atualiza();
+    } else {
+      // Serial pra ver progresso + evitar rate-limit
+      for(const r of alvo){
+        try{
+          const d = r.dados;
+          const payload = { nome_completo:d.nome_completo, apelido:d.apelido, email:d.email,
+            faixa:'branca', graus:0, nascimento:d.nascimento, desde: HOJE_ISO.slice(0,7),
+            telefone:d.telefone, cep:d.cep, logradouro:d.logradouro, numero:d.numero,
+            bairro:d.bairro, cidade:d.cidade, uf:d.uf,
+            resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
+            data_inicio: HOJE_ISO, observacoes: '' };
+          const rr = await sbProf.criarAluno(payload);
+          if(d.nascData && rr && (rr.user_id||rr.id) && sbProf.atualizarAluno){
+            try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
+          }
+          ok++;
+        } catch(e){ fail++; }
+        feitos++; atualiza();
+      }
+    }
+    _profData=null; _profTs=0; _loadProfData();
+    toast(`${ok} criado${ok!==1?'s':''} ✓${fail?` · ${fail} falha${fail!==1?'s':''}`:''}`);
+    close();
+  };
+  return page;
 }
 
 /* ============================================================
@@ -4900,6 +5079,8 @@ function profAlunos(){
   const advBar = el(`<div class="erp-alunos-adv-bar">
     <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados</button>
     <div class="erp-alunos-tool-spacer"></div>
+    <button class="erp-alunos-tool" id="adv-import" type="button">↑ Importar</button>
+    <button class="erp-alunos-tool" id="adv-tpl" type="button">↓ Modelo</button>
     <button class="erp-alunos-tool" id="adv-csv" type="button">↓ Excel</button>
     <button class="erp-alunos-tool" id="adv-pdf" type="button">↓ PDF</button>
     <button class="erp-alunos-add primary" id="adv-new" type="button">＋ Novo aluno</button>
@@ -4954,6 +5135,8 @@ function profAlunos(){
   };
   advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSX((_profData?.alunos)||[], turmaMap);
   advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF((_profData?.alunos)||[], turmaMap);
+  advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
+  advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
   const fab = el(`<button class="erp-fab" type="button" aria-label="Cadastrar aluno">＋</button>`);
@@ -5195,8 +5378,11 @@ function _selfProgresso(){
 function abrirCadastroAluno(){ DB.cadastroAlunoOpen=true; render(); window.scrollTo(0,0); }
 function renderCadastroAluno(){
   const refresh = ()=>{};   // voltar já re-renderiza a lista de alunos (cache invalidado antes)
-  let selFaixa='branca', selGraus=0, step=0; const selTurmas=new Set();
-  const STEPS=['Dados do aluno','Endereço','Responsável','Graduação'];
+  // v296: cadastro básico ERP. Faixa/grau/turmas/observações ficam pra depois
+  // (ficha do aluno + botão "Graduar"). Menos atrito no cadastro em lote.
+  const selFaixa='branca', selGraus=0;
+  let step=0;
+  const STEPS=['Dados do aluno','Endereço','Responsável'];
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
     <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
@@ -5252,20 +5438,6 @@ function renderCadastroAluno(){
       </div>
     </div>
 
-    <div class="cad-step" data-step="3" hidden>
-      <div class="cad-sec">Graduação & administrativo</div>
-      <label class="flbl">Faixa <span class="ca-opt" id="ca-faixa-hint">(informe o nascimento p/ filtrar por idade — CBJJ)</span></label>
-      <div id="ca-faixa"></div>
-      <label class="flbl" style="margin-top:12px">Graus</label>
-      <div class="seg" id="ca-graus"></div>
-      <label class="flbl" style="margin-top:12px">Data de início <span class="ca-opt">(opcional)</span></label>
-      ${dateBRField('ca-inicio', HOJE_ISO)}
-      <label class="flbl" style="margin-top:12px">Observações <span class="ca-opt">(opcional)</span></label>
-      <textarea class="ta" id="ca-obs" placeholder="Anotações administrativas (não vê no app do aluno)"></textarea>
-      <label class="flbl" style="margin-top:12px">Turmas <span class="ca-opt">(matrícula — toque para selecionar)</span></label>
-      <div id="ca-turmas" class="turma-chips"></div>
-    </div>
-
     <div class="cad-nav">
       <button class="sheet-cancel" id="ca-back">Cancelar</button>
       <button class="btn-save" id="ca-next">Continuar</button>
@@ -5276,30 +5448,7 @@ function renderCadastroAluno(){
   const tryClose=()=>{ if(_caDirty) _confirmDescartar(back); else back(); };
   const _bk=v.querySelector('.back');
   _bk.onclick=tryClose; _bk.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tryClose(); } };
-  // Chips de turmas (matrícula) na etapa Graduação
-  _turmaChips(sheet.querySelector('#ca-turmas'), selTurmas, ()=>{ _caDirty=true; });
-  // Faixa filtrada por idade (CBJJ) — campo VISUAL de mini-faixas; reconstrói ao digitar o nascimento.
-  const segF=sheet.querySelector('#ca-faixa');
-  const hintF=sheet.querySelector('#ca-faixa-hint');
-  const nascInp=sheet.querySelector('#ca-nasc');
-  const segG=sheet.querySelector('#ca-graus');
-  const _rebuildCadGraus=()=>{   // B5: graus acompanham a faixa (preta=6; demais=4) — reconstrói ao trocar a faixa
-    const mx=maxGrausDe(selFaixa); if(selGraus>mx) selGraus=mx;
-    segG.innerHTML='';
-    for(let g=0;g<=mx;g++){ const b=el(`<button class="${g===selGraus?'active':''}">${g}º</button>`);
-      b.onclick=()=>{ selGraus=g; segG.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segG.appendChild(b); }
-  };
-  const _rebuildCadFaixas=()=>{
-    // v193: filtro por idade removido — o professor escolhe a faixa. Mostra a cadeia inteira (CBJJ_CHAIN).
-    const nv=parseInt(nascInp.value); const idade=(nv>=1920&&nv<=hoje.getFullYear())?idadeCBJJ(nv):null;
-    const faixas=CBJJ_CHAIN.slice();
-    if(!faixas.includes(selFaixa)) selFaixa=faixas[0];
-    if(hintF) hintF.textContent = idade!=null ? `(${idade} anos${categoriaCBJJ(nv)?' · '+categoriaCBJJ(nv):''})` : '';
-    renderBeltField(segF, faixas, selFaixa, (f)=>{ selFaixa=f; _rebuildCadFaixas(); _rebuildCadGraus(); });
-    _rebuildCadGraus();
-  };
-  nascInp.addEventListener('input', _rebuildCadFaixas);
-  _rebuildCadFaixas();
+  // v296: campos de faixa/graus/turmas removidos — configura pela ficha depois.
   // ViaCEP: digita CEP → auto-preenche logradouro/bairro/cidade/UF, foca no número
   bindViaCEP(sheet.querySelector('#ca-cep'), {
     logr:   sheet.querySelector('#ca-logr'),
@@ -5349,26 +5498,23 @@ function renderCadastroAluno(){
     const telefone=val('ca-tel');
     const cep=val('ca-cep'), logradouro=val('ca-logr'), numero=val('ca-num'), bairro=val('ca-bairro'), cidade=val('ca-cidade'), uf=val('ca-uf').toUpperCase();
     const resp_nome=val('ca-rnome'), resp_telefone=val('ca-rtel'), resp_parentesco=val('ca-rpar');
-    const data_inicio=dateBRRead(sheet.querySelector('#ca-inicio'))||HOJE_ISO, observacoes=val('ca-obs');
+    // v296: início = hoje, sem obs, faixa/grau default (branca/0). Ajusta na ficha.
+    const data_inicio=HOJE_ISO, observacoes='';
     const senha=_gerarSenhaProvisoria();
     const dados={ nome_completo:nome, apelido, email, faixa:selFaixa, graus:selGraus, nascimento, desde:HOJE_ISO.slice(0,7),
       telefone, cep, logradouro, numero, bairro, cidade, uf,
       resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes };
-    const turmas=[...selTurmas];
-    if(!DEMO && typeof sbProf!=='undefined'){   // demo nunca dispara a nuvem
+    if(!DEMO && typeof sbProf!=='undefined'){
       try{ const r=await sbProf.criarAluno(dados);
-        const novoId=(r&&(r.user_id||r.id))||null;   // a Edge retorna user_id (não id)
-        // Matrícula nas turmas marcadas — enrollments reais (enroll_prof_write já existe na 0001).
-        if(turmas.length && novoId && sbProf.matricular){ try{ await sbProf.matricular(novoId, turmas); }catch(_){}}
-        // Data completa de nascimento (opcional): a Edge não conhece a coluna — update pós-cadastro.
+        const novoId=(r&&(r.user_id||r.id))||null;
         if(nascData && novoId && sbProf.atualizarAluno){ try{ await sbProf.atualizarAluno(novoId, {nascimento_data:nascData}); }catch(_){}}
-        _profData=null; _profTs=0; _loadProfData();   // M4: invalida o cache ANTES de voltar p/ o novo aluno aparecer
+        _profData=null; _profTs=0; _loadProfData();
         back(); _senhaProvisoriaSheet(email, (r&&r.senha_provisoria)||senha); return; }
       catch(e){ toast('Erro ao cadastrar: '+(e.message||e)); return; }
     }
-    // offline (mock): adiciona à lista com a ficha cadastral (vista no detalhe do aluno)
+    // offline (mock)
     const novo={ id:'mock-'+Date.now(), nm:apelido||nome, ini:_iniciaisDe(apelido||nome), cor:_corAluno(nome),
-      faixa:selFaixa, graus:selGraus, nascimento, nascData, pres:null, pago:'ok', mensValor:0, mensVenc:'—', desde:dados.desde, turmas,
+      faixa:selFaixa, graus:selGraus, nascimento, nascData, pres:null, pago:'ok', mensValor:0, mensVenc:'—', desde:dados.desde, turmas:[],
       cad:{ nomeCompleto:nome, email, nascimento, telefone,
         endereco:{ cep, logradouro, numero, bairro, cidade, uf },
         responsavel:{ nome:resp_nome, telefone:resp_telefone, parentesco:resp_parentesco },
@@ -5792,12 +5938,13 @@ function _erpPresencas(freq){
 function _erpActions(a, tab, refresh, paint, hora){
   const box=el('<div></div>');
   const rows=[];
-  if(!a.pres) rows.push(['pa-add','✓ Lançar presença', ()=>{ _profSetPresenca(a,hora); refresh(); paint(); toast('Presença lançada ✔'); }]);
-  else rows.push(['pa-rem','❌ Remover presença','danger', ()=>{ _profSetPresenca(a,null); refresh(); paint(); toast('Presença removida'); }]);
+  // v292: presença só via fluxo Turma → Adicionar frequência (batch com aula_id/turma/hora reais).
+  // Lançar/remover manual daqui foi removido pra ter UM só caminho de gravação (evita histórico
+  // sem contexto e divergência entre checkins.turma_id/aula_id).
   if(a.pago==='late') rows.push(['pa-pago','💰 Marcar como pago','', ()=>{ _profSetPago(a,'ok'); refresh(); paint(); toast('Pago ✔'); }]);
   else rows.push(['pa-late','⚠️ Marcar vencido','danger', ()=>{ _profSetPago(a,'late'); refresh(); paint(); toast('Vencido'); }]);
   if(_waLink(a)) rows.push(['pa-wa','💬 WhatsApp','', ()=>{ const u=_waLink(a); if(u) window.open(u,'_blank','noopener'); }]);
-  rows.push(['pa-retro','🕰️ Graduação retroativa','', ()=>{ _gradRetroSheet(a); }]);
+  // v300: "Graduação retroativa" unificado no "+ Novo evento" da timeline (aba Graduação).
   if(DB.eu && DB.eu.role==='dono' && !a._self) rows.push(['pa-promo','⬆️ Promover a professor','', ()=>{ _profPromoverSheet(a, ()=>{ refresh(); paint(); }); }]);
   if(!(a._self||a.role==='professor'||a.role==='dono')) rows.push(['pa-del','🗑️ Excluir','danger', ()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; DB._alunoTab=null; refresh(); render(); }); }]);
   rows.forEach(([id,lbl,cls,fn])=>{
@@ -5905,20 +6052,40 @@ function _erpGradForm(a, existing, paint){
   sh.onclick=(e)=>{ if(e.target===sh) close(); };
   sh.querySelector('#gf-save').onclick=()=>{
     if(!dInp.value){ toast('Informe a data'); return; }
+    if(dInp.value > HOJE_ISO){ toast('Data no futuro'); return; }
     const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: dInp.value, nota: nInp.value.trim() };
-    // Persiste no backend quando disponível; senão, mantém in-memory (demo/local)
-    const persist = (idAtual)=>{
-      if(!(typeof sbProf!=='undefined' && sbProf.salvarGraduacao && a.id)) return Promise.resolve(idAtual);
-      return sbProf.salvarGraduacao({ id: idAtual, user_id: a.id, ...novo });
+    // v300: unifica "Novo evento" + "Graduação retroativa". Regra:
+    //  - Se este evento é o MAIS RECENTE da timeline E tipo faixa/grau →
+    //    chama graduarAluno (trigger M3 sincroniza profiles.faixa/graus).
+    //  - Senão (retroativo, inicio, ou não-mais-recente) → append puro via salvarGraduacao.
+    // Assim faixa atual sempre reflete o último evento sem duplicar caminho.
+    const eventos = (a.graduacoes||[]).slice();
+    if(existing){ const i=eventos.indexOf(existing); if(i>=0) eventos.splice(i,1); }
+    eventos.push(novo);
+    eventos.sort((x,y)=>x.data.localeCompare(y.data));
+    const isUltimo = eventos[eventos.length-1] === novo;
+    const dispara = isUltimo && (novo.tipo==='faixa' || novo.tipo==='grau');
+    const por = (DB.professor && DB.professor.nome) || 'Professor';
+    const persist = ()=>{
+      if(typeof sbProf==='undefined' || !a.id) return Promise.resolve(null);
+      if(dispara && sbProf.graduarAluno){
+        return sbProf.graduarAluno(a.id, novo.faixa, novo.graus, novo.tipo, por, novo.data).then(()=> null);
+      }
+      if(sbProf.salvarGraduacao){
+        return sbProf.salvarGraduacao({ id: existing && existing.id, user_id: a.id, ...novo, por });
+      }
+      return Promise.resolve(null);
     };
-    persist(existing && existing.id).then(newId=>{
+    persist().then(newId=>{
       if(existing){
         const idx = (a.graduacoes||[]).indexOf(existing);
         if(idx>=0) a.graduacoes[idx] = { ...novo, id: newId || existing.id };
       } else {
         a.graduacoes = (a.graduacoes||[]).concat([{ ...novo, id: newId }]);
       }
-      toast(existing?'Evento atualizado ✔':'Evento adicionado ✔');
+      // Atualiza faixa/grau atual local quando é o último evento faixa/grau
+      if(dispara){ a.faixa = novo.faixa; a.graus = novo.graus; }
+      toast(existing ? 'Evento atualizado ✔' : (dispara ? 'Graduação registrada ✔' : 'Evento retroativo registrado ✔'));
       close(); paint();
     }).catch(e=> toast('Erro ao salvar: '+(e.message||e)));
   };
@@ -7906,13 +8073,26 @@ function profTurmas(){
   const n = _turmasArr().length;
   w.innerHTML = `<div class="hello"><div class="date">Turmas</div>
     <div class="greet">${n} turma${n!==1?'s':''} · grade semanal</div></div>`;
-  // Grade semanal — única view. Timeline por instrutor e Heatmap de ocupação foram
-  // removidos no v288: dependiam de _MOCK_INSTRUTORES/duracao/capacidade fictícios e
-  // confundiam o dono (dados inventados). Voltam quando houver instrutor_id/checkins reais.
   const turmasArr = _turmasArr();
+  // Abas: Grade + Ocupação (heatmap). Instrutores fica fora até termos instrutor_id
+  // real na tabela turma_sessoes (dep da migration 0012).
+  const tab = DB._turmasTab || 'grade';
+  const TABS = [['grade','Grade'],['heat','Ocupação']];
+  const tabsBar = el('<div class="turmas-tabs"></div>');
+  TABS.forEach(([k,l])=>{
+    const b = el(`<button class="turmas-tab${k===tab?' on':''}">${l}</button>`);
+    b.onclick = ()=>{ DB._turmasTab = k; render(); };
+    tabsBar.appendChild(b);
+  });
+  w.appendChild(tabsBar);
   const grade = el('<div class="mod-card" style="padding:14px 12px"></div>');
-  grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
-  grade.appendChild(_gradeHorarios(turmasArr));
+  if(tab==='grade'){
+    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Grade de horários</div>`));
+    grade.appendChild(_gradeHorarios(turmasArr));
+  } else if(tab==='heat'){
+    grade.appendChild(el(`<div class="mod-title" style="margin-bottom:8px;padding:0 4px">Heatmap de ocupação</div>`));
+    grade.appendChild(_viewHeatmap(turmasArr));
+  }
   w.appendChild(grade);
   const add = el(`<button class="add-turma">+ Nova turma</button>`);
   add.onclick=()=> _turmaSheet(null);
@@ -7937,6 +8117,88 @@ function profTurmas(){
 }
 
 // Grade semanal: linhas = horas distintas ordenadas; colunas = dias com sessão.
+
+/* ============================================================
+   VIEW OCUPAÇÃO — heatmap com toggle Matriculados ↔ Presença média.
+   Matriculados: dado REAL (_turmaAlunos × turma.capacidade_max).
+   Presença média: heurística estável até a migration 0010 (checkin por
+   aula) desbloquear a query real das últimas N semanas.
+   ============================================================ */
+function _hashSeed(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))|0; return Math.abs(h); }
+function _ocupCell(turma, modo, semanas){
+  const cap = turma.capacidade_max || 0;
+  const matr = _turmaAlunos(turma.id).length;
+  if(modo==='freq'){
+    // Heurística estável (fator 0.45–0.85 por turma). ponytail: heurística até 0010
+    // — trocar por SELECT avg(count) FROM checkins JOIN aulas WHERE ... GROUP BY data
+    const seed = _hashSeed(turma.id + (semanas||8));
+    const fator = 0.45 + (seed%40)/100;
+    return { n: Math.round(matr*fator), cap };
+  }
+  return { n: matr, cap };
+}
+function _viewHeatmap(turmas){
+  const wrap = el('<div></div>');
+  const modo = DB._heatMode || 'freq';
+  const semanas = DB._heatSemanas || 8;
+  const ctrl = el(`<div class="heat-ctrl">
+    <div class="heat-toggle">
+      <button class="heat-tog${modo==='freq'?' on':''}" data-m="freq">Presença média</button>
+      <button class="heat-tog${modo==='matr'?' on':''}" data-m="matr">Matriculados</button>
+    </div>
+    <label class="heat-weeks${modo!=='freq'?' hidden':''}">
+      <span>Janela</span>
+      <select id="heat-w">
+        ${[4,8,12,24].map(x=>`<option value="${x}"${x===semanas?' selected':''}>${x} semanas</option>`).join('')}
+      </select>
+    </label>
+  </div>`);
+  ctrl.querySelectorAll('[data-m]').forEach(b=> b.onclick=()=>{ DB._heatMode = b.dataset.m; render(); });
+  ctrl.querySelector('#heat-w').onchange = (e)=>{ DB._heatSemanas = parseInt(e.target.value,10)||8; render(); };
+  wrap.appendChild(ctrl);
+  const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
+  const cells = {}, horasSet = new Set(), diasSet = new Set();
+  turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
+    const k = s.dia+'|'+s.hora;
+    const oc = _ocupCell(t, modo, semanas);
+    cells[k] = cells[k] || {n:0,cap:0,turmas:[],ids:[]};
+    cells[k].n += oc.n; cells[k].cap += oc.cap;
+    cells[k].turmas.push(t.nome); cells[k].ids.push(t.id);
+    horasSet.add(s.hora); diasSet.add(s.dia);
+  }));
+  const horas = [...horasSet].sort();
+  const dias = DIAS.filter(([d])=> diasSet.has(d));
+  if(!horas.length){ wrap.appendChild(el('<div class="empty-hint">Sem sessões cadastradas.</div>')); return wrap; }
+  const heat = el('<div class="heat"></div>');
+  heat.style.gridTemplateColumns = `56px repeat(${dias.length}, minmax(46px,1fr))`;
+  heat.appendChild(el('<div class="heat-corner"></div>'));
+  dias.forEach(([,lbl])=> heat.appendChild(el(`<div class="heat-dh">${lbl}</div>`)));
+  horas.forEach(h=>{
+    heat.appendChild(el(`<div class="heat-hh">${safeTxt(h)}</div>`));
+    dias.forEach(([d])=>{
+      const c = cells[d+'|'+h];
+      if(!c){ heat.appendChild(el('<div class="heat-c empty"></div>')); return; }
+      const open = ()=> _turmaSheet(c.ids[0]);
+      if(!c.cap){
+        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${c.n}</b><i>—</i></div>`);
+        cell.onclick = open; heat.appendChild(cell); return;
+      }
+      const pct = Math.round(c.n*100/c.cap);
+      const kind = pct>=90?'red' : pct>=70?'gold' : pct>=40?'green' : 'blue';
+      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+c.n+'/'+c.cap+' ('+pct+'%)')}"><b>${c.n}</b><i>/${c.cap}</i></div>`);
+      cell.onclick = open; heat.appendChild(cell);
+    });
+  });
+  wrap.appendChild(heat);
+  wrap.appendChild(el(`<div class="heat-legend">
+    <span><i class="blue"></i> &lt;40%</span>
+    <span><i class="green"></i> 40-70%</span>
+    <span><i class="gold"></i> 70-90%</span>
+    <span><i class="red"></i> ≥90%</span>
+    ${modo==='freq'?'<span class="heat-note">Presença média: heurística estável até migration 0010 (checkin por aula)</span>':''}
+  </div>`));
+  return wrap;
+}
 
 // Grade de horários — renderiza DUAS variantes + chips filtro de faixa etária.
 //   .grade-desktop (dias em cima, horas na esquerda) — mostra em >=800px
@@ -8368,6 +8630,120 @@ function _turmaMatricularSheet(t, done){
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
+/* ============================================================
+   PROFESSOR — Graduação (menu próprio, v291)
+   Mostra todas as faixas com visual (beltMini/beltPill) + nome +
+   quantas aulas configuradas pra passar de grau (regra da academia
+   OU default global). Editar meta ali mesmo (persistente em
+   academies.config.metaAulas — v0003).
+   ============================================================ */
+function profGraduacao(){
+  const w = el('<div></div>');
+  w.innerHTML = `<div class="hello"><div class="date">Graduação</div>
+    <div class="greet">Metas de aulas por faixa · regras CBJJ ${CBJJ.version}</div></div>`;
+
+  // Lista canônica: infantil (grupo cinza→verde) + adulto (branca→preta).
+  // Coral/vermelha não têm meta de aulas — ficam no fim como referência.
+  // porTempo: renderiza como referência (sem meta de aulas, sem editar) — CBJJ usa
+  // tempo acumulado, não presenças. Vale pra preta (6 graus) e faixas altas.
+  const grupos = [
+    { titulo:'Infantil (4–15 anos)', faixas:[
+      'cinza_branca','cinza','cinza_preta',
+      'amarela_branca','amarela','amarela_preta',
+      'laranja_branca','laranja','laranja_preta',
+      'verde_branca','verde','verde_preta',
+    ], stripes:0 },
+    { titulo:'Adulto (16+)', faixas:['branca','azul','roxa','marrom'], stripes:4 },
+    { titulo:'Preta (adulto — por tempo acumulado)', faixas:['preta'], stripes:6, porTempo:true },
+  ];
+
+  const defaultMeta = PROF_METAS.META_GRAU;
+  const metasCfg = (DB.academyConfig && DB.academyConfig.metaAulas) || {};
+  const notaInfo = el(`<div class="grad-note block">
+    <div>Cada grau exige um <b>número mínimo de presenças</b> (aulas) além do tempo mínimo na faixa (regra CBJJ). Ajuste por faixa se sua academia usa meta diferente do padrão global (<b>${defaultMeta}</b> aulas).</div>
+  </div>`);
+  w.appendChild(notaInfo);
+
+  grupos.forEach(g=>{
+    w.appendChild(el(`<div class="sec-title">${safeTxt(g.titulo)}</div>`));
+    const list = el('<div class="grad-list block"></div>');
+    g.faixas.forEach(f=>{
+      const info = BELTS[f] || {nome:f, cor:'#888'};
+      // Preta e faixas altas: por tempo acumulado (CBJJ) — sem meta editável de aulas
+      if(g.porTempo){
+        list.appendChild(el(`<div class="grad-row ref">
+          <div class="grad-belt-wrap">${beltMini(f, g.stripes)}</div>
+          <div class="grad-info">
+            <div class="grad-nome">${safeTxt(info.nome)}</div>
+            <div class="grad-sub">${g.stripes} graus · por tempo acumulado (CBJJ)</div>
+          </div>
+        </div>`));
+        return;
+      }
+      const meta = _metaAulasFaixa(f);
+      const isCustom = metasCfg[f] && parseInt(metasCfg[f])>0 && parseInt(metasCfg[f])!==defaultMeta;
+      const row = el(`<div class="grad-row">
+        <div class="grad-belt-wrap">${beltMini(f, g.stripes)}</div>
+        <div class="grad-info">
+          <div class="grad-nome">${safeTxt(info.nome)}</div>
+          <div class="grad-sub">${g.stripes>0?g.stripes+' graus por faixa · ':''}<b>${meta}</b> aulas/grau${isCustom?' <span class="grad-tag">personalizada</span>':''}</div>
+        </div>
+        <button class="grad-edit" type="button" aria-label="Editar meta">✎</button>
+      </div>`);
+      row.querySelector('.grad-edit').onclick = ()=> _profMetaAulasSheet(f, ()=>render());
+      list.appendChild(row);
+    });
+    w.appendChild(list);
+  });
+
+  // Referência: faixas altas sem meta de aulas
+  w.appendChild(el(`<div class="sec-title">Faixas altas (referência)</div>`));
+  const ref = el('<div class="grad-list block"></div>');
+  ['coral','coral_branca','vermelha'].forEach(f=>{
+    const info = BELTS[f] || {nome:f};
+    ref.appendChild(el(`<div class="grad-row ref">
+      <div class="grad-belt-wrap">${beltMini(f, 0)}</div>
+      <div class="grad-info">
+        <div class="grad-nome">${safeTxt(info.nome)}</div>
+        <div class="grad-sub">por tempo acumulado na preta (CBJJ)</div>
+      </div>
+    </div>`));
+  });
+  w.appendChild(ref);
+  return w;
+}
+
+// Sheet mínimo pra editar meta de aulas por faixa. Persiste em DB.academyConfig.metaAulas.
+// Backend real: sbProf.salvarConfig({metaAulas:{[faixa]:N}}) — se não existir, só toca em memória.
+function _profMetaAulasSheet(faixa, refresh){
+  const info = BELTS[faixa] || {nome:faixa};
+  const atual = _metaAulasFaixa(faixa);
+  const sh = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Meta de aulas — ${safeTxt(info.nome)}</div>
+    <div class="sheet-desc">Quantas presenças o aluno precisa completar pra ganhar um novo grau nessa faixa.</div>
+    <label class="flbl" style="margin-top:12px">Aulas por grau</label>
+    <input class="inp" id="ma-n" type="number" min="1" max="500" value="${atual}">
+    <button class="btn-save" id="ma-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="ma-cancel">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sh.classList.remove('open'); setTimeout(()=>sh.remove(),260); };
+  sh.onclick=(e)=>{ if(e.target===sh) close(); };
+  sh.querySelector('#ma-cancel').onclick=close;
+  sh.querySelector('#ma-save').onclick=()=>{
+    const n = parseInt(sh.querySelector('#ma-n').value,10);
+    if(!(n>0)){ toast('Informe um número > 0'); return; }
+    DB.academyConfig = DB.academyConfig || {};
+    DB.academyConfig.metaAulas = DB.academyConfig.metaAulas || {};
+    DB.academyConfig.metaAulas[faixa] = n;
+    if(typeof sbProf!=='undefined' && sbProf.salvarConfig){
+      sbProf.salvarConfig({metaAulas: DB.academyConfig.metaAulas}).catch(e=> toast('Salvo local, sem nuvem: '+(e.message||e)));
+    }
+    close(); toast('Meta atualizada ✔'); if(refresh) refresh();
+  };
+  document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
+}
+
 function tabbarProf(){
   // Mobile-first: 5 tabs essenciais visíveis por padrão. Loja e Vídeos são
   // "gerenciamento" — só aparecem em tablet/desktop (≥768px) via .tab-wide.
@@ -8375,6 +8751,7 @@ function tabbarProf(){
     ['painel','Painel', icoHome(), false],
     ['alunos','Alunos', icoUsers(), false],
     ['turmas','Turmas', icoCalendar(), false],
+    ['graduacao','Graduação', icoBelt(), true],   // wide-only (mobile fica na "Mais")
     ['relatorios','Relatórios', icoChart(), false],
     ['videos','Vídeos', icoVideo(), true],   // wide-only
     ['loja','Loja', icoStore(), true],       // wide-only
@@ -9199,6 +9576,8 @@ function icoBelt(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 function icoBox(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>`;}
 function icoCalendar(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>`;}
 function icoVideo(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M17 10l4-2v8l-4-2z"/></svg>`;}
+// Faixa horizontal com nó — passa a ideia de "graduação/faixa" no mesmo estilo linear
+function icoBelt(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h9M13 10h9"/><path d="M2 14h9M13 14h9"/><rect x="10" y="7" width="4" height="10" rx="1"/></svg>`;}
 /* Bandeira dos EUA em SVG (não depende de font emoji regional — Windows não renderiza 🇺🇸).
    Círculo com faixas + cantão azul; estilo simplificado pra caber em chip pequeno. */
 function icoUSFlag(){return `<svg class="ico-us" viewBox="0 0 24 24" aria-label="Bilíngue"><defs><clipPath id="uc"><circle cx="12" cy="12" r="11"/></clipPath></defs><g clip-path="url(#uc)"><rect width="24" height="24" fill="#fff"/><rect y="0"  width="24" height="1.85" fill="#B22234"/><rect y="3.7" width="24" height="1.85" fill="#B22234"/><rect y="7.4" width="24" height="1.85" fill="#B22234"/><rect y="11.1" width="24" height="1.85" fill="#B22234"/><rect y="14.8" width="24" height="1.85" fill="#B22234"/><rect y="18.5" width="24" height="1.85" fill="#B22234"/><rect y="22.2" width="24" height="1.85" fill="#B22234"/><rect width="10.5" height="9.25" fill="#3C3B6E"/></g><circle cx="12" cy="12" r="11" fill="none" stroke="rgba(0,0,0,.12)" stroke-width="1"/></svg>`;}
