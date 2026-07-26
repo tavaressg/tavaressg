@@ -673,7 +673,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v300';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v301';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -8637,10 +8637,93 @@ function _turmaMatricularSheet(t, done){
    OU default global). Editar meta ali mesmo (persistente em
    academies.config.metaAulas — v0003).
    ============================================================ */
+/* Aba "Aptos a graduar" no menu Graduação — cards com semáforo por eixo
+   (tempo CBJJ · aulas · técnicas) + próxima faixa/grau + ação Graduar. */
+function _gradAptosSection(w){
+  const cand = _profAlunosArr().map(a=>({a, s:_semaforoGrad(a)}))
+    .filter(x=> x.s.next)
+    .map(x=>{ x.score=[x.s.tempo,x.s.aulas,x.s.tec].filter(e=>e&&e.ok===true).length; return x; })
+    .sort((x,y)=> y.score-x.score || ((y.a.aulasNoGrau||0)-(x.a.aulasNoGrau||0)));
+  const aptos = cand.filter(x=> x.score>0 && x.s.aulas && x.s.aulas.ok===true && (!x.s.tempo || x.s.tempo.ok!==false));
+  const outros = cand.filter(x=> !aptos.includes(x)).slice(0,8);
+  // Resumo
+  const kpi = el(`<div class="stat-grid block">
+    <div class="stat-card"><div class="si green">${icoPulse()}</div><div class="sv">${aptos.length}</div><div class="sl">Aptos agora</div></div>
+    <div class="stat-card"><div class="si gold">${icoAlert()}</div><div class="sv">${outros.length}</div><div class="sl">Próximos (1 eixo)</div></div>
+    <div class="stat-card"><div class="si blue">${icoRoster()}</div><div class="sv">${_profAlunosArr().length}</div><div class="sl">Total alunos</div></div>
+  </div>`);
+  w.appendChild(kpi);
+  // Lista aptos
+  w.appendChild(el(`<div class="sec-title">Aptos a graduar</div>`));
+  if(!aptos.length){
+    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno com todos os eixos verdes agora. Ajuste a meta de aulas por faixa na aba ao lado se necessário.</div>'));
+  } else {
+    const list = el('<div class="grad-aptos-list block"></div>');
+    aptos.forEach(({a,s})=>{
+      const next = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
+      const nextTipo = s.next && a.faixa===s.next ? 'Novo grau' : 'Nova faixa';
+      const row = el(`<div class="grad-aptos-row">
+        <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
+        <div class="grad-aptos-info">
+          <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
+          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º grau → <b>${safeTxt(nextTipo)}: ${safeTxt(next)}</b></div>
+          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.aulas)}${_semChip(s.tec)}</div>
+        </div>
+        <button class="grad-aptos-go" type="button">Graduar</button>
+      </div>`);
+      row.querySelector('.grad-aptos-go').onclick = ()=>{
+        DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
+      };
+      row.onclick = (e)=>{ if(e.target.classList.contains('grad-aptos-go')) return;
+        DB.alunoAberto = a; render(); window.scrollTo(0,0);
+      };
+      list.appendChild(row);
+    });
+    w.appendChild(list);
+  }
+  // Próximos (1+ eixo verde mas não todos)
+  if(outros.length){
+    w.appendChild(el(`<div class="sec-title">Próximos — ao menos 1 eixo verde</div>`));
+    const list = el('<div class="grad-aptos-list block"></div>');
+    outros.forEach(({a,s})=>{
+      const next = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
+      const row = el(`<div class="grad-aptos-row muted">
+        <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
+        <div class="grad-aptos-info">
+          <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
+          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(next)}</div>
+          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.aulas)}${_semChip(s.tec)}</div>
+        </div>
+      </div>`);
+      row.onclick = ()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
+      list.appendChild(row);
+    });
+    w.appendChild(list);
+  }
+  // Legenda dos eixos
+  w.appendChild(el(`<div class="grad-legenda block">
+    <b>Eixos do semáforo:</b>
+    <span><i class="dot ok"></i> verde: critério cumprido</span>
+    <span><i class="dot no"></i> vermelho: falta</span>
+    <span><i class="dot na"></i> cinza: sem dado</span>
+    <div style="margin-top:6px;color:var(--muted);font-size:11px;font-style:italic">Tempo CBJJ = meses na faixa · Aulas = presenças desde a última graduação · Técnicas = ≥${PROF_METAS.META_TEC} em nível "treinando" (aproximação até haver currículo)</div>
+  </div>`));
+}
+
 function profGraduacao(){
   const w = el('<div></div>');
+  const aptos = (typeof _aptosGraduar==='function' ? _aptosGraduar() : []);
   w.innerHTML = `<div class="hello"><div class="date">Graduação</div>
-    <div class="greet">Metas de aulas por faixa · regras CBJJ ${CBJJ.version}</div></div>`;
+    <div class="greet">${aptos.length} apto${aptos.length!==1?'s':''} · regras CBJJ ${CBJJ.version}</div></div>`;
+  // Abas: Aptos (default) + Metas por faixa
+  const tab = DB._gradTab || 'aptos';
+  const tabsBar = el(`<div class="turmas-tabs">
+    <button class="turmas-tab${tab==='aptos'?' on':''}" data-t="aptos">Aptos a graduar${aptos.length?` (${aptos.length})`:''}</button>
+    <button class="turmas-tab${tab==='metas'?' on':''}" data-t="metas">Metas por faixa</button>
+  </div>`);
+  tabsBar.querySelectorAll('.turmas-tab').forEach(b=> b.onclick=()=>{ DB._gradTab = b.dataset.t; render(); });
+  w.appendChild(tabsBar);
+  if(tab==='aptos'){ _gradAptosSection(w); return w; }
 
   // Lista canônica: infantil (grupo cinza→verde) + adulto (branca→preta).
   // Coral/vermelha não têm meta de aulas — ficam no fim como referência.

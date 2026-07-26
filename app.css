@@ -306,6 +306,26 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .grad-tag{display:inline-block;font-size:9.5px;font-weight:800;color:var(--red-strong);background:var(--red-tint);padding:1px 6px;border-radius:99px;text-transform:uppercase;letter-spacing:.3px;margin-left:4px}
 .grad-edit{flex:none;border:1px solid var(--line);background:var(--card);color:var(--muted);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:14px}
 .grad-edit:hover{color:var(--ink);background:var(--field)}
+/* Aptos a graduar (aba Graduação) */
+.grad-aptos-list{background:var(--card);border-radius:12px;box-shadow:var(--shadow);margin:0 20px 20px;overflow:hidden}
+.grad-aptos-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s}
+.grad-aptos-row:last-child{border-bottom:none}
+.grad-aptos-row:hover{background:var(--field)}
+.grad-aptos-row.muted{opacity:.72}
+.grad-aptos-belt{flex:none;width:60px;display:flex;align-items:center;justify-content:center}
+.grad-aptos-info{flex:1;min-width:0}
+.grad-aptos-nm{font-size:14px;font-weight:800;color:var(--ink)}
+.grad-aptos-sub{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.grad-aptos-sub b{color:var(--ink);font-weight:800}
+.grad-aptos-go{flex:none;background:var(--red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;letter-spacing:.2px}
+.grad-aptos-go:hover{filter:brightness(1.05)}
+.grad-legenda{margin:0 20px 20px;padding:14px 16px;background:var(--field);border-radius:10px;font-size:12px;color:var(--ink);line-height:1.6}
+.grad-legenda b{font-weight:800}
+.grad-legenda span{display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-weight:600;color:var(--muted)}
+.grad-legenda .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.grad-legenda .dot.ok{background:var(--good)}
+.grad-legenda .dot.no{background:var(--red)}
+.grad-legenda .dot.na{background:var(--line)}
 
 /* Página cheia de edição de turma (não modal sheet) */
 .erp-turma-page{background:var(--bg,#f4f4f6);min-height:100vh}

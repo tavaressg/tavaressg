@@ -302,24 +302,41 @@
       return { hasProfile: !!prof.data };
     }),
 
+    // v306: check-in por AULA. Se sessão escolhida → upsert em aulas (turma,data,hora)
+    // pra vincular aula_id; senão, insere sem aula_id (histórico legado). Dedup real
+    // fica na UNIQUE (user_id, aula_id) partial da migration 0010.
     pushCheckin: wrap(async () => {
       const d = DB(); if (!d || !d.sbUser || !d.checkinHoje || !d.checkinHoje.feito) return;
       const u = d.sbUser;
-      const ses = d.checkinHoje.sessao || null;   // presença por sessão (escolhida no check-in)
+      const ses = d.checkinHoje.sessao || null;
       const [enrR, acad] = await Promise.all([
         SB.from('enrollments').select('turma_id').eq('user_id', u.id).limit(1).maybeSingle(),
         myAcademyId(),
       ]);
-      // upsert idempotente por (user, data) — A5: dedup por dia. turma_id/tipo guardam a
-      // sessão escolhida (senão a turma da matrícula) p/ analítica de presença por aula.
       const turmaId = (ses && ses.turmaId) || (enrR.data ? enrR.data.turma_id : null);
-      await SB.from('checkins').upsert({
-        user_id: u.id, academy_id: acad, turma_id: turmaId,
-        // tipo = VARIAÇÃO da sessão ('No-Gi', 'Avançado', 'Livre'…) ou 'Aula' (regular).
-        // Alimenta o relatório "Presença por tipo de aula" (§7.1-A).
-        tipo: ses ? (ses.variacao || 'Aula') : null,
-        data: HOJE(), hora: d.checkinHoje.hora, via: 'app',
-      }, { onConflict: 'user_id,data' });
+      let aulaId = null;
+      if (turmaId && ses && ses.hora) {
+        try {
+          const { data: found } = await SB.from('aulas')
+            .select('id').eq('turma_id', turmaId).eq('data', HOJE()).eq('hora', ses.hora).maybeSingle();
+          if (found) aulaId = found.id;
+          else {
+            const { data: created } = await SB.from('aulas')
+              .insert({ turma_id: turmaId, data: HOJE(), hora: ses.hora }).select('id').single();
+            if (created) aulaId = created.id;
+          }
+        } catch (_) { /* sem aula_id → row legada, ok */ }
+      }
+      try {
+        await SB.from('checkins').insert({
+          user_id: u.id, academy_id: acad, turma_id: turmaId, aula_id: aulaId,
+          tipo: ses ? (ses.variacao || 'Aula') : null,
+          data: HOJE(), hora: d.checkinHoje.hora, via: 'app',
+        });
+      } catch (e) {
+        // Ignora duplicata na MESMA aula (aluno bateu 2x); outros erros propagam
+        if (!(e && String(e.message||'').includes('duplicate'))) throw e;
+      }
     }),
 
     // Grade da academia p/ o aluno (RLS deixa qualquer membro ler turmas/sessões).
@@ -642,18 +659,24 @@
         notas: (notas && notas.data) || [] };
     }),
 
+    // v306: insere sem UNIQUE user_id/data (destravado pela migration 0010).
+    // Row legada sem aula_id — bulk check-in do professor usa marcarPresencaLote,
+    // este só sobrevive pra correções pontuais raras.
     lancarPresenca: wrap(async (id, hora) => {
-      // turma_id é só informativo; a dedup é por (user_id, data) — A5
       const [enrR, acad] = await Promise.all([
         SB.from('enrollments').select('turma_id').eq('user_id', id).limit(1).maybeSingle(),
         myAcademyId(),
       ]);
-      const { error } = await SB.from('checkins').upsert({ user_id: id, academy_id: acad, turma_id: enrR.data ? enrR.data.turma_id : null, data: HOJE(), hora, via: 'professor' },
-        { onConflict: 'user_id,data' });
+      const { error } = await SB.from('checkins').insert({
+        user_id: id, academy_id: acad, turma_id: enrR.data ? enrR.data.turma_id : null,
+        data: HOJE(), hora, via: 'professor',
+      });
       if (error) throw error;
     }),
     removerPresenca: wrap(async (id) => {
-      const { error } = await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE());
+      // Remove só os check-ins SEM aula_id (legados) do dia. Batch check-in por aula
+      // é gerenciado individualmente pela aba Presenças (roadmap).
+      const { error } = await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE()).is('aula_id', null);
       if (error) throw error;
     }),
 
