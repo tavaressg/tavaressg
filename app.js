@@ -705,7 +705,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v347';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v348';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -5303,10 +5303,11 @@ function _alunosExportPDF(alunos, turmaMap){
   doc.save(nome);
 }
 
-/* DataTable de alunos: busca + filtros + seleção múltipla + ações em lote (§7).
-   Offline: muta os objetos mock (refletindo na hora). Com backend: chama sbProf. */
-let _selAlunos = new Set();
-const _alunoKey = a => a.id || a.nm;
+/* DataTable de alunos: busca + filtros (§7).
+   Offline: muta os objetos mock (refletindo na hora). Com backend: chama sbProf.
+   v348: seleção múltipla e ações em lote removidas — ver o comentário do
+   `.dt-add-wrap` no app.css. Lançamento de presença em lote vive em Presenças,
+   onde a sessão da turma é escolhida. */
 
 function profAlunos(){
   const w = el('<div></div>');
@@ -5376,10 +5377,8 @@ function profAlunos(){
 
   // Mantém referência dummy pra "seg" (código antigo usa) — não renderiza mais.
   const seg = el('<div style="display:none"></div>');
-  const bulk = el(`<div class="bulk-bar" hidden></div>`);
   // Header da tabela ERP — só aparece em desktop (CSS controla)
   const head = el(`<div class="erp-head" role="row">
-    <div class="erp-c erp-c-check" aria-hidden="true"></div>
     <div class="erp-c erp-c-avatar" aria-hidden="true"></div>
     <button class="erp-c erp-c-name"   data-sort="nm">Nome completo</button>
     <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
@@ -5392,21 +5391,7 @@ function profAlunos(){
   </div>`);
   const list = el('<div class="list erp-tbl"></div>');
 
-  const refresh = ()=>{ renderList(); updateBulk(); paintHead(); };
-
-  const updateBulk = ()=>{
-    const n = _selAlunos.size;
-    bulk.hidden = n===0;
-    if(!n) return;
-    // v346: "Graduar" em lote removido — o único caminho de graduação é o
-    // "+ Novo evento" da timeline (por aluno), que já deduz o próximo passo.
-    // Um atalho em massa colocava faixa/grau errados sem passar pela sugestão.
-    bulk.innerHTML = `<span class="bb-n">${n} selecionado${n>1?'s':''}</span>
-      <button class="bb-btn" data-a="pres">✓ Presença</button>
-      <button class="bb-x" data-a="clear">Limpar</button>`;
-    bulk.querySelector('[data-a="pres"]').onclick=()=>_bulkPresenca((_profData?.alunos)||[], refresh);
-    bulk.querySelector('[data-a="clear"]').onclick=()=>{ _selAlunos.clear(); refresh(); };
-  };
+  const refresh = ()=>{ renderList(); paintHead(); };
 
   const paintHead = ()=>{
     head.querySelectorAll('[data-sort]').forEach(b=>{
@@ -5492,7 +5477,6 @@ function profAlunos(){
     arr.slice(0, shown).forEach(a=>{
       const payMap={ok:['pay-ok','Em dia'],late:['pay-late','Vencido'],soon:['pay-soon','A vencer']};
       const [cls,txt]=payMap[a.pago]||['pay-ok','—'];
-      const sel=_selAlunos.has(_alunoKey(a));
       const turmasTx = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', ') || '—';
       // Nome COMPLETO na coluna (o apelido é o rótulo curto usado no resto do app).
       // Sem nome completo cadastrado, cai no apelido — melhor que célula vazia.
@@ -5501,8 +5485,7 @@ function profAlunos(){
       const presTx = a.pres ? '✓ '+safeTxt(a.pres) : 'ausente';
       const daysTx = (a.diasSem||0) > 0 ? (a.diasSem+'d') : '—';
       const metaMobile = filtro==='sumidos' ? ((a.diasSem||0)+'d sem treinar') : (a.pres?'✓ '+safeTxt(a.pres):'ausente hoje');
-      const row=el(`<div class="st-row dt-row${sel?' sel':''}${a._self?' dt-self':''}" style="cursor:pointer">
-        <button class="row-check${sel?' on':''}" aria-label="Selecionar ${safeAttr(a.nm)}">${sel?'✓':''}</button>
+      const row=el(`<div class="st-row dt-row${a._self?' dt-self':''}" style="cursor:pointer">
         ${avatarAluno(a)}
         <div class="st-mid"><div class="nm" title="${safeAttr(nomeTx)}">${safeTxt(nomeTx)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
           <div class="meta">${_semGrad(a)?'<span class="belt-pill vazio">Sem graduação</span>':beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
@@ -5516,12 +5499,6 @@ function profAlunos(){
       </div>`);
       const waBtn = row.querySelector('.wa-ico');
       if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
-      const chk = row.querySelector('.row-check');
-      // toggle incremental: atualiza só esta linha + a barra (não reconstrói a lista toda)
-      chk.onclick=(e)=>{ e.stopPropagation(); const k=_alunoKey(a); const on=!_selAlunos.has(k);
-        if(on) _selAlunos.add(k); else _selAlunos.delete(k);
-        chk.classList.toggle('on',on); chk.textContent=on?'✓':''; row.classList.toggle('sel',on);
-        updateBulk(); };
       row.onclick=()=>_profAlunoSheet(a);
       list.appendChild(row);
     });
@@ -5668,7 +5645,6 @@ function profAlunos(){
   w.appendChild(advDesktop);   // aparece só em desktop (CSS)
   w.appendChild(toolbar);      // aparece só em mobile (CSS)
   w.appendChild(chipsEt);
-  w.appendChild(bulk);
   w.appendChild(head);
   w.appendChild(list);
   w.appendChild(fab);
@@ -6138,15 +6114,6 @@ function _senhaProvisoriaSheet(email, senha, kind){
   sheet.querySelector('#cp-ok').onclick=close;
   document.body.appendChild(sheet);
   requestAnimationFrame(()=>sheet.classList.add('open'));
-}
-
-function _bulkPresenca(alunos, refresh){
-  const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-  const sel = alunos.filter(a=>_selAlunos.has(_alunoKey(a)));
-  if(!sel.length) return;
-  sel.forEach(a=> _profSetPresenca(a, hora));   // roteia _self p/ DB.checkinHoje
-  _selAlunos.clear(); refresh(); render();
-  toast(`Presença lançada para ${sel.length} aluno${sel.length>1?'s':''} ✔`);
 }
 
 // Ficha do aluno em TELA CHEIA (navegação via DB.alunoAberto), não bottom sheet.
