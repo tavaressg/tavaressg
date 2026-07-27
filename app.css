@@ -1818,6 +1818,14 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-et-bar{padding:4px 0 0}
 .erp-et-lbl{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:0 20px;margin-bottom:6px}
 .et-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 12px}
+.erp-et-search{display:none}
+@media (min-width:800px){
+  .erp-et-bar{display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:8px 20px 12px}
+  .erp-et-search{display:flex;flex:0 1 300px;margin:0}
+  .erp-et-group{display:flex;align-items:center;gap:10px;margin-left:auto}
+  .erp-et-group .erp-et-lbl{padding:0;margin-bottom:0}
+  .erp-et-group .et-chips{padding:0}
+}
 .et-chip{border:1.5px solid var(--line);background:var(--card);color:var(--muted);font-family:inherit;font-size:12px;
   font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer}
 .et-chip.on{border-color:var(--red);color:var(--red-strong);background:var(--red-tint)}

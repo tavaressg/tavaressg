@@ -5436,7 +5436,7 @@ function profAlunos(){
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', nome:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'' };
+  const advF = { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'' };
   if(DB._pendingAlunosAniv){ advF.aniversario = DB._pendingAlunosAniv; DB._pendingAlunosAniv=null; }
   const PAGE = 20; let shown = PAGE;
 
@@ -5473,12 +5473,19 @@ function profAlunos(){
   const _mkFxChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
     b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); renderList(); };
     return b; };
-  chipsEt.appendChild(el('<div class="erp-et-lbl">Faixa etária</div>'));
+  // Busca exposta (desktop): antes só existia dentro de "Filtros avançados" (advf-nome,
+  // campo redundante) — some daqui, e a busca do topo (mesma var `busca` do toolbar
+  // mobile) fica visível também no desktop, à esquerda da faixa etária.
+  const srchEt = el(`<div class="erp-et-search dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
+  srchEt.querySelector('input').oninput=(e)=>{ busca=e.target.value.trim(); shown=PAGE; renderList(); };
+  chipsEt.appendChild(srchEt);
+  const etGroup = el('<div class="erp-et-group"></div>');
+  etGroup.appendChild(el('<div class="erp-et-lbl">Faixa etária</div>'));
   const fxRow = el('<div class="et-chips"></div>');
   fxRow.appendChild(_mkFxChip('todos','Todas'));
   FAIXA_ETARIA_OPCOES.forEach(op=> fxRow.appendChild(_mkFxChip(op,op)));
-  fxRow.appendChild(_mkFxChip('__sem','Sem data'));
-  chipsEt.appendChild(fxRow);
+  etGroup.appendChild(fxRow);
+  chipsEt.appendChild(etGroup);
 
   // Mantém referência dummy pra "seg" (código antigo usa) — não renderiza mais.
   const seg = el('<div style="display:none"></div>');
@@ -5557,7 +5564,6 @@ function profAlunos(){
     if(busca){ const q=busca.toLowerCase();
       arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
     if(advF.matricula){ const q=String(advF.matricula).replace(/\D/g,''); if(q) arr = arr.filter(a=> String(a.matricula||'').includes(q) || String(a.matricula||'').padStart(5,'0').includes(q)); }
-    if(advF.nome){ const q=advF.nome.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
     if(advF.ativos==='ativos') arr = arr.filter(a=> !a.diasSem || a.diasSem<14);
     else if(advF.ativos==='inativos') arr = arr.filter(a=> (a.diasSem||0)>=14);
     if(advF.aguardando==='sim'){ const aptos=new Set((typeof _aptosGraduar==='function'?_aptosGraduar():[]).map(x=>x.id||x.nm)); arr = arr.filter(a=> aptos.has(a.id||a.nm)); }
@@ -5692,7 +5698,6 @@ function profAlunos(){
   const advPanel = el(`<div class="erp-alunos-adv-panel" style="display:none">
     <div class="erp-alunos-adv-grid">
       <label><span>Código / matrícula</span><input class="inp" id="advf-mat" placeholder="Ex: 00042"></label>
-      <label><span>Nome</span><input class="inp" id="advf-nome" placeholder="Buscar por nome…"></label>
       <label><span>Ativos</span><select class="inp" id="advf-ativos"><option value="">Todos</option><option value="ativos">Ativos (14d)</option><option value="inativos">Inativos (14d+)</option></select></label>
       <label><span>Aguardando faixa</span><select class="inp" id="advf-agu"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
       <label><span>Recebe mensagens</span><select class="inp" id="advf-msg"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
@@ -5710,7 +5715,6 @@ function profAlunos(){
   // era preciso clicar pra valer.
   const _readAdv = ()=>{
     advF.matricula = advPanel.querySelector('#advf-mat').value.trim();
-    advF.nome      = advPanel.querySelector('#advf-nome').value.trim();
     advF.ativos    = advPanel.querySelector('#advf-ativos').value;
     advF.aguardando= advPanel.querySelector('#advf-agu').value;
     advF.mensagens = advPanel.querySelector('#advf-msg').value;
