@@ -2918,12 +2918,13 @@ function evoluirGraduacao(){
                  : `${g.graus}º grau · ${x.nome}`;
     const [y,m,d] = g.data.split('-');
     const dataFmt = `${d}/${m}/${y}`;
+    const porTxt = (g.por && g.por!=='—') ? ` · por ${safeTxt(g.por)}` : '';
     tl.appendChild(el(`<div class="tl-item">
       <div class="tl-rail"><span class="tl-dot" style="background:${x.cor}"></span><span class="tl-conn"></span></div>
       <div class="tl-tx">
         <div class="tl-belt">${beltMini(g.faixa, g.tipo==='grau'?g.graus:0)}</div>
         <div class="t">${titulo}</div>
-        <div class="dt">${dataFmt}</div></div></div>`));
+        <div class="dt">${dataFmt}${porTxt}</div></div></div>`));
   });
   w.appendChild(tl);
   return w;
@@ -9849,7 +9850,7 @@ function abrirEditarPerfil(){
     <label class="flbl">Apelido</label>
     <input class="inp" id="ep-apelido" value="${safeAttr(me.apelido)}">
     <label class="flbl" style="margin-top:12px">Nome completo</label>
-    <input class="inp" id="ep-nome" value="${safeAttr(me.nomeCompleto)}">
+    <div class="ep-belt-ro">${safeTxt(me.nomeCompleto||'—')}<span class="ep-ro-note">definido no cadastro — peça ao professor pra corrigir</span></div>
     <label class="flbl" style="margin-top:12px">Ano de nascimento</label>
     <input class="inp" id="ep-nasc" type="number" inputmode="numeric" placeholder="Ex: 1998" value="${nascimento||''}" min="1920" max="${hoje.getFullYear()}">
     ${gradBlock}
@@ -9885,7 +9886,8 @@ function abrirEditarPerfil(){
   sheet.querySelector('#ep-cancel').onclick=close;
   sheet.querySelector('#ep-save').onclick=()=>{
     me.apelido = sheet.querySelector('#ep-apelido').value.trim() || me.apelido;
-    me.nomeCompleto = sheet.querySelector('#ep-nome').value.trim() || me.nomeCompleto;
+    // Nome completo é dono do cadastro (ficha do professor) — o aluno não edita aqui,
+    // só o apelido/display. Ver supabase.js pushProfile().
     const base = (me.nomeCompleto||me.apelido||'').trim();
     me.nome = base.split(' ').slice(0,2).join(' ') || me.apelido;
     me.iniciais = (base.split(/\s+/).map(s=>s[0]).slice(0,2).join('') || (me.apelido||'A')[0]).toUpperCase();
@@ -10339,7 +10341,7 @@ function icoPlus(){return `<svg viewBox="0 0 24 24" width="26" height="26" fill=
 function icoRoster(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`;}
 function icoPulse(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-7 4 14 2.5-7H21"/></svg>`;}
 function icoAlert(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19L12 3z"/><path d="M12 10v4.5M12 17.5h.01"/></svg>`;}
-function icoBelt(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><path d="M9 13.3 7.5 21l4.5-2.6L16.5 21 15 13.3"/></svg>`;}
+function icoMedal(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="5"/><path d="M9 13.3 7.5 21l4.5-2.6L16.5 21 15 13.3"/></svg>`;}
 function icoBox(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></svg>`;}
 function icoCalendar(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/></svg>`;}
 function icoVideo(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M17 10l4-2v8l-4-2z"/></svg>`;}

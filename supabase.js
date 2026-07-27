@@ -368,8 +368,11 @@
       // 0022: faixa/graus são DERIVADOS de `graduations` (trigger graduations_sync).
       // Mandar aqui era um caminho de drift perfil×timeline — e o UPDATE dessas
       // colunas foi revogado de `authenticated`.
+      // nome_completo é dono do cadastro (ficha do professor) — o aluno edita só o
+      // apelido. Mandar nome_completo aqui deixava o self-push sobrescrever a ficha
+      // com o que quer que estivesse em e.nomeCompleto no momento (drift silencioso).
       await SB.from('profiles').update({
-        apelido: e.apelido, nome_completo: e.nomeCompleto,
+        apelido: e.apelido,
         nascimento: e.nascimento, desde: e.desde,
       }).eq('id', d.sbUser.id);
     }),
