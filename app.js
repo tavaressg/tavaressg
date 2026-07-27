@@ -8057,8 +8057,13 @@ function _regrasFaixaSheet(){
         placeholder="${PROF_METAS.META_GRAU}" value="${cfg[f]||''}" style="width:90px;text-align:center"></div>`));
   });
   sh.querySelector('#rf-save').onclick=()=>{
-    const metaAulas={};
-    sh.querySelectorAll('.rf-inp').forEach(i=>{ const v=parseInt(i.value); if(v>0) metaAulas[i.dataset.f]=v; });
+    // Parte da config EXISTENTE: `_salvarAcademyConfig` faz merge RASO, então o
+    // metaAulas enviado aqui SUBSTITUI o objeto inteiro. Montar do zero apagava as
+    // metas das faixas infantis (editáveis em _profMetaAulasSheet, que não aparecem
+    // nesta tela). Campo vazio segue voltando ao padrão — por isso o delete.
+    const metaAulas=Object.assign({}, _acadCfg().metaAulas);
+    sh.querySelectorAll('.rf-inp').forEach(i=>{ const v=parseInt(i.value);
+      if(v>0) metaAulas[i.dataset.f]=v; else delete metaAulas[i.dataset.f]; });
     _salvarAcademyConfig({metaAulas}).then(()=>toast('Regras salvas ✔'))
       .catch(()=>toast('Não salvou na nuvem — o banco precisa da migration 0003'));
     sh.remove(); render();
