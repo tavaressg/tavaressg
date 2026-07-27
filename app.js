@@ -705,7 +705,7 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v348';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+const APP_VERSION = 'v353';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
@@ -4246,6 +4246,21 @@ let _profTs   = 0;
 //     o aluno já era essa faixa quando ganhou o grau (cobre o caso de graduar
 //     por grau sem registrar o evento `faixa` antes).
 //  3) null se não houver nenhum evento na faixa atual.
+/* v352: dedupe da timeline. Mesmo dia + tipo + faixa + grau é o MESMO evento —
+   dois professores registraram por engano (Alex Davi tinha 2 "Faixa Amarela"
+   em 11/07). Mantém o de MAIOR `id` (inserido depois, tende a ser o correto).
+   Fonte única — usado no KPI "Graduações" da ficha E na linha do tempo, senão
+   os dois divergem. */
+function _gradsDedup(gs){
+  const key = g => `${g.data}|${g.tipo}|${g.faixa}|${g.graus||0}`;
+  const m = new Map();
+  (gs||[]).forEach(g=>{
+    if(!g || !g.data) return;
+    const k = key(g); const prev = m.get(k);
+    if(!prev || String(g.id||'') > String(prev.id||'')) m.set(k, g);
+  });
+  return [...m.values()];
+}
 function _faixaDesde(gs, faixa){
   const arr = (gs||[]).filter(g=>g && g.faixa===faixa && g.data);
   const fx = arr.filter(g=>g.tipo==='faixa'||g.tipo==='inicio').map(g=>g.data).sort();
@@ -4458,7 +4473,7 @@ function profBatchCheckin(turma, sessao, dataISO){
         <span class="erp-batch-check">${isCk?'✓':(jaPres?'✓':'')}</span>
         ${avatarAluno(a,'width:44px;height:44px;font-size:14px;flex:none')}
         <div class="erp-batch-info">
-          <div class="erp-batch-nm">${safeTxt(a.nm)}</div>
+          <div class="erp-batch-nm">${safeTxt(_nomeInst(a))}</div>
           <div class="erp-batch-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)} · ${a.graus||0}º grau</div>
         </div>
         ${jaPres?'<span class="erp-batch-flag" title="Clique para remover">Presente · remover</span>':''}
@@ -4470,7 +4485,7 @@ function profBatchCheckin(turma, sessao, dataISO){
       } else {
         // v305: clique errado — apaga o check-in dessa aula.
         const undo = ()=>{
-          if(!confirm(`Remover a presença de ${a.nm} nessa aula?`)) return;
+          if(!confirm(`Remover a presença de ${_nomeInst(a)} nessa aula?`)) return;
           const done = ()=>{ jaPresIds.delete(key); paintList(); toast('Presença removida'); };
           if(!DEMO && typeof sbProf!=='undefined' && sbProf.removerPresencaBatch && turma.id){
             sbProf.removerPresencaBatch(a.id, turma.id, dataFinal, sessao.hora||null)
@@ -4689,7 +4704,7 @@ function profPainel(){
       const belt = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
       const wa = _waLink(a);
       const row = el(`<div class="erp-dash-birth-row">
-        <span class="erp-dash-birth-nm">${safeTxt(a.nm)}</span>
+        <span class="erp-dash-birth-nm">${safeTxt(_nomeInst(a))}</span>
         <span class="erp-dash-birth-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)}</span>
         <span class="erp-dash-birth-dt">${dia}/${mes}</span>
         <span class="erp-dash-birth-acts">${wa?'<button class="erp-mini" data-a="wa" aria-label="WhatsApp">💬</button>':''}
@@ -4714,7 +4729,7 @@ function profPainel(){
     alunos.filter(a=>a.pres).slice(0,5).forEach(a=>{
       list.appendChild(el(`<div class="ci-row"><span class="ci-dot"></span>
         ${avatarAluno(a, 'width:36px;height:36px;font-size:13px')}
-        <div><div style="font-size:13.5px;font-weight:700">${safeTxt(a.nm)}</div>
+        <div><div style="font-size:13.5px;font-weight:700">${safeTxt(_nomeInst(a))}</div>
           <div style="font-size:11.5px;color:var(--muted);font-weight:600">${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${a.graus||0}º grau</div></div>
         <span class="ci-time">${safeTxt(a.pres)}</span></div>`));
     });
@@ -4986,6 +5001,11 @@ function profAcessoAlunos(){
     return page;
   }
 
+  // v353: cache do dry-run por 60s. A tela era reconstruída a cada `render()`
+  // (o refetch focus/visibilitychange dispara render, cadastrar aluno dispara
+  // render etc) e cada reconstrução chamava a Edge Function de novo — o usuário
+  // via "Carregando..." → lista → "Carregando..." alternando. A senha aplicada
+  // (não-dry) invalida o cache manualmente.
   let pendentes = [];
   const pintar = ()=>{
     listEl.innerHTML='';
@@ -4997,7 +5017,7 @@ function profAcessoAlunos(){
       const row = el(`<div class="im-row im-row-acesso ${temTel?'im-ok':'im-warn'}">
         <span class="im-ic">${temTel?'💬':'⚠'}</span>
         <div class="im-info">
-          <div class="im-nm">${safeTxt(p.nome||a.nm||'—')}</div>
+          <div class="im-nm">${safeTxt(_nomeInst(a)!=='—'?_nomeInst(a):(p.nome||'—'))}</div>
           <div class="im-sub">${safeTxt(p.email||'sem e-mail')}${temTel?'':' · sem telefone cadastrado'}</div>
         </div>
         ${temTel?'<button class="ac-wa" type="button">Enviar</button>':''}
@@ -5013,17 +5033,25 @@ function profAcessoAlunos(){
     });
   };
 
-  // dry_run: só conta/lista, não altera senha nenhuma
-  sbProf.senhaPadraoLote(_senhaPadrao(), true).then(r=>{
+  const _aplicaResult = (r)=>{
     pendentes = (r && r.alunos) || [];
     pintar();
     goBtn.disabled = !pendentes.length;
     goBtn.textContent = pendentes.length
       ? `Aplicar senha padrão a ${pendentes.length} aluno${pendentes.length!==1?'s':''}`
       : 'Nada a fazer';
-  }).catch(e=>{
-    listEl.innerHTML = `<div class="empty-line">Falha ao carregar: ${safeTxt(e.message||e)}</div>`;
-  });
+  };
+  const cache = window._acessoCache;
+  if(cache && (Date.now()-cache.ts)<60000 && cache.senha===_senhaPadrao()){
+    _aplicaResult(cache.data);
+  } else {
+    sbProf.senhaPadraoLote(_senhaPadrao(), true).then(r=>{
+      window._acessoCache = { ts:Date.now(), senha:_senhaPadrao(), data:r };
+      _aplicaResult(r);
+    }).catch(e=>{
+      listEl.innerHTML = `<div class="empty-line">Falha ao carregar: ${safeTxt(e.message||e)}</div>`;
+    });
+  }
 
   goBtn.onclick = async ()=>{
     if(!confirm(`Definir a senha "${_senhaPadrao()}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
@@ -5033,6 +5061,7 @@ function profAcessoAlunos(){
       // ReferenceError e nenhuma senha era aplicada (v341). É a MESMA senha do
       // dry-run, do convite de WhatsApp e do texto do confirm.
       const r = await sbProf.senhaPadraoLote(_senhaPadrao(), false);
+      window._acessoCache = null;   // v353: senhas mudaram → dry-run cacheado ficou obsoleto
       const f = (r.falhas||[]).length;
       alert(`${r.aplicadas} senha(s) definida(s) ✓${f?`\n${f} falha(s):\n`+r.falhas.join('\n'):''}\n\nAgora use o botão "Enviar" de cada aluno pra mandar o convite no WhatsApp.`);
       goBtn.textContent = 'Senha aplicada ✓';
@@ -5203,7 +5232,7 @@ function _alunosBuildRows(alunos, turmaMap){
     const pago = a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'';
     return {
       'Mat.': cod,
-      'Nome': a.nm||'',
+      'Nome': _nomeInst(a),
       'E-mail': (a.cad && a.cad.email) || a.email || '',
       'Idade': _idadeDe(a.nascimento||a.nascData),
       'Foto': a.foto ? 'Sim' : 'Não',
@@ -5220,22 +5249,98 @@ function _alunosBuildRows(alunos, turmaMap){
     };
   });
 }
+// v350: versão completa — inclui endereço, responsável, consentimento LGPD,
+// aulas no grau, faixa etária, frequência do mês, apto a grau. Base p/ análise
+// externa (RH da academia, contabilidade, envio de aniversariantes etc.).
+function _alunosBuildRowsCompleta(alunos, turmaMap){
+  return alunos.map(a=>{
+    const cod = (a.matricula ? String(a.matricula).padStart(5,'0') : (a.id ? String(a.id).slice(-6) : ''));
+    const turmas = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(' | ');
+    const nivel = BELTS[a.faixa]?.nome || a.faixa || '';
+    const pago = a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'';
+    const c = a.cad || {}; const e = c.endereco || {}; const r = c.responsavel || {};
+    return {
+      'Mat.': cod,
+      'Nome': _nomeInst(a),
+      'Apelido': a.nm || '',
+      'E-mail': c.email || a.email || '',
+      'Telefone': c.telefone || a.telefone || '',
+      'Recebe mensagens': (c.aceitaContato===false ? 'Não' : 'Sim'),
+      'Dt. Nasc.': _fmtDataBR(a.nascData||a.nascimento),
+      'Idade': _idadeDe(a.nascimento||a.nascData),
+      'Faixa etária': _faixaEtariaLbl(a.nascimento) || '',
+      'CEP': e.cep || '',
+      'Logradouro': e.logradouro || '',
+      'Número': e.numero || '',
+      'Bairro': e.bairro || '',
+      'Cidade': e.cidade || '',
+      'UF': e.uf || '',
+      'Responsável': r.nome || '',
+      'Parentesco': r.parentesco || '',
+      'Tel. responsável': r.telefone || '',
+      'Dt. Início': _fmtDataBR(c.dataInicio || a.desde),
+      'Faixa desde': _fmtDataBR(a.faixaDesde),
+      'Nível': nivel,
+      'Graus': a.graus||0,
+      'Aulas no grau': a.aulasNoGrau||0,
+      'Apto a grau': a.aptoGrad ? 'Sim' : 'Não',
+      'Grupos': turmas,
+      'Frequência mês %': a.freq||0,
+      'Últ. presença': a.pres ? String(a.pres) : '',
+      'Dias sem': a.diasSem||0,
+      'Status': (a.diasSem||0)>=14 ? 'Inativo' : 'Ativo',
+      'Pagamento': pago,
+      'Foto': a.foto ? 'Sim' : 'Não',
+      'Observações': c.obs || '',
+    };
+  });
+}
 function _alunosFiltrosAtivos(){
   // No protótipo, sem estado de filtros persistido — retorna vazio.
   // Depois: ler filtro/busca/faixa e montar string legível "Status: Ativo · Grupo: X · Faixa: Y".
   return '';
 }
-function _alunosExportXLSX(alunos, turmaMap){
+function _alunosExportXLSX(alunos, turmaMap, modo){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
   const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
-  const rows = _alunosBuildRows(alunos, turmaMap);
-  const header = ['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Últ. presença','Dias sem','Status','Pagamento'];
+  const completa = modo==='completa';
+  const rows = completa ? _alunosBuildRowsCompleta(alunos, turmaMap) : _alunosBuildRows(alunos, turmaMap);
+  const header = completa
+    ? Object.keys(rows[0]||{})
+    : ['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Últ. presença','Dias sem','Status','Pagamento'];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows, { header });
-  ws['!cols'] = [{wch:7},{wch:28},{wch:30},{wch:5},{wch:5},{wch:11},{wch:11},{wch:18},{wch:5},{wch:24},{wch:16},{wch:12},{wch:8},{wch:9},{wch:10}];
+  if(!completa) ws['!cols'] = [{wch:7},{wch:28},{wch:30},{wch:5},{wch:5},{wch:11},{wch:11},{wch:18},{wch:5},{wch:24},{wch:16},{wch:12},{wch:8},{wch:9},{wch:10}];
+  else ws['!cols'] = header.map(()=>({wch:16}));
   XLSX.utils.book_append_sheet(wb, ws, 'Alunos');
-  const nome = `${acadNm.replace(/\s+/g,'-')}-alunos-${new Date().toISOString().slice(0,10)}.xlsx`;
+  const suf = completa ? '-completa' : '';
+  const nome = `${acadNm.replace(/\s+/g,'-')}-alunos${suf}-${new Date().toISOString().slice(0,10)}.xlsx`;
   XLSX.writeFile(wb, nome);
+}
+function _alunosExportXLSXSheet(alunos, turmaMap){
+  const overlay = el(`<div class="sheet-overlay" role="dialog" aria-label="Exportar Excel">
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <div class="sheet-hd"><div class="sheet-t">Exportar Excel</div>
+        <div class="sheet-sub">${alunos.length} aluno${alunos.length!==1?'s':''} na seleção atual</div></div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:0 4px 8px">
+        <button class="btn-cad" type="button" data-a="resumida" style="text-align:left;padding:14px 16px">
+          <div style="font-weight:800;font-size:14px">📄 Base resumida</div>
+          <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:3px">15 colunas — matrícula, nome, e-mail, faixa, grupos, presença, status, pagamento</div>
+        </button>
+        <button class="btn-cad primary" type="button" data-a="completa" style="text-align:left;padding:14px 16px">
+          <div style="font-weight:800;font-size:14px">📊 Base completa</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.85);font-weight:600;margin-top:3px">31 colunas — inclui endereço, responsável, LGPD, aulas no grau, frequência</div>
+        </button>
+        <button class="btn-cad ghost" type="button" data-a="cancel">Cancelar</button>
+      </div>
+    </div></div>`);
+  const close = ()=>overlay.remove();
+  overlay.querySelector('[data-a="cancel"]').onclick = close;
+  overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'resumida'); close(); };
+  overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'completa'); close(); };
+  overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
+  document.body.appendChild(overlay);
 }
 function _alunosExportPDF(alunos, turmaMap){
   if(typeof window.jspdf==='undefined' || typeof window.jspdf.jsPDF==='undefined'){ toast('PDF: biblioteca ainda carregando'); return; }
@@ -5321,7 +5426,7 @@ function profAlunos(){
   // Cabeçalho compacto ERP
   w.innerHTML = `<div class="erp-alunos-hd">
     <div class="erp-alunos-title">Alunos</div>
-    <div class="erp-alunos-sub">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
+    <div class="erp-alunos-sub" id="alunos-sub-kpi">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
   </div>`;
 
   _loadTurmas();
@@ -5433,11 +5538,11 @@ function profAlunos(){
     return String(a.nm||'').localeCompare(String(b.nm||''))*dir;
   };
 
-  const renderList = ()=>{
-    list.innerHTML='';
-    if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>')); return; }
-    // M4: lê os dados VIVOS de _profData — o array capturado no render ficava
-    // desatualizado após um cadastro (o aluno novo não aparecia na lista)
+  // v350: lista filtrada exposta pro subtítulo (KPI responsivo) e pro Excel.
+  // Antes o Excel exportava a base inteira ignorando filtros; o subtítulo só
+  // mostrava o total absoluto sem refletir busca/filtro/faixa etária.
+  let _arrFiltrada = [];
+  const _aplicarFiltros = ()=>{
     let arr = ((_profData?.alunos)||[]).filter(a=>{
       if(filtro==='todos') return true;
       if(filtro==='presentes') return !!a.pres;
@@ -5449,12 +5554,8 @@ function profAlunos(){
     });
     if(filtroEt==='__sem') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null);
     else if(filtroEt!=='todos') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento) === filtroEt);
-    // Busca da barra: procura no apelido E no nome completo (a coluna mostra o
-    // completo — buscar só pelo apelido "escondia" quem foi digitado por inteiro).
     if(busca){ const q=busca.toLowerCase();
       arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
-    // Filtro por faixa etária (v309: espelha a coluna nova da tabela)
-    // Filtros avançados
     if(advF.matricula){ const q=String(advF.matricula).replace(/\D/g,''); if(q) arr = arr.filter(a=> String(a.matricula||'').includes(q) || String(a.matricula||'').padStart(5,'0').includes(q)); }
     if(advF.nome){ const q=advF.nome.toLowerCase(); arr = arr.filter(a=> (a.nm||'').toLowerCase().includes(q) || ((a.cad&&a.cad.nomeCompleto)||'').toLowerCase().includes(q)); }
     if(advF.ativos==='ativos') arr = arr.filter(a=> !a.diasSem || a.diasSem<14);
@@ -5469,9 +5570,32 @@ function profAlunos(){
     else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
     else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
     if(advF.aniversario) arr = arr.filter(a=> (a.nascData||'').slice(5,7) === advF.aniversario);
-    // "Sumidos" ignora o sort escolhido (contexto exige quem sumiu mais)
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
     else arr.sort(_cmp);
+    return arr;
+  };
+  const _atualizarSubKPI = (arr)=>{
+    const sub = w.querySelector('#alunos-sub-kpi'); if(!sub) return;
+    if(!_profData){ sub.textContent='Carregando…'; return; }
+    const total = ((_profData?.alunos)||[]).length;
+    const n = arr.length;
+    const filtrando = n !== total;
+    const presN = arr.filter(a=>a.pres).length;
+    const inatN = arr.filter(a=>(a.diasSem||0)>=14).length;
+    const vencN = arr.filter(a=>a.pago==='late').length;
+    if(!filtrando){
+      sub.textContent = `${total} cadastrados · ${presN} presentes hoje`;
+    } else {
+      sub.textContent = `${n} de ${total} · ${presN} presentes · ${inatN} inativos · ${vencN} vencidos`;
+    }
+  };
+
+  const renderList = ()=>{
+    list.innerHTML='';
+    if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>')); return; }
+    _arrFiltrada = _aplicarFiltros();
+    _atualizarSubKPI(_arrFiltrada);
+    const arr = _arrFiltrada;
     if(!arr.length){ list.appendChild(el(`<div class="empty-line">Nenhum aluno encontrado.</div>`)); return; }
     const totalN = arr.length;
     arr.slice(0, shown).forEach(a=>{
@@ -5495,7 +5619,7 @@ function profAlunos(){
         <div class="erp-c erp-c-pres-cell">${presTx}</div>
         <div class="erp-c erp-c-days-cell${(a.diasSem||0)>=7?' warn':''}">${daysTx}</div>
         <div class="st-right"><span class="pay-badge ${cls}">${txt}</span></div>
-        <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(a.nm)}" title="Mandar WhatsApp">💬</button>
+        <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="Mandar WhatsApp">💬</button>
       </div>`);
       const waBtn = row.querySelector('.wa-ico');
       if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
@@ -5555,6 +5679,7 @@ function profAlunos(){
   const advWrap = el(`<div class="erp-alunos-adv-wrap"></div>`);
   const advBar = el(`<div class="erp-alunos-adv-bar">
     <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados<span class="adv-count" id="adv-count" hidden></span></button>
+    <button class="erp-alunos-tool adv-clear-inline" id="adv-clear-inline" type="button" hidden>✕ Limpar</button>
     <div class="erp-alunos-tool-spacer"></div>
     <button class="erp-alunos-tool" id="adv-acesso" type="button">🔑 Acesso</button>
     <button class="erp-alunos-tool" id="adv-import" type="button">↑ Importar</button>
@@ -5602,6 +5727,7 @@ function profAlunos(){
     const b = advBar.querySelector('#adv-count');
     b.textContent = n; b.hidden = !n;
     advBar.querySelector('#adv-toggle').classList.toggle('filtered', !!n);
+    advBar.querySelector('#adv-clear-inline').hidden = !n;
   };
   advPanel.querySelectorAll('input,select').forEach(el0=>{
     const ev = el0.tagName==='SELECT' ? 'change' : 'input';
@@ -5616,13 +5742,18 @@ function profAlunos(){
   advWrap.appendChild(advPanel);
   const advDesktop = advWrap;   // rename pra não quebrar refs abaixo
   advBar.querySelector('#adv-new').onclick = ()=>abrirCadastroAluno();
+  advBar.querySelector('#adv-clear-inline').onclick = ()=>{
+    advPanel.querySelectorAll('input').forEach(i=> i.value='');
+    advPanel.querySelectorAll('select').forEach(s=> s.value='');
+    _readAdv();
+  };
   advBar.querySelector('#adv-toggle').onclick = (ev)=>{
     const open = advPanel.style.display==='none';
     advPanel.style.display = open?'block':'none';
     ev.currentTarget.classList.toggle('on', open);
   };
-  advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSX((_profData?.alunos)||[], turmaMap);
-  advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF((_profData?.alunos)||[], turmaMap);
+  advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSXSheet(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
+  advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
   advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
   advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
@@ -6160,8 +6291,8 @@ function profAlunoDetalhe(a){
     <div class="erp-hd">
       <button class="erp-back" id="pa-back" aria-label="Voltar">‹ Voltar</button>
       <div class="erp-hd-main">
-        <div class="erp-crumb">Alunos › <b>${safeTxt(a.nm)}</b></div>
-        <div class="erp-hd-nome">${safeTxt(a.nm)} ${selfBadge}</div>
+        <div class="erp-crumb">Alunos › <b>${safeTxt(_nomeInst(a))}</b></div>
+        <div class="erp-hd-nome">${safeTxt(_nomeInst(a))} ${selfBadge}</div>
         <div class="erp-hd-sub" id="pa-belt"></div>
       </div>
       <div class="erp-hd-acts"></div>
@@ -6223,10 +6354,15 @@ function _erpKpis(a){
   const freq=(a.frequencia||[]).length;
   const desde = _inicioAcademia(a);   // mesma fonte da ficha e dos exports
   const kpi=(v,l,cls='')=>`<div class="erp-kpi ${cls}"><div class="erp-kpi-v">${v}</div><div class="erp-kpi-l">${l}</div></div>`;
+  // v352: só conta `faixa` e `grau` como graduação. `inicio` é marco de entrada
+  // (não é graduação); `honra` é honorífico e não conta. Dedupe casa com a
+  // timeline (v352 abaixo) — sem isso, "3 GRADUAÇÕES" no card e "2 eventos"
+  // na timeline divergiam.
+  const gradsReais = _gradsDedup(grads).filter(g=> g.tipo==='faixa' || g.tipo==='grau').length;
   let html = kpi(freq, 'Check-ins')
     + kpi(les.length, 'Lesões')
     + kpi(lesAtivas, 'Em recuperação', lesAtivas?'warn':'')
-    + kpi(grads.length, 'Graduações');
+    + kpi(gradsReais, 'Graduações');
   if(desde){ const [dy,dm,dd]=desde.split('-'); html += kpi(`${dd}/${dm}/${dy}`, 'Desde'); }
   wrap.innerHTML = html;
   return wrap;
@@ -6446,7 +6582,8 @@ function _erpTimelineGrad(a, paint){
   // Estatísticas embaixo
   const stats = _erpGradStats(grads);
   const list = el('<div class="erp-tl"></div>');
-  const arr = [...grads].sort((x,y)=>y.data.localeCompare(x.data));
+  // v352: dedupe visual da timeline via `_gradsDedup` (mesma regra do KPI acima).
+  const arr = _gradsDedup(grads).sort((x,y)=>y.data.localeCompare(x.data));
   if(!arr.length){
     list.appendChild(el('<div class="erp-tl-empty">Sem graduações registradas. Clique em "+ Novo evento" pra começar.</div>'));
   } else {
@@ -6663,7 +6800,7 @@ function _profAlunoSheet(a){ DB.alunoAberto=a; render(); window.scrollTo(0,0); }
 function _profPromoverSheet(a, refresh){
   const sheet=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">Promover ${safeTxt(a.nm)} a professor?</div>
+    <div class="sheet-title">Promover ${safeTxt(_nomeInst(a))} a professor?</div>
     <div class="sheet-desc">O histórico dele (treinos, graduações, diário) é preservado — ele mantém a conta e passa a ter acesso à gestão da academia. Só você (dono) pode fazer isso, e reverter exige o suporte/SQL.</div>
     <button class="btn-save" id="pp-ok" style="margin-top:6px">Promover a professor</button>
     <button class="sheet-cancel" id="pp-cancel">Cancelar</button>
@@ -6677,7 +6814,7 @@ function _profPromoverSheet(a, refresh){
     btn.disabled=true; btn.textContent='Promovendo…';
     try{
       await sbProf.promoverProfessor(a.id);
-      close(); toast(`${a.nm} agora é professor(a) ✔`);
+      close(); toast(`${_nomeInst(a)} agora é professor(a) ✔`);
       _profData=null; _profTs=0; _loadProfData(); if(refresh) refresh(); render();
     }catch(e){ btn.disabled=false; btn.textContent='Promover a professor'; toast('Erro: '+(e.message||e)); }
   };
@@ -6690,7 +6827,7 @@ function _profPromoverSheet(a, refresh){
 function _profExcluirAlunoSheet(a, refresh){
   const sheet=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">Excluir ${safeTxt(a.nm)}?</div>
+    <div class="sheet-title">Excluir ${safeTxt(_nomeInst(a))}?</div>
     <div class="sheet-desc">Apaga a conta do aluno e <b>todos</b> os dados vinculados (presenças, graduações, lesões, progresso e diário). Não dá pra desfazer.</div>
     <button class="btn-save danger" id="pe-sim">Excluir definitivamente</button>
     <button class="sheet-cancel" id="pe-nao">Cancelar</button>
@@ -6818,6 +6955,14 @@ function _waConviteBody(a, senha){
 }
 // Primeiro + segundo nome (o apelido "Dudu" não serve pra mensagem formal).
 const _nome2 = s => String(s||'').trim().split(/\s+/).slice(0,2).join(' ');
+/* v351 — regra: TODA exibição institucional de aluno usa o nome completo da ficha.
+   `a.nm` é apelido (curto, informal) — só permanece em (1) chaves técnicas
+   `a.id||a.nm`, (2) o campo "Apelido" da ficha, (3) o próprio perfil do usuário
+   (o dono da conta se vê pelo apelido). Fallback: nomeCompleto → nm → '—'. */
+function _nomeInst(a){
+  if(!a) return '—';
+  return (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nm || '—';
+}
 function _waNome(a){
   const c=a.cad||{}; const r=c.responsavel||{};
   const idade=idadeCBJJ(a.nascimento);
@@ -7202,7 +7347,7 @@ function profRelatorios(){
   const alunoRow=(a, metaHTML, rightHTML)=>{
     const row=el(`<div class="st-row" style="cursor:pointer">
       ${avatarAluno(a)}
-      <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div>
+      <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
         <div class="meta">${beltPill(a.faixa,a.graus)} ${metaHTML||''}</div></div>
       <div class="st-right">${rightHTML||'<span style="color:var(--muted)">›</span>'}</div></div>`);
     row.onclick=()=>_profAlunoSheet(a);
@@ -7269,11 +7414,11 @@ function _relRisco(w, secTitle, note){
       const row = el(`<div class="risco-row" role="button" tabindex="0" style="cursor:pointer">
         ${avatarAluno(a)}
         <div class="risco-mid">
-          <div class="nm">${safeTxt(a.nm)}</div>
+          <div class="nm">${safeTxt(_nomeInst(a))}</div>
           <div class="meta">${beltPill(a.faixa,a.graus)} <span class="risco-motivo">${safeTxt(_riscoMotivo(a)||((a.diasSem||0)+'d sem treinar'))}</span></div>
         </div>
         <div class="risco-score">${a.diasSem||0}<small>d</small></div>
-        ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(a.nm)}">💬 WhatsApp</button>`:''}
+        ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}">💬 WhatsApp</button>`:''}
       </div>`);
       const waBtn = row.querySelector('.risco-wa');
       if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
@@ -7356,7 +7501,7 @@ function _relAlunosExcel(w, secTitle, note){
     const head = '<thead><tr>'+COLS.map(([lbl])=>`<th>${lbl}</th>`).join('')+'<th>Ação</th></tr></thead>';
     const body = '<tbody>'+rows.map(a=>{
       const cells = COLS.map(([,fn])=>`<td>${safeTxt(String(fn(a)))}</td>`).join('');
-      return `<tr data-id="${safeAttr(a.id||a.nm)}">${cells}<td class="xls-act"><button class="wa-ico" data-nm="${safeAttr(a.nm)}" title="WhatsApp">💬</button></td></tr>`;
+      return `<tr data-id="${safeAttr(a.id||a.nm)}">${cells}<td class="xls-act"><button class="wa-ico" data-nm="${safeAttr(_nomeInst(a))}" title="WhatsApp">💬</button></td></tr>`;
     }).join('')+'</tbody>';
     table.innerHTML = head + body;
     table.querySelectorAll('tbody tr').forEach(tr=>{
@@ -7624,7 +7769,7 @@ function _alunosPorFaixaSheet(faixa){
   arr.forEach(a=>{
     const row=el(`<div class="st-row" style="cursor:pointer">
       ${avatarAluno(a)}
-      <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div>
+      <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
         <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${a.diasSem!=null?(a.diasSem+'d sem treinar'):''}</span></div></div>
       <div class="st-right"><span style="color:var(--muted)">›</span></div></div>`);
     row.onclick=()=>_profAlunoSheet(a);
@@ -7665,7 +7810,7 @@ function _relDetFaixas(w, secTitle, note){
     _profAlunosArr().filter(a=>a.faixa===f).sort((a,b)=>(b.graus||0)-(a.graus||0)).forEach(a=>{
       const apto=aptos.includes(a);
       const row=el(`<div class="st-row" style="cursor:pointer">${avatarAluno(a)}
-        <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div>
+        <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
           <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${a.diasSem!=null?a.diasSem+'d sem treinar':''}</span></div></div>
         <div class="st-right">${apto?'<span class="status-chip green">apto</span>':'<span style="color:var(--muted)">›</span>'}</div></div>`);
       row.onclick=()=>_profAlunoSheet(a);
@@ -8076,7 +8221,7 @@ function profFinanceiro(){
     src.forEach(a=>{
       const row=el(`<div class="st-row" style="cursor:pointer">
         ${avatarAluno(a)}
-        <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div>
+        <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
           <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">Vence ${safeTxt(a.mensVenc||'—')}</span></div></div>
         <div class="st-right">
           <div style="font-size:14.5px;font-weight:800;color:${a.pago==='late'?'var(--red)':'var(--ink)'}">${a.mensValor>0?moneyBR(a.mensValor):'—'}</div>
@@ -8968,7 +9113,7 @@ function _turmaRosterNode(t, rerender){
   if(!alunos.length) list.appendChild(el('<div class="empty-hint">Nenhum aluno matriculado ainda.</div>'));
   alunos.forEach(a=>{
     const row=el(`<div class="st-row">${avatarAluno(a)}
-      <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div><div class="meta">${beltPill(a.faixa,a.graus)}</div></div>
+      <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div><div class="meta">${beltPill(a.faixa,a.graus)}</div></div>
       <button class="ses-del" aria-label="Remover da turma">✕</button></div>`);
     row.querySelector('.ses-del').onclick=(ev)=>{ ev.stopPropagation();
       a.turmas=(a.turmas||[]).filter(x=>x!==t.id);
@@ -8994,7 +9139,7 @@ function _turmaMatricularSheet(t, done){
   fora.forEach(a=>{
     const row=el(`<button class="st-row" style="width:100%;text-align:left">
       ${avatarAluno(a)}
-      <div class="st-mid"><div class="nm">${safeTxt(a.nm)}</div><div class="meta">${beltPill(a.faixa,a.graus)}</div></div>
+      <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div><div class="meta">${beltPill(a.faixa,a.graus)}</div></div>
       <span class="tr-caret">＋</span></button>`);
     row.onclick=()=>{ a.turmas=(a.turmas||[]).concat(t.id);
       if(!DEMO && typeof sbProf!=='undefined' && sbProf.matricular){ try{ sbProf.matricular(a.id, [t.id]); }catch(_){} }
@@ -9071,7 +9216,7 @@ function _gradAptosSection(w){
       const row = el(`<div class="grad-aptos-row">
         <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
         <div class="grad-aptos-info">
-          <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
+          <div class="grad-aptos-nm">${safeTxt(_nomeInst(a))}</div>
           <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º grau → ${hint}</div>
           <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
         </div>
@@ -9096,7 +9241,7 @@ function _gradAptosSection(w){
       const row = el(`<div class="grad-aptos-row muted">
         <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
         <div class="grad-aptos-info">
-          <div class="grad-aptos-nm">${safeTxt(a.nm)}</div>
+          <div class="grad-aptos-nm">${safeTxt(_nomeInst(a))}</div>
           <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(nextNome)}</div>
           <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
         </div>
