@@ -5335,12 +5335,13 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
         <button class="btn-cad ghost" type="button" data-a="cancel">Cancelar</button>
       </div>
     </div></div>`);
-  const close = ()=>overlay.remove();
+  const close = ()=>{ overlay.classList.remove('open'); setTimeout(()=>overlay.remove(),260); };
   overlay.querySelector('[data-a="cancel"]').onclick = close;
   overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'resumida'); close(); };
   overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'completa'); close(); };
   overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
   document.body.appendChild(overlay);
+  requestAnimationFrame(()=>overlay.classList.add('open'));
 }
 function _alunosExportPDF(alunos, turmaMap){
   if(typeof window.jspdf==='undefined' || typeof window.jspdf.jsPDF==='undefined'){ toast('PDF: biblioteca ainda carregando'); return; }
