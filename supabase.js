@@ -365,9 +365,12 @@
     pushProfile: wrap(async () => {
       const d = DB(); if (!d || !d.sbUser) return;
       const e = d.eu || {};
+      // 0022: faixa/graus são DERIVADOS de `graduations` (trigger graduations_sync).
+      // Mandar aqui era um caminho de drift perfil×timeline — e o UPDATE dessas
+      // colunas foi revogado de `authenticated`.
       await SB.from('profiles').update({
-        apelido: e.apelido, nome_completo: e.nomeCompleto, faixa: e.faixa,
-        graus: e.graus, nascimento: e.nascimento, desde: e.desde,
+        apelido: e.apelido, nome_completo: e.nomeCompleto,
+        nascimento: e.nascimento, desde: e.desde,
       }).eq('id', d.sbUser.id);
     }),
 
