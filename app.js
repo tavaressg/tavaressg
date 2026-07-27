@@ -176,6 +176,20 @@ document.addEventListener('keydown', e=>{
     else if (overlay){ e.preventDefault(); overlay.classList.remove('open'); setTimeout(()=>overlay.remove(), 260); }
   }
 });
+// Fechar no backdrop só vale se o CLIQUE INTEIRO foi no backdrop: arrastar de dentro
+// da sheet e soltar fora dispara `click` no overlay e fechava a sheet sem querer.
+// Guard global em captura — cobre os ~47 `sheet.onclick = e=>{ if(e.target===sheet) close(); }`.
+(function(){
+  let pressT = null;
+  document.addEventListener('mousedown', e=>{ pressT = e.target; }, true);
+  document.addEventListener('click', e=>{
+    if (e.target.classList && e.target.classList.contains('sheet-overlay')
+        && pressT && pressT !== e.target){
+      e.stopPropagation(); e.preventDefault();
+    }
+    pressT = null;
+  }, true);
+})();
 // Auto-focus no primeiro elemento focável da sheet quando abre (a11y + comportamento nativo)
 (function(){
   if (typeof MutationObserver === 'undefined') return;
@@ -353,8 +367,11 @@ function elegibilidadeCBJJ(eu){
   const info = CBJJ.adult_belts.find(b=>b.belt===eu.faixa);
   if(!info || !info.next) return { eligible:false, checks:[{label:'Faixa maxima atingida',ok:true,detail:''}], nextBelt:null };
   const nextInfo = CBJJ.adult_belts.find(b=>b.belt===info.next);
-  const fg = (DB.graduacoes||[]).find(x=>x.tipo==='faixa' && x.faixa===eu.faixa);
-  const mesesNaFaixa = fg ? tempoNaFaixaMeses(fg.data) : null;
+  // _faixaDesde (canônico): aceita `faixa` OU `inicio`, e cai no 1º `grau` da faixa.
+  // Procurar só por tipo==='faixa' fazia o aluno cadastrado com evento `inicio`
+  // (o que a Edge Function semeia) ver "Sem data de graduacao registrada".
+  const fgData = _faixaDesde(DB.graduacoes||[], eu.faixa);
+  const mesesNaFaixa = fgData ? tempoNaFaixaMeses(fgData) : null;
   if(nextInfo){
     const minAge = nextInfo.min_age;
     if(idade!=null){
@@ -392,6 +409,19 @@ function beltPill(b, graus){
   const x = BELTS[b] || { cor:'#9e9e9e', nome:safeTxt(b||'—') };
   const g = graus!=null ? ` · ${graus}º` : '';
   return `<span class="belt-pill" style="background:${x.cor}22;color:${b==='branca'?'#888':x.cor}">${beltMini(b, graus)}${x.nome}${g}</span>`;
+}
+/* v345: a linha do tempo é a fonte da verdade da graduação. `semGrad` (do adapter)
+   marca quem não tem NENHUM evento — a UI mostra "sem graduação" em vez de uma faixa
+   branca lisa que ninguém registrou. `profiles.faixa` continua existindo como valor
+   técnico (não virou null: 43 pontos leem BELTS[faixa]). */
+function _semGrad(a){
+  if(!a) return false;
+  if(a.semGrad != null) return !!a.semGrad;               // lista (adapter já sabe)
+  if(Array.isArray(a.graduacoes)) return !a.graduacoes.filter(g=>g&&g.data).length;   // ficha aberta
+  return false;
+}
+function beltPillOuVazio(a){
+  return _semGrad(a) ? '<span class="belt-pill vazio">Sem graduação</span>' : beltPill(a.faixa, a.graus);
 }
 // Seletor de faixa: folha com a lista de mini-faixas + o NOME da faixa ao lado.
 // onPick(faixa) ao escolher.
@@ -693,9 +723,25 @@ function _normTelBR(v){
 }
 // Loja da academia. LOJA_WHATSAPP = só dígitos com DDI. LOJA_PIX = chave PIX (telefone).
 const LOJA_WHATSAPP = '5531996248909'; const LOJA_PIX = '31996248909';
-// Overrides configuráveis (persistem em DB.loja.config → user_state JSONB).
-function _lojaPix(){ return (DB.loja && DB.loja.config && DB.loja.config.pix) || LOJA_PIX; }
-function _lojaWa(){ return (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || LOJA_WHATSAPP; }
+// PIX/WhatsApp vivem em `academies.config` (nuvem, lido por TODO membro no boot —
+// ver sbSync.pullAll → d.academyConfig). Antes ficavam só em DB.loja.config, ou seja
+// no user_state PRIVADO do professor: o aluno nunca via a chave configurada e caía na
+// constante. DB.loja.config segue como fallback local (demo/offline e dados legados).
+function _acadCfg(){ return DB.academyConfig || {}; }
+/* Única porta de escrita em academies.config. `salvarConfig` substitui o JSONB
+   INTEIRO, então quem manda só a sua parte apaga a dos outros (metaAulas sumia ao
+   salvar PIX; pix/whatsapp sumiam ao salvar meta de aulas). Aqui sempre relê o
+   remoto, faz merge e só então grava. Devolve Promise pra UI tratar erro. */
+function _salvarAcademyConfig(patch){
+  DB.academyConfig = Object.assign({}, DB.academyConfig, patch);
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.salvarConfig) return Promise.resolve();
+  return sbProf.getConfig().then(atual=>{
+    const merged = Object.assign({}, atual, DB.academyConfig, patch);
+    return sbProf.salvarConfig(merged).then(()=>{ DB.academyConfig = merged; });
+  });
+}
+function _lojaPix(){ return _acadCfg().pix || (DB.loja && DB.loja.config && DB.loja.config.pix) || LOJA_PIX; }
+function _lojaWa(){ return _acadCfg().whatsapp || (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || LOJA_WHATSAPP; }
 // Código de presença do totem (fixo — ver CLAUDE.md). Com backend vira o código rotativo da aula.
 const PRESENCA_CODE = '0000';
 // DEMO já definido no topo (vitrine ?demo=1)
@@ -1255,11 +1301,10 @@ function _countSince(set, sinceISO){ if(!sinceISO) return set.size; let c=0; set
 function _refDataGrauAtual(){
   const me=DB.eu, g=DB.graduacoes||[]; let e=null;
   if(me.graus>0) e=g.find(x=>x.tipo==='grau' && x.faixa===me.faixa && x.graus===me.graus);
-  if(!e) e=g.find(x=>x.tipo==='faixa' && x.faixa===me.faixa);
-  return e ? e.data : null;
+  return e ? e.data : _faixaDesde(g, me.faixa);
 }
-// data em que a FAIXA atual começou
-function _refDataFaixaAtual(){ const e=(DB.graduacoes||[]).find(x=>x.tipo==='faixa' && x.faixa===DB.eu.faixa); return e?e.data:null; }
+// data em que a FAIXA atual começou (canônico: faixa | inicio | 1º grau da faixa)
+function _refDataFaixaAtual(){ return _faixaDesde(DB.graduacoes||[], DB.eu.faixa); }
 function aptoMsg(me, paraFaixa, adicionais){
   const aulas = adicionais===1 ? 'aula adicional' : 'aulas adicionais';
   if (!paraFaixa) return `Aluno apto a receber grau, ${adicionais} ${aulas}`;
@@ -2779,11 +2824,22 @@ function evoluirGraduacao(){
   const me = DB.eu, belt = BELTS[me.faixa];
   const stripes = '<i></i>'.repeat(me.graus);
   const curRed = me.faixa==='preta';
-  const fg = (DB.graduacoes||[]).find(x=>x.tipo==='faixa' && x.faixa===me.faixa);
-  const mesesFaixa = fg ? tempoNaFaixaMeses(fg.data) : null;
+  const fgData = _faixaDesde(DB.graduacoes||[], me.faixa);
+  const mesesFaixa = fgData ? tempoNaFaixaMeses(fgData) : null;
   let tempoTxt='—';
   if(mesesFaixa!=null){ const an=Math.floor(mesesFaixa/12), rm=mesesFaixa%12; tempoTxt=((an?an+'a ':'')+(rm?rm+'m':'')).trim()||'0m'; }
 
+  // v345: sem NENHUM evento na timeline, não existe faixa registrada — mostrar
+  // "Branca · 0º grau" era inventar uma graduação que o professor não deu.
+  if(!(DB.graduacoes||[]).filter(g=>g&&g.data).length){
+    w.appendChild(el(`<div class="mod-card" style="margin-top:6px">
+      <div class="mod-title">Faixa atual: <b style="color:var(--ink)">Sem graduação registrada</b></div>
+      <div class="mod-note" style="color:var(--muted);font-size:12.5px;margin-top:6px">
+        Seu professor ainda não registrou sua entrada na academia. Assim que registrar,
+        sua linha do tempo e o progresso pra próxima faixa aparecem aqui.</div>
+    </div>`));
+    return w;
+  }
   w.appendChild(el(`<div class="mod-card" style="margin-top:6px">
     <div class="mod-title">Faixa atual: <b style="color:var(--ink)">${belt.nome} · ${me.graus}º grau</b></div>
     <div class="belt-rank">${beltMini(me.faixa, me.graus)}</div>
@@ -2857,7 +2913,9 @@ function evoluirGraduacao(){
   grads.forEach(g=>{
     const x = BELTS[g.faixa];
     if(!x) return;
-    const titulo = g.tipo==='faixa' ? `Faixa ${x.nome}` : `${g.graus}º grau · ${x.nome}`;
+    const titulo = g.tipo==='faixa' ? `Faixa ${x.nome}`
+                 : g.tipo==='inicio' ? `Início · Faixa ${x.nome}`
+                 : `${g.graus}º grau · ${x.nome}`;
     const [y,m,d] = g.data.split('-');
     const dataFmt = `${d}/${m}/${y}`;
     tl.appendChild(el(`<div class="tl-item">
@@ -3529,15 +3587,24 @@ function _flowCheckin(){
   if(pre){ DB._sessaoPreSelecionada = null; _finalizarCheckin(pre); return; }
   const ses = _sessoesElegiveis();
   if(ses.length === 0){
-    // sem grade hoje ou fora de qualquer janela → mantém retrocompat (check-in sem sessão)
+    // Presença SEMPRE atrelada a uma turma: sem sessão elegível, não registra.
+    // (Antes, "sem grade hoje" gravava um check-in solto, que não entra em
+    // nenhuma ocupação por turma/sessão e polui o histórico.)
     const todas = sessoesDeHoje();
-    if(todas.length === 0){ _finalizarCheckin(null); return; }
+    if(todas.length === 0){ toast('Sem aula na grade de hoje — a presença precisa de uma turma'); DB.flow=null; render(); return; }
     const feitas = _turmasComCheckin();
     const restantes = todas.filter(s => !feitas.has(s.turmaId));
     if(restantes.length === 0){ toast('Você já fez check-in em todas as aulas de hoje ✔'); DB.flow=null; render(); return; }
     toast('Fora do horário da aula (até ' + CHECKIN_JANELA_POS + ' min após o início)'); DB.flow=null; render(); return;
   }
-  if(ses.length > 1){ _sessaoPickSheet(ses, s=>_finalizarCheckin(s)); return; }
+  // >1 aula na janela (horários próximos): o aluno escolhe. Sem escolha, não registra.
+  if(ses.length > 1){
+    _sessaoPickSheet(ses, s=>{
+      if(!s){ toast('Escolha a aula para registrar a presença'); DB.flow=null; render(); return; }
+      _finalizarCheckin(s);
+    });
+    return;
+  }
   _finalizarCheckin(ses[0]);   // 1 sessão elegível: direto
 }
 function _finalizarCheckin(sessao){
@@ -3565,7 +3632,7 @@ function _sessaoPickSheet(sessoes, onPick){
     <div class="sheet-title">Qual aula você fez?</div>
     <div class="sheet-desc">Escolha a sessão de hoje para registrar a presença.</div>
     <div class="sess-pick" style="display:flex;flex-direction:column;gap:8px;margin:4px 0 8px"></div>
-    <button class="sheet-cancel" id="sp-skip">Não sei / pular</button>
+    <button class="sheet-cancel" id="sp-skip">Cancelar</button>
   </div></div>`);
   const list = sheet.querySelector('.sess-pick');
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
@@ -3575,9 +3642,11 @@ function _sessaoPickSheet(sessoes, onPick){
     row.onclick=()=>{ close(); onPick(s); };
     list.appendChild(row);
   });
-  // Código já foi validado: fechar por fora NÃO perde o check-in — confirma sem sessão.
-  sheet.onclick=(e)=>{ if(e.target===sheet){ close(); onPick(null); } };
-  sheet.querySelector('#sp-skip').onclick=()=>{ close(); onPick(null); };
+  // Sair sem escolher CANCELA o registro: presença sem turma não é registrada
+  // (antes, fechar por fora confirmava um check-in solto, sem sessão).
+  const cancelar=()=>{ close(); onPick(null); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) cancelar(); };
+  sheet.querySelector('#sp-skip').onclick=cancelar;
   document.body.appendChild(sheet);
   requestAnimationFrame(()=>sheet.classList.add('open'));
 }
@@ -4184,6 +4253,19 @@ function _faixaDesde(gs, faixa){
   const gr = arr.filter(g=>g.tipo==='grau').map(g=>g.data).sort();
   return gr[0] || null;
 }
+/* Início na academia — FONTE ÚNICA: a linha do tempo de graduação.
+   1) evento `inicio` (o que a Edge Function semeia no cadastro);
+   2) senão, o evento mais antigo de qualquer tipo;
+   3) senão, o cad.dataInicio legado (fichas antigas) ou `desde`.
+   A ficha cadastral não edita mais esse campo — só a aba Graduação. */
+function _inicioAcademia(a){
+  const gs = (a && a.graduacoes || []).filter(g=>g && g.data);
+  const ini = gs.filter(g=>g.tipo==='inicio').map(g=>g.data).sort()[0];
+  if(ini) return ini;
+  const first = gs.map(g=>g.data).sort()[0];
+  if(first) return first;
+  return (a && a.cad && a.cad.dataInicio) || (a && a.desde) || null;
+}
 // Entrada do ALUNO LOGADO (DB.eu) na lista do professor — derivada dos dados reais.
 // É o fio que faz presença/graduação conversarem offline: as ações neste item
 // (marcado _self) escrevem em DB.checkinHoje / DB.graduacoes / DB.eu (ver _profSet*).
@@ -4245,6 +4327,27 @@ function _profGraduarApply(a, faixa, graus, tipo){
   } else { a.faixa=faixa; a.graus=graus; }
   if(!DEMO && typeof sbProf!=='undefined'){ try{ sbProf.graduarAluno(a.id, faixa, graus, tipo, DB.professor.nome||'Professor'); }catch(e){} }
 }
+
+/* Chamado pelo adapter depois de QUALQUER escrita (ver supabase.js): zera os caches
+   de 30s e refaz o fetch. Sem isso a tela ficava com o dado velho até um reload —
+   no PWA, fechar e abrir o app. Mantém os dados antigos na tela até o novo chegar. */
+window.onDadosMudaram = function(){
+  _profTs = 0; _relTs = 0;
+  _loadProfData();
+  if(_relData) _loadRelData();
+};
+/* Aba/PWA volta ao foco → refaz o fetch (o F5 automático). Piso de 10s pra alt-tab
+   frequente não virar rajada de query; `focus` e `visibilitychange` disparam juntos
+   e o piso também serve de dedupe entre os dois. */
+let _refetchTs = 0;
+function _refetchAoVoltar(){
+  if(document.visibilityState !== 'visible') return;
+  if(Date.now() - _refetchTs < 10000) return;
+  _refetchTs = Date.now();
+  window.onDadosMudaram();
+}
+document.addEventListener('visibilitychange', _refetchAoVoltar);
+window.addEventListener('focus', _refetchAoVoltar);
 
 function _loadProfData(){
   if(Date.now() - _profTs < 30000) return;
@@ -4864,7 +4967,7 @@ function profAcessoAlunos(){
       <span></span>
     </div>
     <div class="ac-intro">
-      <div class="ac-senha">Senha padrão: <b>${safeTxt(_senhaPadrao())}</b> <button type="button" id="ac-edit-senha" style="margin-left:8px;background:none;border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer">Trocar</button></div>
+      <div class="ac-senha">Senha padrão: <b>${safeTxt(_senhaPadrao())}</b> <button type="button" id="ac-edit-senha" style="margin-left:8px;background:none;border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer">⚙️ Configurações da academia</button></div>
       <div class="ac-hint">Vale só pra quem <b>nunca acessou</b>. No primeiro login o app obriga a criar uma senha nova.</div>
       <div class="ac-warn">⚠️ Enquanto o aluno não fizer o primeiro acesso, quem souber esta senha e o e-mail dele consegue entrar na conta e ver o diário de treinos. Peça pra acessarem logo.</div>
     </div>
@@ -4926,7 +5029,10 @@ function profAcessoAlunos(){
     if(!confirm(`Definir a senha "${_senhaPadrao()}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
     goBtn.disabled = true; goBtn.textContent = 'Aplicando…';
     try{
-      const r = await sbProf.senhaPadraoLote(SENHA_PADRAO, false);
+      // Era `SENHA_PADRAO` — constante que NUNCA existiu: o clique morria em
+      // ReferenceError e nenhuma senha era aplicada (v341). É a MESMA senha do
+      // dry-run, do convite de WhatsApp e do texto do confirm.
+      const r = await sbProf.senhaPadraoLote(_senhaPadrao(), false);
       const f = (r.falhas||[]).length;
       alert(`${r.aplicadas} senha(s) definida(s) ✓${f?`\n${f} falha(s):\n`+r.falhas.join('\n'):''}\n\nAgora use o botão "Enviar" de cada aluno pra mandar o convite no WhatsApp.`);
       goBtn.textContent = 'Senha aplicada ✓';
@@ -5018,8 +5124,12 @@ function profImportAlunos(){
             if(Object.keys(patch).length) await _impComRetry(()=>sbProf.atualizarAluno(r.existenteId, patch));
             upd++;
           } else {
+            // v345: importação NÃO grada ninguém. `sem_graduacao:true` faz a Edge
+            // Function pular o seed em `graduations` — o aluno entra com a timeline
+            // vazia e aparece como "Sem graduação" até o professor registrar o início.
+            // (profiles.faixa segue 'branca' como valor técnico — 43 pontos leem BELTS[faixa].)
             const payload = { nome_completo:d.nome_completo, apelido:d.apelido, email:d.email,
-              faixa:'branca', graus:0, nascimento:d.nascimento, desde: HOJE_ISO.slice(0,7),
+              faixa:'branca', graus:0, sem_graduacao:true, nascimento:d.nascimento, desde: HOJE_ISO.slice(0,7),
               telefone:d.telefone, cep:d.cep, logradouro:d.logradouro, numero:d.numero,
               bairro:d.bairro, cidade:d.cidade, uf:d.uf,
               resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
@@ -5202,7 +5312,7 @@ function profAlunos(){
   const w = el('<div></div>');
   const alunos = (_profData?.alunos)||[];
   const presentes = alunos.filter(a=>a.pres).length;
-  const ativos = alunos.filter(a=>!a.diasSem || a.diasSem<14).length;
+  const ativos = alunos.filter(a=>(a.diasSem ?? 999) <= 14).length;   // mesmo critério do KPI da home
   const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
   const vencidosN = alunos.filter(a=>a.pago==='late').length;
   const aptosN = (typeof _aptosGraduar==='function'?_aptosGraduar().length:0);
@@ -5288,12 +5398,13 @@ function profAlunos(){
     const n = _selAlunos.size;
     bulk.hidden = n===0;
     if(!n) return;
+    // v346: "Graduar" em lote removido — o único caminho de graduação é o
+    // "+ Novo evento" da timeline (por aluno), que já deduz o próximo passo.
+    // Um atalho em massa colocava faixa/grau errados sem passar pela sugestão.
     bulk.innerHTML = `<span class="bb-n">${n} selecionado${n>1?'s':''}</span>
       <button class="bb-btn" data-a="pres">✓ Presença</button>
-      <button class="bb-btn" data-a="grad">🥋 Graduar</button>
       <button class="bb-x" data-a="clear">Limpar</button>`;
     bulk.querySelector('[data-a="pres"]').onclick=()=>_bulkPresenca((_profData?.alunos)||[], refresh);
-    bulk.querySelector('[data-a="grad"]').onclick=()=>_bulkGraduar((_profData?.alunos)||[], refresh);
     bulk.querySelector('[data-a="clear"]').onclick=()=>{ _selAlunos.clear(); refresh(); };
   };
 
@@ -5394,8 +5505,8 @@ function profAlunos(){
         <button class="row-check${sel?' on':''}" aria-label="Selecionar ${safeAttr(a.nm)}">${sel?'✓':''}</button>
         ${avatarAluno(a)}
         <div class="st-mid"><div class="nm" title="${safeAttr(nomeTx)}">${safeTxt(nomeTx)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
-          <div class="meta">${beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
-        <div class="erp-c erp-c-belt-cell">${beltPill(a.faixa,a.graus)}</div>
+          <div class="meta">${_semGrad(a)?'<span class="belt-pill vazio">Sem graduação</span>':beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
+        <div class="erp-c erp-c-belt-cell">${beltPillOuVazio(a)}</div>
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
         <div class="erp-c erp-c-pres-cell">${presTx}</div>
@@ -5466,7 +5577,7 @@ function profAlunos(){
   // Header desktop: título + ações (Filtros toggle | Colunas | Exportar | + Novo)
   const advWrap = el(`<div class="erp-alunos-adv-wrap"></div>`);
   const advBar = el(`<div class="erp-alunos-adv-bar">
-    <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados</button>
+    <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados<span class="adv-count" id="adv-count" hidden></span></button>
     <div class="erp-alunos-tool-spacer"></div>
     <button class="erp-alunos-tool" id="adv-acesso" type="button">🔑 Acesso</button>
     <button class="erp-alunos-tool" id="adv-import" type="button">↑ Importar</button>
@@ -5505,7 +5616,15 @@ function profAlunos(){
     advF.turma     = advPanel.querySelector('#advf-turma').value;
     advF.plano     = advPanel.querySelector('#advf-plano').value;
     advF.aniversario = advPanel.querySelector('#advf-aniv').value;
+    _advBadge();
     shown=PAGE; renderList();
+  };
+  // Badge no botão: quantos filtros avançados estão ativos (visível com o painel fechado).
+  const _advBadge = ()=>{
+    const n = Object.values(advF).filter(Boolean).length;
+    const b = advBar.querySelector('#adv-count');
+    b.textContent = n; b.hidden = !n;
+    advBar.querySelector('#adv-toggle').classList.toggle('filtered', !!n);
   };
   advPanel.querySelectorAll('input,select').forEach(el0=>{
     const ev = el0.tagName==='SELECT' ? 'change' : 'input';
@@ -5530,6 +5649,7 @@ function profAlunos(){
   advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
   advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
+  _advBadge();
   // Preset vindo do painel (KPI/Ver todos aniversariantes): abre o painel avançado com o mês já selecionado.
   if(advF.aniversario){
     advPanel.querySelector('#advf-aniv').value = advF.aniversario;
@@ -5608,7 +5728,9 @@ function _gradTimelineNode(grads){
   if(!arr.length){ tl.appendChild(el('<div class="tl-empty">Sem graduações registradas.</div>')); return tl; }
   arr.forEach(g=>{
     const x=BELTS[g.faixa]; if(!x) return;
-    const titulo=g.tipo==='faixa'?`Faixa ${x.nome}`:`${g.graus}º grau · ${x.nome}`;
+    const titulo = g.tipo==='faixa' ? `Faixa ${x.nome}`
+                 : g.tipo==='inicio' ? `Início · Faixa ${x.nome}`
+                 : `${g.graus}º grau · ${x.nome}`;
     const [y,m,d]=g.data.split('-'); const dataFmt=`${d}/${m}/${y}`;
     tl.appendChild(el(`<div class="tl-item">
       <div class="tl-rail"><span class="tl-dot" style="background:${x.cor}"></span><span class="tl-conn"></span></div>
@@ -6027,54 +6149,6 @@ function _bulkPresenca(alunos, refresh){
   toast(`Presença lançada para ${sel.length} aluno${sel.length>1?'s':''} ✔`);
 }
 
-function _bulkGraduar(alunos, refresh){
-  const sel = alunos.filter(a=>_selAlunos.has(_alunoKey(a)));
-  if(!sel.length) return;
-  // v193: filtro por idade removido — professor escolhe qualquer faixa (mais simples, evita bugs).
-  let faixas = CBJJ_CHAIN.slice();
-  const mistas = new Set(sel.map(a=>{ const i=idadeCBJJ(a.nascimento); return i==null?'?':(i<=CBJJ.youth_max_age?'infantil':'adulto'); }));
-  let selFaixa = faixas.includes(sel[0].faixa)?sel[0].faixa:faixas[0], selGraus = 0, selTipo = 'graduação';
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Graduar ${sel.length} aluno${sel.length>1?'s':''}</div>
-    <div class="sheet-desc">Aplica a mesma faixa/grau a todos os selecionados.${(mistas.has('infantil')&&mistas.has('adulto'))?' <b style="color:var(--gold)">⚠️ Seleção mistura infantil e adulto — só faixas válidas p/ todos aparecem.</b>':''}</div>
-    <label class="flbl">Nova faixa</label>
-    <div class="seg" id="bg-faixa"></div>
-    <label class="flbl" style="margin-top:12px">Graus</label>
-    <div class="seg" id="bg-graus"></div>
-    <label class="flbl" style="margin-top:12px">Tipo</label>
-    <div class="seg" id="bg-tipo"></div>
-    <button class="btn-save" id="bg-save" style="margin-top:14px">Confirmar graduação</button>
-    <button class="sheet-cancel" id="bg-cancel">Cancelar</button>
-  </div></div>`);
-  const segGraus=sheet.querySelector('#bg-graus');
-  // B5: graus acompanham a faixa (preta = até 6; demais = até 4)
-  const _rebuildGrausBulk=()=>{
-    const mx=maxGrausDe(selFaixa); if(selGraus>mx) selGraus=mx;
-    segGraus.innerHTML='';
-    for(let g=0;g<=mx;g++){ const b=el(`<button class="${g===selGraus?'active':''}">${g}º</button>`);
-      b.onclick=()=>{ selGraus=g; segGraus.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segGraus.appendChild(b); }
-  };
-  const segFaixa=sheet.querySelector('#bg-faixa');
-  const _paintFaixaBulk=()=> renderBeltField(segFaixa, faixas, selFaixa, (f)=>{ selFaixa=f; _paintFaixaBulk(); _rebuildGrausBulk(); });
-  _paintFaixaBulk();
-  _rebuildGrausBulk();
-  const segTipo=sheet.querySelector('#bg-tipo');
-  ['graduação','grau'].forEach(t=>{ const b=el(`<button class="${t===selTipo?'active':''}">${t}</button>`);
-    b.onclick=()=>{ selTipo=t; segTipo.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segTipo.appendChild(b); });
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#bg-cancel').onclick=close;
-  sheet.querySelector('#bg-save').onclick=()=>{
-    close();
-    sel.forEach(a=> _profGraduarApply(a, selFaixa, selGraus, selTipo));  // roteia _self p/ DB.graduacoes/DB.eu
-    _selAlunos.clear(); refresh(); render();
-    toast(`${sel.length} aluno${sel.length>1?'s':''} graduado${sel.length>1?'s':''} para ${BELTS[selFaixa].nome} ${selGraus}º ✔`);
-  };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
-}
-
 // Ficha do aluno em TELA CHEIA (navegação via DB.alunoAberto), não bottom sheet.
 // _profAlunoSheet(a) (usado em todo o app) vira um atalho que navega para cá.
 /* ============================================================
@@ -6121,11 +6195,9 @@ function profAlunoDetalhe(a){
       <div class="erp-hd-main">
         <div class="erp-crumb">Alunos › <b>${safeTxt(a.nm)}</b></div>
         <div class="erp-hd-nome">${safeTxt(a.nm)} ${selfBadge}</div>
-        <div class="erp-hd-sub"><span class="erp-belt-pill${isBranca?' branca':''}" style="--bc:${beltInfo.cor}">${safeTxt(beltInfo.nome)} · ${a.graus||0}º grau</span></div>
+        <div class="erp-hd-sub" id="pa-belt"></div>
       </div>
-      <div class="erp-hd-acts">
-        <button class="erp-btn primary" id="pa-grad-quick">Graduar</button>
-      </div>
+      <div class="erp-hd-acts"></div>
     </div>
     <div class="erp-tabs">
       ${tabs.map(([k,l])=>`<button class="erp-tab${k===tab?' on':''}" data-t="${k}">${l}</button>`).join('')}
@@ -6139,14 +6211,21 @@ function profAlunoDetalhe(a){
   const close=()=>{ DB.alunoAberto=null; DB._alunoTab=null; render(); window.scrollTo(0,0); };
   const refresh=()=>{ _profData=null; _profTs=0; _loadProfData(); };
   sheet.querySelector('#pa-back').onclick=close;
-  sheet.querySelector('#pa-grad-quick').onclick=()=>{ _profGraduarSheet(a, ()=>{ refresh(); render(); }); };
+  // v344: botão "Graduar" removido — a graduação acontece SÓ pela linha do tempo
+  // ("+ Novo evento", aba Graduação). Dois caminhos gravando faixa/grau era o que
+  // deixava perfil e timeline divergentes.
   // troca de aba
   sheet.querySelectorAll('.erp-tab').forEach(b=> b.onclick=()=>{ DB._alunoTab=b.dataset.t; render(); });
   // Carrega dados do backend (idem versão anterior) e re-renderiza colunas.
   const kpisBox=sheet.querySelector('#pa-kpis');
   const mainBox=sheet.querySelector('#pa-main');
   const actsBox=sheet.querySelector('#pa-actions');
+  const beltBox=sheet.querySelector('#pa-belt');
   const paint=()=>{
+    // pill de faixa repintada a cada paint: registrar o 1º evento tira o "Sem graduação"
+    beltBox.innerHTML = _semGrad(a)
+      ? '<span class="erp-belt-pill vazio">Sem graduação registrada</span>'
+      : `<span class="erp-belt-pill${isBranca?' branca':''}" style="--bc:${beltInfo.cor}">${safeTxt(beltInfo.nome)} · ${a.graus||0}º grau</span>`;
     kpisBox.innerHTML=''; kpisBox.appendChild(_erpKpis(a));
     mainBox.innerHTML=''; mainBox.appendChild(_erpMain(a, tab, refresh, paint, c, hora));
     actsBox.innerHTML=''; actsBox.appendChild(_erpActions(a, tab, refresh, paint, hora));
@@ -6175,7 +6254,7 @@ function _erpKpis(a){
   const les=(a.lesoes||[]);
   const lesAtivas=les.filter(l=>l.status==='recuperando').length;
   const freq=(a.frequencia||[]).length;
-  const desde = grads.length ? grads.slice().sort((x,y)=>x.data.localeCompare(y.data))[0].data : (a.cad&&a.cad.dataInicio) || null;
+  const desde = _inicioAcademia(a);   // mesma fonte da ficha e dos exports
   const kpi=(v,l,cls='')=>`<div class="erp-kpi ${cls}"><div class="erp-kpi-v">${v}</div><div class="erp-kpi-l">${l}</div></div>`;
   let html = kpi(freq, 'Check-ins')
     + kpi(les.length, 'Lesões')
@@ -6224,7 +6303,7 @@ function _erpFicha(a, c, paint, refresh){
       linha('E-mail', c?c.email:'') +
       linha('Endereço', endTxt.trim().replace(/^·\s*/,'')) +
       linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'') +
-      linha('Início', c?c.dataInicio:'') +
+      linha('Início na academia', _inicioAcademia(a) ? _isoToBR(_inicioAcademia(a)) : '') +
       linha('Recebe mensagens', c ? (c.aceitaContato?'Sim':'Não') : '') +
       `<div class="erp-fld"><label>Turmas</label><div class="erp-fld-v">${turmasHtml}</div></div>` +
       (c&&c.obs?`<div class="erp-fld"><label>Observações</label><div class="erp-fld-v">${safeTxt(c.obs)}</div></div>`:'');
@@ -6240,8 +6319,10 @@ function _erpFicha(a, c, paint, refresh){
   form.innerHTML =
     inp('fc-nome','Nome completo', (c&&c.nomeCompleto)||a.nm||'', 'text', 'Ex: Gabriel Tavares de Jesus') +
     inp('fc-apelido','Apelido', a.nm||'', 'text', 'Como aparece no app') +
-    inp('fc-nasc','Ano de nascimento', (c&&c.nascimento)||a.nascimento||'', 'number', '1998') +
-    dateInp('fc-nascdata','Data de nascimento completa (opcional)', a.nascData||'') +
+    // v344: "Ano de nascimento" saiu — o ano é DERIVADO da data completa, que é
+    // obrigatória no cadastro e na importação. Dois campos para o mesmo fato só
+    // criavam divergência (ano 1999 com data 23/03/2001 e ninguém sabia qual valia).
+    dateInp('fc-nascdata','Data de nascimento', a.nascData||'') +
     inp('fc-tel','Telefone', c?c.telefone:'', 'tel', '(11) 99999-0000') +
     inp('fc-email','E-mail', c?c.email:'', 'email') +
     inp('fc-cep','CEP', e.cep, 'text', '00000-000') +
@@ -6253,7 +6334,11 @@ function _erpFicha(a, c, paint, refresh){
     inp('fc-rnm','Responsável (nome)', r.nome) +
     inp('fc-rtel','Responsável (telefone)', r.telefone, 'tel') +
     inp('fc-rpar','Responsável (parentesco)', r.parentesco, 'text', 'Mãe, cônjuge…') +
-    dateInp('fc-inicio','Início na academia', c?c.dataInicio:'') +
+    // v344: "Início na academia" saiu da ficha — a fonte única é o evento `inicio`
+    // da linha do tempo de graduação (aba Graduação → + Novo evento).
+    `<div class="erp-fld"><label>Início na academia</label><div class="erp-fld-v">${
+      _inicioAcademia(a) ? _isoToBR(_inicioAcademia(a))+' <i style="color:var(--muted);font-weight:500">· edite na aba Graduação</i>'
+                         : '<i>— registre na aba Graduação</i>'}</div></div>` +
     `<div class="erp-fld erp-fld-edit"><label>Recebe mensagens (autorizado pelo aluno)</label>
       <select class="inp" id="fc-contato"><option value="0">Não</option><option value="1" ${c&&c.aceitaContato?'selected':''}>Sim</option></select></div>` +
     `<div class="erp-fld erp-fld-edit"><label>Turmas (clique pra matricular/desmatricular)</label>
@@ -6274,10 +6359,10 @@ function _erpFicha(a, c, paint, refresh){
     const g=(id)=> form.querySelector('#'+id).value.trim();
     const nomeCompleto = g('fc-nome');
     const apelidoNovo  = g('fc-apelido') || (nomeCompleto.split(/\s+/)[0]||'');
-    const nascAno      = parseInt(g('fc-nasc'));
-    const nascimento   = (nascAno>=1920 && nascAno<=hoje.getFullYear()) ? nascAno : (c&&c.nascimento)||null;
     const nascData     = dateBRRead(form.querySelector('#fc-nascdata')) || null;
-    const dataInicio   = dateBRRead(form.querySelector('#fc-inicio')) || null;
+    // ANO derivado da DATA (fonte única). Sem data, preserva o ano que já existia.
+    const nascimento   = nascData ? +nascData.slice(0,4) : ((c&&c.nascimento)||a.nascimento||null);
+    const dataInicio   = _inicioAcademia(a);   // vem da timeline, não do form
     a.cad = a.cad || {};
     a.cad.nomeCompleto = nomeCompleto;
     a.cad.nascimento = nascimento;
@@ -6373,6 +6458,24 @@ function _erpTimelineGrad(a, paint){
   box.appendChild(el(`<div class="erp-card-h">Linha do tempo de graduação
     <button class="btn-cad primary" id="tl-add" style="width:auto;flex:none;padding:8px 14px;font-size:13px;white-space:nowrap">＋ Novo evento</button></div>`));
   const grads = (a.graduacoes||[]).filter(g=>g&&g.data);
+  // Reconciliação perfil ↔ timeline. A faixa da lista vem de `profiles.faixa`; a
+  // timeline vem de `graduations`. Editar o perfil por fora (SQL, importação com
+  // faixa fixa) deixa os dois discordando — e o aluno via "Branca" na Jornada
+  // enquanto a lista mostrava Laranja. Aqui o professor VÊ a divergência e resolve.
+  const _ultEvento = [...grads].filter(g=>g.tipo==='faixa'||g.tipo==='grau'||g.tipo==='inicio')
+    .sort((x,y)=>x.data.localeCompare(y.data)).pop();
+  const _divergente = (a.faixa||'branca') !== ((_ultEvento&&_ultEvento.faixa)||'branca')
+                   || (a.graus||0) !== ((_ultEvento&&_ultEvento.tipo==='grau'?_ultEvento.graus:0)||0);
+  if(_divergente){
+    const evTx = _ultEvento
+      ? `${BELTS[_ultEvento.faixa]?.nome||_ultEvento.faixa}${_ultEvento.tipo==='grau'?' · '+_ultEvento.graus+'º grau':''} (${_isoToBR(_ultEvento.data)})`
+      : 'nenhum evento';
+    const warn = el(`<div class="erp-tl-warn">⚠️ <b>Perfil e histórico divergem.</b>
+      Cadastro: <b>${safeTxt(BELTS[a.faixa]?.nome||a.faixa||'—')} · ${a.graus||0}º grau</b> · Último evento: <b>${safeTxt(evTx)}</b>.
+      <button class="erp-btn sm" id="tl-fix">Registrar evento p/ a faixa do cadastro</button></div>`);
+    warn.querySelector('#tl-fix').onclick=()=>_erpGradForm(a, null, paint);
+    box.appendChild(warn);
+  }
   // Estatísticas embaixo
   const stats = _erpGradStats(grads);
   const list = el('<div class="erp-tl"></div>');
@@ -6432,36 +6535,80 @@ function _erpTimelineGrad(a, paint){
   return box;
 }
 
-// Form inline pra adicionar/editar evento — sheet simples, in-memory
+/* v345: o PRÓXIMO evento é deduzido da timeline — o professor só confirma a data.
+   Regras (a cadeia de faixas respeita a idade via proximaFaixaCBJJ, adulto e infantil):
+     timeline vazia            → Início na academia · branca · 0 graus
+     último = inicio|faixa     → 1º grau na mesma faixa
+     último = grau < máximo    → próximo grau
+     último = grau no máximo   → próxima faixa · 0 graus
+     sem próxima faixa p/ idade→ null (o professor escolhe na mão) */
+function _proximoEventoGrad(a){
+  const gs = (a.graduacoes||[]).filter(g=>g&&g.data).sort((x,y)=>x.data.localeCompare(y.data));
+  if(!gs.length) return { tipo:'inicio', faixa:'branca', graus:0, motivo:'Primeiro registro do aluno' };
+  const ult = gs[gs.length-1];
+  const faixa = ult.faixa || 'branca';
+  if(ult.tipo!=='grau') return { tipo:'grau', faixa, graus:1, motivo:'Sequência: 1º grau na faixa atual' };
+  const max = maxGrausDe(faixa);
+  if((ult.graus||0) < max) return { tipo:'grau', faixa, graus:(ult.graus||0)+1, motivo:'Sequência: próximo grau' };
+  const prox = proximaFaixaCBJJ(faixa, idadeCBJJ(a.nascimento));
+  if(!prox) return null;   // faixa máxima p/ a idade — escolha manual
+  return { tipo:'faixa', faixa:prox, graus:0, motivo:`Sequência: ${max}º grau completo → próxima faixa` };
+}
+// Form de evento: sugestão pronta + "Alterar" pra abrir os campos. Sem campo de nota.
 function _erpGradForm(a, existing, paint){
+  const sug = existing ? null : _proximoEventoGrad(a);
+  const _lbl = (t,f,g)=> t==='inicio' ? `Início na academia · ${BELTS[f]?.nome||f}`
+             : t==='faixa' ? `Nova faixa: ${BELTS[f]?.nome||f}`
+             : `${g}º grau · ${BELTS[f]?.nome||f}`;
   const sh=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">${existing?'Editar evento':'Novo evento'}</div>
-    <label class="flbl">Tipo</label>
-    <select class="inp" id="gf-tipo">
-      <option value="inicio">Início na academia</option>
-      <option value="faixa">Nova faixa</option>
-      <option value="grau" selected>Novo grau</option>
-    </select>
-    <label class="flbl">Faixa</label>
-    <select class="inp" id="gf-faixa">${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select>
-    <label class="flbl">Grau (0-4)</label>
-    <input class="inp" id="gf-graus" type="number" min="0" max="4" value="0">
+    ${sug?`<div class="gf-sug" id="gf-sug">
+      <div class="gf-sug-t">${safeTxt(_lbl(sug.tipo,sug.faixa,sug.graus))}</div>
+      <div class="gf-sug-s">${safeTxt(sug.motivo)}</div>
+      <button type="button" class="gf-sug-alt" id="gf-alt">Alterar</button>
+    </div>`:''}
+    <div id="gf-campos"${sug?' hidden':''}>
+      <label class="flbl">Tipo</label>
+      <select class="inp" id="gf-tipo">
+        <option value="inicio">Início na academia</option>
+        <option value="faixa">Nova faixa</option>
+        <option value="grau" selected>Novo grau</option>
+      </select>
+      <label class="flbl">Faixa</label>
+      <select class="inp" id="gf-faixa">${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select>
+      <label class="flbl">Grau <span style="color:var(--muted);font-weight:500">(0 no início/nova faixa)</span></label>
+      <input class="inp" id="gf-graus" type="number" min="0" max="6" value="0">
+    </div>
     <label class="flbl">Data <span style="color:var(--muted);font-weight:500">(DD/MM/AAAA)</span></label>
     <input class="inp" id="gf-data" type="text" inputmode="numeric" maxlength="10" placeholder="DD/MM/AAAA">
-    <label class="flbl">Nota (opcional)</label>
-    <input class="inp" id="gf-nota" placeholder="Motivo, cerimônia, etc.">
     <button class="btn-save" id="gf-save">${existing?'Salvar':'Adicionar'}</button>
     <button class="sheet-cancel" id="gf-cancel">Cancelar</button>
   </div></div>`);
   const close=()=>{ sh.classList.remove('open'); setTimeout(()=>sh.remove(),260); };
-  const tSel=sh.querySelector('#gf-tipo'), fSel=sh.querySelector('#gf-faixa'), gInp=sh.querySelector('#gf-graus'), dInp=sh.querySelector('#gf-data'), nInp=sh.querySelector('#gf-nota');
+  const tSel=sh.querySelector('#gf-tipo'), fSel=sh.querySelector('#gf-faixa'), gInp=sh.querySelector('#gf-graus'), dInp=sh.querySelector('#gf-data');
   const isoToBr=(iso)=>{ if(!iso||iso.length<10) return ''; const [y,m,d]=iso.slice(0,10).split('-'); return `${d}/${m}/${y}`; };
   const brToIso=(br)=>{ const m=(br||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m) return null; const [_,d,mo,y]=m; const iso=`${y}-${mo}-${d}`; const dt=new Date(iso+'T12:00:00'); if(isNaN(dt.getTime())||dt.getDate()!=+d||dt.getMonth()+1!=+mo) return null; return iso; };
+  // `inicio` e `faixa` são sempre 0 graus — trava, não só sugestão.
+  const _syncGraus=()=>{ const t=tSel.value; if(t!=='grau'){ gInp.value=0; gInp.disabled=true; } else gInp.disabled=false; };
+  tSel.onchange=_syncGraus;
   if(existing){
     tSel.value=existing.tipo||'grau'; fSel.value=existing.faixa||'branca';
-    gInp.value=existing.graus||0; dInp.value=isoToBr(existing.data||''); nInp.value=existing.nota||'';
-  } else { dInp.value = isoToBr(new Date().toISOString().slice(0,10)); fSel.value = a.faixa||'branca'; gInp.value = (a.graus||0)+1; }
+    gInp.value=existing.graus||0; dInp.value=isoToBr(existing.data||'');
+  } else if(sug){
+    tSel.value=sug.tipo; fSel.value=sug.faixa; gInp.value=sug.graus;
+    dInp.value = isoToBr(HOJE_ISO);
+    // "Alterar": revela os campos e some com o resumo (o valor sugerido fica carregado)
+    sh.querySelector('#gf-alt').onclick=()=>{
+      sh.querySelector('#gf-campos').hidden=false;
+      sh.querySelector('#gf-sug').remove();
+    };
+  } else {
+    // Sem sugestão (faixa máxima p/ a idade): campos abertos, escolha manual.
+    sh.querySelector('#gf-campos').hidden=false;
+    dInp.value = isoToBr(HOJE_ISO); fSel.value = a.faixa||'branca'; gInp.value = (a.graus||0)+1;
+  }
+  _syncGraus();
   // Máscara DD/MM/AAAA: só dígitos, insere as barras automaticamente.
   dInp.oninput=(e)=>{ let v=e.target.value.replace(/\D/g,'').slice(0,8); if(v.length>4) v=v.slice(0,2)+'/'+v.slice(2,4)+'/'+v.slice(4); else if(v.length>2) v=v.slice(0,2)+'/'+v.slice(2); e.target.value=v; };
   sh.querySelector('#gf-cancel').onclick=close;
@@ -6470,7 +6617,8 @@ function _erpGradForm(a, existing, paint){
     const iso = brToIso(dInp.value.trim());
     if(!iso){ toast('Data inválida — use DD/MM/AAAA'); return; }
     if(iso > HOJE_ISO){ toast('Data no futuro'); return; }
-    const novo = { tipo: tSel.value, faixa: fSel.value, graus: +gInp.value||0, data: iso, nota: nInp.value.trim() };
+    const tipo = tSel.value;
+    const novo = { tipo, faixa: fSel.value, graus: tipo==='grau' ? (+gInp.value||0) : 0, data: iso };
     // v300: unifica "Novo evento" + "Graduação retroativa". Regra:
     //  - Se este evento é o MAIS RECENTE da timeline E tipo faixa/grau →
     //    chama graduarAluno (trigger M3 sincroniza profiles.faixa/graus).
@@ -6612,113 +6760,6 @@ function _profExcluirAlunoSheet(a, refresh){
   requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
-// Edita a ficha cadastral de um aluno já existente (mesma estrutura do cadastro, sem senha/faixa).
-function _profEditarFichaSheet(a, refresh){
-  const c = a.cad || {};
-  const e = c.endereco || {}, r = c.responsavel || {};
-  const apelidoAtual = a._self ? (DB.eu.apelido||'') : (a.nm||'').replace(/\s*\(você\)$/,'');
-  const sheet=el(`<div class="sheet-overlay aluno-detail"><div class="sheet" role="dialog" style="max-height:90vh;overflow-y:auto">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Editar ficha</div>
-    <div class="sheet-desc">Atualiza os dados cadastrais. (Faixa/grau são alterados em "Graduar".)</div>
-
-    <div class="cad-sec">Dados do aluno</div>
-    <label class="flbl">Nome completo</label>
-    <input class="inp" id="fe-nome" value="${safeAttr(c.nomeCompleto||a.nm||'')}">
-    <label class="flbl" style="margin-top:12px">E-mail</label>
-    <input class="inp" id="fe-email" type="email" inputmode="email" value="${safeAttr(c.email||'')}">
-    <div class="cad-row" style="margin-top:12px">
-      <div style="flex:1"><label class="flbl">Telefone / WhatsApp</label><input class="inp" id="fe-tel" type="tel" inputmode="tel" value="${safeAttr(c.telefone||'')}"></div>
-      <div style="width:120px"><label class="flbl">Nascimento</label><input class="inp" id="fe-nasc" type="number" inputmode="numeric" min="1920" max="${hoje.getFullYear()}" value="${safeAttr(c.nascimento||a.nascimento||'')}"></div>
-    </div>
-    <label class="flbl" style="margin-top:12px">Data de nascimento completa <span class="ca-opt">(opcional — habilita aniversariantes)</span></label>
-    ${dateBRField('fe-nascdata', a.nascData||'')}
-    <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(como aparece no app)</span></label>
-    <input class="inp" id="fe-apelido" value="${safeAttr(apelidoAtual)}">
-
-    <div class="cad-sec">Endereço</div>
-    <div class="cad-row">
-      <div style="width:130px"><label class="flbl">CEP</label><input class="inp" id="fe-cep" value="${safeAttr(e.cep||'')}"></div>
-      <div style="flex:1"><label class="flbl">Logradouro</label><input class="inp" id="fe-logr" value="${safeAttr(e.logradouro||'')}"></div>
-    </div>
-    <div class="cad-row" style="margin-top:12px">
-      <div style="width:90px"><label class="flbl">Número</label><input class="inp" id="fe-num" value="${safeAttr(e.numero||'')}"></div>
-      <div style="flex:1"><label class="flbl">Bairro</label><input class="inp" id="fe-bairro" value="${safeAttr(e.bairro||'')}"></div>
-    </div>
-    <div class="cad-row" style="margin-top:12px">
-      <div style="flex:1"><label class="flbl">Cidade</label><input class="inp" id="fe-cidade" value="${safeAttr(e.cidade||'')}"></div>
-      <div style="width:70px"><label class="flbl">UF</label><input class="inp" id="fe-uf" maxlength="2" value="${safeAttr(e.uf||'')}"></div>
-    </div>
-
-    <div class="cad-sec">Responsável / ponto de apoio</div>
-    <label class="flbl">Nome do responsável</label>
-    <input class="inp" id="fe-rnome" value="${safeAttr(r.nome||'')}">
-    <div class="cad-row" style="margin-top:12px">
-      <div style="flex:1"><label class="flbl">Telefone</label><input class="inp" id="fe-rtel" type="tel" inputmode="tel" value="${safeAttr(r.telefone||'')}"></div>
-      <div style="width:130px"><label class="flbl">Parentesco</label><input class="inp" id="fe-rpar" value="${safeAttr(r.parentesco||'')}"></div>
-    </div>
-
-    <div class="cad-sec">Administrativo</div>
-    <label class="flbl">Data de início <span class="ca-opt">(opcional)</span></label>
-    ${dateBRField('fe-inicio', c.dataInicio||'')}
-    <label class="flbl" style="margin-top:12px">Observações <span class="ca-opt">(opcional)</span></label>
-    <textarea class="ta" id="fe-obs">${safeTxt(c.obs||'')}</textarea>
-
-    <div class="cad-sec">Turmas</div>
-    <div id="fe-turmas" class="turma-chips"></div>
-
-    <button class="btn-save" id="fe-save" style="margin-top:16px">Salvar ficha</button>
-    <button class="sheet-cancel" id="fe-cancel">Cancelar</button>
-  </div></div>`);
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  const selTurmas=new Set(a.turmas||[]);
-  let _feDirty=false; sheet.addEventListener('input',()=>{ _feDirty=true; });
-  _turmaChips(sheet.querySelector('#fe-turmas'), selTurmas, ()=>{ _feDirty=true; });
-  // ViaCEP no editar ficha (mesma lógica do cadastro)
-  bindViaCEP(sheet.querySelector('#fe-cep'), {
-    logr:   sheet.querySelector('#fe-logr'),
-    bairro: sheet.querySelector('#fe-bairro'),
-    cidade: sheet.querySelector('#fe-cidade'),
-    uf:     sheet.querySelector('#fe-uf'),
-    num:    sheet.querySelector('#fe-num'),
-  });
-  bindDateBR(sheet);
-  sheet.onclick=(ev)=>{ if(ev.target===sheet){ _feDirty?_confirmDescartar(close):close(); } };
-  sheet.querySelector('#fe-cancel').onclick=close;
-  sheet.querySelector('#fe-save').onclick=()=>{
-    const val=id=>{ const el2=sheet.querySelector('#'+id); return el2?el2.value.trim():''; };
-    const nome=val('fe-nome'), email=val('fe-email').toLowerCase(), telefone=_normTelBR(val('fe-tel'));
-    const nascData=dateBRRead(sheet.querySelector('#fe-nascdata'))||null;
-    let nascVal=parseInt(val('fe-nasc'));
-    if(!(nascVal>=1920) && nascData) nascVal=parseInt(nascData.slice(0,4));   // ano deriva da data completa
-    const nascimento=(nascVal>=1920&&nascVal<=hoje.getFullYear())?nascVal:(c.nascimento||null);
-    const apelido=val('fe-apelido')||nome.split(/\s+/)[0]||'';
-    const resp_nome=val('fe-rnome'), resp_telefone=_normTelBR(val('fe-rtel'));
-    if(!nome){ toast('Informe o nome completo'); return; }
-    if(!email || !email.includes('@')){ toast('Informe um e-mail válido'); return; }
-    if(!telefone){ toast('Informe o telefone/WhatsApp'); return; }
-    if(!resp_nome || !resp_telefone){ toast('Informe o responsável (nome e telefone)'); return; }
-    const cad={ nomeCompleto:nome, email, nascimento, telefone,
-      endereco:{ cep:val('fe-cep'), logradouro:val('fe-logr'), numero:val('fe-num'), bairro:val('fe-bairro'), cidade:val('fe-cidade'), uf:val('fe-uf').toUpperCase() },
-      responsavel:{ nome:resp_nome, telefone:resp_telefone, parentesco:val('fe-rpar') },
-      dataInicio:dateBRRead(sheet.querySelector('#fe-inicio')), obs:val('fe-obs') };
-    if(a._self){ DB.eu.cad=cad; DB.eu.nomeCompleto=nome; DB.eu.apelido=apelido; DB.eu.iniciais=_iniciaisDe(apelido); if(nascimento) DB.eu.nascimento=nascimento; if(nascData) DB.eu.nascData=nascData; }
-    else { a.cad=cad; a.nm=apelido; a.ini=_iniciaisDe(apelido); }
-    a.nascData=nascData||a.nascData||null;
-    a.turmas=[...selTurmas];
-    // Sincroniza o CONJUNTO de turmas (upsert marcadas + delete desmarcadas) — enrollments reais.
-    if(!DEMO && !a._self && typeof sbProf!=='undefined' && sbProf.sincronizarTurmas){ sbProf.sincronizarTurmas(a.id, a.turmas).catch(()=>{ toast('Turmas não sincronizadas (rede)'); }); }
-    // com backend: atualiza o profile (campos cadastrais). nascimento_data vai em update
-    // SEPARADO: se a migration 0002 ainda não rodou, a coluna nova não pode derrubar a ficha.
-    if(!DEMO && typeof sbProf!=='undefined' && sbProf.atualizarAluno){
-      try{ sbProf.atualizarAluno(a.id, Object.assign({nome_completo:nome, apelido, email, nascimento}, _cadToDB(cad))); }catch(ex){}
-      if(nascData){ try{ sbProf.atualizarAluno(a.id, {nascimento_data:nascData}); }catch(ex){} }
-    }
-    close(); refresh(); render(); toast('Ficha atualizada ✔');
-  };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
-}
 // mapeia a ficha (cad) para as colunas snake_case do profiles (backend)
 function _cadToDB(cad){
   const e=cad.endereco||{}, r=cad.responsavel||{};
@@ -6726,53 +6767,6 @@ function _cadToDB(cad){
     resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, data_inicio:cad.dataInicio||null, observacoes:cad.obs,
     aceita_contato:!!cad.aceitaContato };
 }
-function _profGraduarSheet(a, refresh){
-  // v193: sem filtro por idade — professor decide a faixa (todas disponíveis).
-  const idade = idadeCBJJ(a.nascimento);
-  const faixas = CBJJ_CHAIN.slice();
-  let selFaixa = a.faixa||'branca', selGraus = a.graus||0;
-  const catTxt = idade!=null ? (categoriaCBJJ(a.nascimento)||'') : '';
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Graduar ${safeTxt(a.nm)}</div>
-    <div class="sheet-desc">Atual: ${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${safeTxt(a.graus)}º grau${idade!=null?` · ${idade} anos${catTxt?' · '+safeTxt(catTxt):''}`:' · idade não informada'}</div>
-    <label class="flbl">Nova faixa</label>
-    <div class="seg" id="gr-faixa"></div>
-    <label class="flbl" style="margin-top:12px">Graus</label>
-    <div class="seg" id="gr-graus"></div>
-    <label class="flbl" style="margin-top:12px">Tipo</label>
-    <div class="seg" id="gr-tipo"></div>
-    <button class="btn-save" id="gr-save" style="margin-top:14px">Confirmar graduação</button>
-    <button class="sheet-cancel" id="gr-cancel">Cancelar</button>
-  </div></div>`);
-  let selTipo = 'graduação';
-  const segGraus = sheet.querySelector('#gr-graus');
-  // B5: graus acompanham a faixa (preta = até 6; demais = até 4)
-  const _rebuildGrausProf=()=>{
-    const mx=maxGrausDe(selFaixa); if(selGraus>mx) selGraus=mx;
-    segGraus.innerHTML='';
-    for(let g=0;g<=mx;g++){ const b=el(`<button class="${g===selGraus?'active':''}">${g}º</button>`);
-      b.onclick=()=>{ selGraus=g; segGraus.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segGraus.appendChild(b); }
-  };
-  const segFaixa = sheet.querySelector('#gr-faixa');
-  const _paintFaixaProf=()=> renderBeltField(segFaixa, faixas, selFaixa, (f)=>{ selFaixa=f; _paintFaixaProf(); _rebuildGrausProf(); });
-  _paintFaixaProf();
-  _rebuildGrausProf();
-  const segTipo = sheet.querySelector('#gr-tipo');
-  ['graduação','grau'].forEach(t=>{ const b=el(`<button class="${t===selTipo?'active':''}">${t}</button>`);
-    b.onclick=()=>{ selTipo=t; segTipo.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }; segTipo.appendChild(b); });
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#gr-cancel').onclick=close;
-  sheet.querySelector('#gr-save').onclick=()=>{
-    close();
-    _profGraduarApply(a, selFaixa, selGraus, selTipo);  // _self → escreve em DB.graduacoes/DB.eu (reflete na Jornada)
-    refresh(); render(); toast(`${a.nm} graduado para ${BELTS[selFaixa].nome} ${selGraus}º grau ✔`);
-  };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
-}
-
 /* ============================================================
    PROFESSOR — Relatórios + Inteligência (Fase 1 / §7.1)
    Deriva de campos objetivos do aluno (faixa, freq, diasSem, aptoGrad).
@@ -6855,11 +6849,13 @@ function _waConviteBody(a, senha){
        + `No primeiro acesso o app pede pra você criar uma senha nova — escolha uma que só você saiba.\n\n`
        + `Dica: abra o link no celular e use "Adicionar à Tela de Início" pra ficar igual a um aplicativo.`;
 }
+// Primeiro + segundo nome (o apelido "Dudu" não serve pra mensagem formal).
+const _nome2 = s => String(s||'').trim().split(/\s+/).slice(0,2).join(' ');
 function _waNome(a){
   const c=a.cad||{}; const r=c.responsavel||{};
   const idade=idadeCBJJ(a.nascimento);
-  if(idade!=null && idade<18 && r.nome) return r.nome.split(/\s+/)[0];
-  return (a.nm||'').split(/\s+/)[0];
+  if(idade!=null && idade<18 && r.nome) return _nome2(r.nome);
+  return _nome2(c.nomeCompleto || a.nm);
 }
 /* Abre wa.me com template pré-pronto e registra o envio (evita mandar 2× na mesma semana). */
 function _waSend(a, tplKey){
@@ -6877,7 +6873,7 @@ function _waDiasDesde(a){ if(!a._waLast) return null; return Math.floor((Date.no
 function _waSheet(a){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="WhatsApp">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">WhatsApp · ${safeTxt(a.nm||'')}</div>
+    <div class="sheet-title">WhatsApp · ${safeTxt(_nome2((a.cad&&a.cad.nomeCompleto)||a.nm))}</div>
     <div class="sheet-desc">Escolha o texto — abre o seu WhatsApp com a mensagem pronta pra editar/enviar.</div>
     <div class="wa-tpl-grid" id="wa-tpl"></div>
     <button class="sheet-cancel" id="wa-close">Fechar</button>
@@ -7121,26 +7117,32 @@ function _aptosGraduar(){
   });
 }
 
-/* ---- Ocupação por sessão (grade × presença média). Aproximação documentada: o checkin
-   guarda a turma (não a sessão); sessões da MESMA turma no MESMO dia dividem a média. ---- */
+/* ---- Ocupação por sessão (grade × presença média).
+   Pós-0010 o checkin aponta a AULA (turma+data+hora), então cada horário recebe a
+   presença REAL dele — dois horários da mesma turma no mesmo dia deixam de ter o
+   mesmo número. Check-ins legados (sem aula_id, logo sem aulaHora) não sabem de qual
+   horário vieram: continuam rateados entre as sessões daquele dia. ---- */
 function _ocupacaoSessoes(){
   if(!_relData) return [];
   const DIA_IDX={dom:0,seg:1,ter:2,qua:3,qui:4,sex:5,sab:6};
-  const agg={};
+  const agg={};      // turma|dow           → legado (sem hora da aula), rateado
+  const aggH={};     // turma|dow|horaAula  → real, por sessão
   _relData.checkins.forEach(c=>{
     if(!c.turma_id) return;
     const dow=new Date(c.data+'T12:00:00').getDay();
-    const k=c.turma_id+'|'+dow;
-    const o=agg[k]||(agg[k]={pres:0,datas:new Set()});
-    o.pres++; o.datas.add(c.data);
+    const alvo = c.aulaHora ? (aggH[c.turma_id+'|'+dow+'|'+c.aulaHora] ||= {pres:0,datas:new Set()})
+                            : (agg[c.turma_id+'|'+dow]              ||= {pres:0,datas:new Set()});
+    alvo.pres++; alvo.datas.add(c.data);
   });
+  const _media = o => o ? o.pres/o.datas.size : 0;
   const out=[];
   (DB.turmas||[]).forEach(t=>{
     (t.sessoes||[]).forEach(s=>{
       const dow=DIA_IDX[s.dia]; if(dow==null) return;
       const nMesmoDia=(t.sessoes||[]).filter(x=>x.dia===s.dia).length || 1;
-      const a=agg[t.id+'|'+dow];
-      const media=a ? Math.round(a.pres/a.datas.size/nMesmoDia*10)/10 : 0;
+      const real   = _media(aggH[t.id+'|'+dow+'|'+s.hora]);
+      const legado = _media(agg[t.id+'|'+dow]) / nMesmoDia;
+      const media  = Math.round((real+legado)*10)/10;
       out.push({ turma:t.nome, cor:t.cor, dia:s.dia, hora:s.hora, variacao:s.variacao, media });
     });
   });
@@ -7328,7 +7330,7 @@ function _relAlunosExcel(w, secTitle, note){
   const bar = el(`<div class="xls-bar">
     <div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" placeholder="Buscar por nome, e-mail, telefone…"></div>
     <div class="xls-filters"></div>
-    <button class="btn-cad ghost" id="xls-csv">⬇ Exportar CSV</button>
+    <button class="btn-cad ghost" id="xls-csv">⬇ Exportar Excel</button>
   </div>`);
   const chips = bar.querySelector('.xls-filters');
   const _chip=(lbl,cur,set,val)=>{ const b=el(`<button class="et-chip ${cur===val?'on':''}">${lbl}</button>`); b.onclick=()=>{ set(val); rebuild(); }; return b; };
@@ -7534,14 +7536,14 @@ function profVideosOnboard(){
   return w;
 }
 
-/* Exporta linhas visíveis do "Alunos (Excel)" pra CSV (UTF-8 BOM, aceita Excel/Sheets). */
+/* Exporta as linhas visíveis do "Alunos (Excel)" pra .xlsx (vendor/xlsx.min.js). */
 function _xlsExportCSV(rows){
+  if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
   const cols = ['Nome','E-mail','Telefone','Nascimento','Idade','Faixa etária','Faixa','Turmas','Últ. presença','Dias sem','Nível risco','Pgto','Cidade','Bairro','UF','Responsável','Tel. resp.','Data início'];
-  const _esc=(s)=>{ const t=String(s==null?'':s); return /[";,\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t; };
-  const linhas = [cols.join(';')];
+  const aoa = [cols];
   _loadTurmas(); const turmaMap={}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
   rows.forEach(a=>{
-    linhas.push([
+    aoa.push([
       a.cad?.nomeCompleto || a.nomeCompleto || a.nm || '', a.cad?.email||'', a.cad?.telefone||'',
       a.nascData ? a.nascData.split('-').reverse().join('/') : (a.nascimento||''),
       idadeCBJJ(a.nascimento)||'',
@@ -7554,16 +7556,14 @@ function _xlsExportCSV(rows){
       a.cad?.endereco?.cidade||'', a.cad?.endereco?.bairro||'', a.cad?.endereco?.uf||'',
       a.cad?.responsavel?.nome||'', a.cad?.responsavel?.telefone||'',
       a.cad?.dataInicio||a.desde||'',
-    ].map(_esc).join(';'));
+    ]);
   });
-  const csv = '﻿'+linhas.join('\r\n');   // BOM UTF-8 pro Excel abrir com acentos
-  const blob = new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url; link.download = `yama-alunos-${HOJE_ISO}.csv`;
-  document.body.appendChild(link); link.click(); link.remove();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  toast(`CSV exportado (${rows.length} linha${rows.length>1?'s':''})`);
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = cols.map(c=>({wch: Math.max(10, c.length+2)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Alunos');
+  XLSX.writeFile(wb, `yama-alunos-${HOJE_ISO}.xlsx`);
+  toast(`Excel exportado (${rows.length} linha${rows.length>1?'s':''})`);
 }
 // Abre a tela cheia de um painel da Visão geral (navegação, não bottom sheet).
 function _irRelDetalhe(tipo){ DB.relDetalhe=tipo; render(); window.scrollTo(0,0); }
@@ -7910,11 +7910,8 @@ function _regrasFaixaSheet(){
   sh.querySelector('#rf-save').onclick=()=>{
     const metaAulas={};
     sh.querySelectorAll('.rf-inp').forEach(i=>{ const v=parseInt(i.value); if(v>0) metaAulas[i.dataset.f]=v; });
-    DB.academyConfig=Object.assign({}, DB.academyConfig, {metaAulas});
-    if(!DEMO && typeof sbProf!=='undefined' && sbProf.salvarConfig){
-      sbProf.salvarConfig(DB.academyConfig).then(()=>toast('Regras salvas ✔'))
-        .catch(()=>toast('Não salvou na nuvem — o banco precisa da migration 0003'));
-    } else toast('Regras salvas ✔');
+    _salvarAcademyConfig({metaAulas}).then(()=>toast('Regras salvas ✔'))
+      .catch(()=>toast('Não salvou na nuvem — o banco precisa da migration 0003'));
     sh.remove(); render();
   };
   openSheet(sh,'.sheet-cancel');
@@ -8274,11 +8271,8 @@ function profLoja(){
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
   pedBtn.onclick=()=>goProf('pedidos');
   w.appendChild(pedBtn);
-  const cfgBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
-    <span>⚙️ Configurações da academia <span style="color:var(--muted);font-weight:500;font-size:12px">· PIX e WhatsApp</span></span>
-    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  cfgBtn.onclick=()=>abrirConfigAcademia();
-  w.appendChild(cfgBtn);
+  // v345: "Configurações da academia" saiu da Loja — entrada única em Alunos
+  // (🔑 Acesso → ⚙️ Configurações). Estava em dois menus para o mesmo sheet.
   const addBtn = el(`<div class="dt-add-wrap"><button class="btn-cad">＋ Novo produto</button></div>`);
   addBtn.querySelector('button').onclick=()=>abrirProdutoForm(null);
   w.appendChild(addBtn);
@@ -8558,7 +8552,19 @@ function _ocupCell(turma){
 }
 function _viewHeatmap(turmas){
   const wrap = el('<div></div>');
-  const modo = 'matr';
+  const modo = DB._heatMode==='pres' ? 'pres' : 'matr';
+  if(modo==='pres') _loadRelData();
+  // Presença média por sessão (real, de checkins) — chaveada dia|hora, mesma aproximação
+  // documentada em _ocupacaoSessoes (checkin guarda turma, não sessão).
+  const presBy = {};
+  if(modo==='pres') _ocupacaoSessoes().forEach(o=>{ const k=o.dia+'|'+o.hora; presBy[k]=(presBy[k]||0)+o.media; });
+  const seg = el(`<div class="seg" style="margin-bottom:12px">
+    <button class="${modo==='matr'?'active':''}" data-m="matr" type="button">Matrículas</button>
+    <button class="${modo==='pres'?'active':''}" data-m="pres" type="button">Presenças</button>
+  </div>`);
+  seg.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatMode=b.dataset.m; render(); });
+  wrap.appendChild(seg);
+  if(modo==='pres' && !_relData){ wrap.appendChild(el('<div class="loading-center">Carregando presenças…</div>')); return wrap; }
   const DIAS = [['seg','SEG'],['ter','TER'],['qua','QUA'],['qui','QUI'],['sex','SEX'],['sab','SÁB'],['dom','DOM']];
   const cells = {}, horasSet = new Set(), diasSet = new Set();
   turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
@@ -8582,13 +8588,14 @@ function _viewHeatmap(turmas){
       const c = cells[d+'|'+h];
       if(!c){ heat.appendChild(el('<div class="heat-c empty"></div>')); return; }
       const open = ()=> _turmaSheet(c.ids[0]);
+      const n = modo==='pres' ? Math.round((presBy[d+'|'+h]||0)*10)/10 : c.n;
       if(!c.cap){
-        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${c.n}</b><i>—</i></div>`);
+        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${n}</b><i>—</i></div>`);
         cell.onclick = open; heat.appendChild(cell); return;
       }
-      const pct = Math.round(c.n*100/c.cap);
+      const pct = Math.round(n*100/c.cap);
       const kind = pct>=90?'red' : pct>=70?'gold' : pct>=40?'green' : 'blue';
-      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+c.n+'/'+c.cap+' ('+pct+'%)')}"><b>${c.n}</b><i>/${c.cap}</i></div>`);
+      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+n+'/'+c.cap+' ('+pct+'%)')}"><b>${n}</b><i>/${c.cap}</i></div>`);
       cell.onclick = open; heat.appendChild(cell);
     });
   });
@@ -8598,7 +8605,7 @@ function _viewHeatmap(turmas){
     <span><i class="green"></i> 40-70%</span>
     <span><i class="gold"></i> 70-90%</span>
     <span><i class="red"></i> ≥90%</span>
-    <span class="heat-note">Matriculados por sessão (n / capacidade).</span>
+    <span class="heat-note">${modo==='pres'?'Presença média por sessão (média de check-ins / capacidade).':'Matriculados por sessão (n / capacidade).'}</span>
   </div>`));
   return wrap;
 }
@@ -9260,12 +9267,8 @@ function _profMetaAulasSheet(faixa, refresh){
   sh.querySelector('#ma-save').onclick=()=>{
     const n = parseInt(sh.querySelector('#ma-n').value,10);
     if(!(n>0)){ toast('Informe um número > 0'); return; }
-    DB.academyConfig = DB.academyConfig || {};
-    DB.academyConfig.metaAulas = DB.academyConfig.metaAulas || {};
-    DB.academyConfig.metaAulas[faixa] = n;
-    if(typeof sbProf!=='undefined' && sbProf.salvarConfig){
-      sbProf.salvarConfig({metaAulas: DB.academyConfig.metaAulas}).catch(e=> toast('Salvo local, sem nuvem: '+(e.message||e)));
-    }
+    const metaAulas = Object.assign({}, _acadCfg().metaAulas, {[faixa]: n});
+    _salvarAcademyConfig({metaAulas}).catch(e=> toast('Salvo local, sem nuvem: '+(e.message||e)));
     close(); toast('Meta atualizada ✔'); if(refresh) refresh();
   };
   document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
@@ -9769,7 +9772,11 @@ function abrirEditarPerfil(){
 
 // ---- Configurações da academia (professor): PIX + WhatsApp ----
 function abrirConfigAcademia(){
-  const cfg = (DB.loja && DB.loja.config) || {};
+  // PIX/WhatsApp vêm da nuvem (academies.config); senhaPadrao é local do professor.
+  const local = (DB.loja && DB.loja.config) || {};
+  const cfg = { pix: _acadCfg().pix || local.pix || '',
+                whatsapp: _acadCfg().whatsapp || local.whatsapp || '',
+                senhaPadrao: local.senhaPadrao };
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Configurações da academia</div>
@@ -9796,9 +9803,22 @@ function abrirConfigAcademia(){
       toast('Senha precisa 8+ caracteres com minúscula, MAIÚSCULA e número');
       return;
     }
-    DB.loja = DB.loja || {}; DB.loja.config = { pix, whatsapp: wa, senhaPadrao: senha };
+    // senhaPadrao fica LOCAL (user_state do professor): academies.config é legível por
+    // qualquer membro da academia, e a senha de quem ainda não acessou não pode ficar
+    // à vista dos alunos. PIX/WhatsApp vão pra nuvem — os alunos precisam deles.
+    DB.loja = DB.loja || {}; DB.loja.config = Object.assign({}, DB.loja.config, { pix, whatsapp: wa, senhaPadrao: senha });
     if(typeof scheduleSave==='function') scheduleSave();
-    toast('Configurações salvas ✔'); close();
+    const btn = sheet.querySelector('#ca-save');
+    if(DEMO || typeof sbProf==='undefined' || !sbProf.salvarConfig){
+      toast('Configurações salvas ✔'); close(); return;
+    }
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    _salvarAcademyConfig({ pix, whatsapp: wa })
+      .then(() => { toast('Configurações salvas ✔'); close(); })
+      .catch(e => {
+        btn.disabled = false; btn.textContent = 'Salvar';
+        toast('Salvo só neste aparelho — falha na nuvem: '+(e.message||e));
+      });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
@@ -10534,6 +10554,65 @@ function selfTest(){
         ok('streak 0 sem treinos', semanaStats().streakSemanas===0);
       }catch(e){ ok('streak edge', false); }
       finally{ DB.treinos=sTr; _attSig=sSig; _attSet=sSet; DB.checkinHoje=sCk; }
+    }
+    // v345: sequência do "+ Novo evento" — timeline vazia → início; depois graus; no
+    // topo dos graus → próxima faixa (respeitando a idade pela cadeia CBJJ).
+    { const mk=(gs,nasc)=>({ graduacoes:gs, nascimento:nasc||1990, faixa:'branca', graus:0 });
+      try{
+        const e0=_proximoEventoGrad(mk([]));
+        ok('v345: timeline vazia sugere início · branca · 0', e0.tipo==='inicio'&&e0.faixa==='branca'&&e0.graus===0);
+        const e1=_proximoEventoGrad(mk([{tipo:'inicio',faixa:'branca',graus:0,data:'2025-08-28'}]));
+        ok('v345: após início sugere 1º grau na mesma faixa', e1.tipo==='grau'&&e1.faixa==='branca'&&e1.graus===1);
+        const e2=_proximoEventoGrad(mk([{tipo:'grau',faixa:'branca',graus:2,data:'2026-02-26'}]));
+        ok('v345: grau intermediário sugere o próximo', e2.tipo==='grau'&&e2.graus===3);
+        const e3=_proximoEventoGrad(mk([{tipo:'grau',faixa:'branca',graus:4,data:'2026-02-26'}]));
+        ok('v345: 4º grau completo sugere próxima faixa com 0 graus', e3&&e3.tipo==='faixa'&&e3.faixa!=='branca'&&e3.graus===0);
+      }catch(e){ ok('v345 sequência de graduação', false); }
+    }
+    // v344: evento `inicio` (o que o cadastro semeia) conta como data da faixa atual.
+    // Antes só `tipo==='faixa'` era procurado e o aluno via "Sem data de graduacao registrada".
+    { const sG=DB.graduacoes, sEu=DB.eu;
+      try{
+        DB.eu = Object.assign({}, DB.eu, {faixa:'branca', graus:3, nascimento:1999});
+        DB.graduacoes = [{tipo:'inicio', faixa:'branca', graus:0, data:'2025-08-28'}];
+        ok('v344: `inicio` vira data da faixa atual', _refDataFaixaAtual()==='2025-08-28');
+        const chk = elegibilidadeCBJJ(DB.eu).checks.find(c=>/Tempo minimo/.test(c.label));
+        ok('v344: aluno com só `inicio` tem tempo na faixa', !!chk && chk.ok!==null);
+      }catch(e){ ok('v344 faixaDesde inicio', false); }
+      finally{ DB.graduacoes=sG; DB.eu=sEu; }
+    }
+    // v340: presença SEMPRE atrelada a uma turma — nenhum caminho grava check-in solto
+    { const sTur=DB.turmas, sCk=DB.checkinHoje, sFlow=DB.flow, sPre=DB._sessaoPreSelecionada;
+      try{
+        // horários derivados do "agora" e presos ao mesmo dia (clamp): dt fica em -20..0 min,
+        // dentro da janela em qualquer horário que o CI rodar (sem flake na virada do dia).
+        const now=new Date(), md=now.getHours()*60+now.getMinutes();
+        const mk=m=>{ const v=Math.max(0,Math.min(1439,m)); return String(Math.floor(v/60)).padStart(2,'0')+':'+String(v%60).padStart(2,'0'); };
+        const dk=DOW_KEY[hoje.getDay()];
+        DB._sessaoPreSelecionada=null;
+        // 1) dia sem grade → avisa e NÃO registra (antes gravava check-in sem turma)
+        DB.turmas=[]; DB.checkinHoje={feito:false,hora:null};
+        _flowCheckin();
+        ok('v340: dia sem grade não registra presença', DB.checkinHoje.feito===false);
+        // 2) duas aulas na janela → abre o picker e não registra nada antes da escolha
+        DB.turmas=[
+          {id:'t1',nome:'ADULTO',sessoes:[{id:'s1',dia:dk,hora:mk(md-10)}]},
+          {id:'t2',nome:'NO-GI', sessoes:[{id:'s2',dia:dk,hora:mk(md-20)}]},
+        ];
+        DB.checkinHoje={feito:false,hora:null};
+        _flowCheckin();
+        const pick=document.querySelector('.sess-pick');
+        ok('v340: 2 aulas próximas abrem o seletor de turma', !!pick && pick.children.length===2);
+        ok('v340: seletor aberto ainda não registrou presença', DB.checkinHoje.feito===false);
+        // 3) cancelar o seletor NÃO grava presença sem turma
+        const btn=document.querySelector('#sp-skip');
+        if(btn) btn.click();
+        ok('v340: cancelar o seletor não registra presença', DB.checkinHoje.feito===false && !DB.checkinHoje.sessao);
+      }catch(e){ ok('v340 check-in exige turma', false); }
+      finally{
+        document.querySelectorAll('.sheet-overlay').forEach(n=>n.remove());
+        DB.turmas=sTur; DB.checkinHoje=sCk; DB.flow=sFlow; DB._sessaoPreSelecionada=sPre;
+      }
     }
     // M1: atualizarSemana refresca a assinatura sozinho (bug do memo stale corrigido)
     { const sTr=DB.treinos, sSig=_attSig, sSet=_attSet, sSem=JSON.parse(JSON.stringify(DB.semana)), sCache=_semCacheSig;

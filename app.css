@@ -2156,6 +2156,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-alunos-tool:hover{background:var(--field)}
 .erp-alunos-tool.on{background:var(--field);border-color:var(--muted);color:var(--red-strong)}
 .erp-alunos-tool-spacer{flex:1}
+/* Badge de filtros ativos — o botão avisa mesmo com o painel fechado */
+.erp-alunos-tool.filtered{border-color:var(--red);color:var(--red-strong)}
+.erp-alunos-tool .adv-count{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;
+  margin-left:7px;padding:0 5px;border-radius:99px;background:var(--red);color:#fff;font-size:10.5px;font-weight:800}
+.erp-alunos-tool .adv-count[hidden]{display:none}
 .erp-alunos-adv-bar .erp-alunos-add.primary{background:var(--red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:800;font-size:13px;cursor:pointer;letter-spacing:.2px}
 .erp-alunos-adv-panel{background:var(--card);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
 .erp-alunos-adv-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 16px;padding:14px 16px}
@@ -2299,6 +2304,19 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* Timeline */
 .erp-tl{margin:0 -4px}
 .erp-tl-empty{color:var(--muted);font-size:13px;padding:20px 8px;text-align:center}
+/* v345: sugestão do próximo evento de graduação (o professor só confirma a data) */
+.gf-sug{position:relative;background:var(--field);border-radius:11px;padding:13px 15px;margin:6px 0 4px}
+.gf-sug-t{font-size:15px;font-weight:800;color:var(--ink);padding-right:70px}
+.gf-sug-s{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:3px}
+.gf-sug-alt{position:absolute;top:11px;right:12px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);border-radius:7px;padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
+/* v345: "sem graduação" — timeline vazia, nenhuma faixa registrada */
+.belt-pill.vazio,.erp-belt-pill.vazio{background:var(--field);color:var(--muted);border:1px dashed var(--line);
+  font-weight:700;font-size:11.5px;padding:3px 9px;border-radius:99px;display:inline-flex;align-items:center}
+/* Aviso de divergência perfil ↔ timeline de graduação */
+.erp-tl-warn{margin:10px 0 4px;padding:11px 13px;border-radius:9px;background:var(--red-tint);
+  color:var(--red-strong);font-size:12.5px;font-weight:600;line-height:1.5}
+.erp-tl-warn .erp-btn{margin-left:8px;vertical-align:middle}
 .erp-tl-item{display:flex;gap:12px;padding:6px 0}
 .erp-tl-rail{width:14px;flex:none;display:flex;flex-direction:column;align-items:center}
 .erp-tl-dot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 3px var(--card),0 0 0 4px var(--line);margin-top:4px;flex:none}

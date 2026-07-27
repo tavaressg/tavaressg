@@ -244,7 +244,8 @@
           nomeCompleto: prof.data.nome_completo || d.eu.nomeCompleto,
           faixa: prof.data.faixa || d.eu.faixa,
           graus: prof.data.graus ?? d.eu.graus,
-          nascimento: prof.data.nascimento ?? d.eu.nascimento,
+          nascimento: prof.data.nascimento ?? (prof.data.nascimento_data ? +String(prof.data.nascimento_data).slice(0, 4) : d.eu.nascimento),
+          nascData: prof.data.nascimento_data || d.eu.nascData || null,
           foto: fotoSigned || d.eu.foto,
           desde: prof.data.desde || d.eu.desde,
           role: prof.data.role,
@@ -496,7 +497,9 @@
       foto: p.foto_url || null,   // §4 autoriza professor a ler foto do aluno (perfil visível)
       role: p.role || 'aluno',   // 'aluno' | 'professor' | 'dono' — badge na lista; KPIs contam só alunos
       faixa: p.faixa || 'branca', graus: p.graus || 0,
-      nascimento: p.nascimento ?? null,   // ano — usado p/ filtrar faixas por idade (CBJJ) na graduação
+      // ano — usado p/ filtrar faixas por idade (CBJJ). v344: DERIVA da data completa
+      // quando a coluna `nascimento` está vazia (a ficha não edita mais o ano solto).
+      nascimento: p.nascimento ?? (p.nascimento_data ? +String(p.nascimento_data).slice(0, 4) : null),
       nascData: p.nascimento_data || null,   // data completa (opcional, migration 0002) — aniversariantes
       pres: presHoraById[p.id] || null,
       pago: mens ? mens.status : 'ok',
@@ -540,7 +543,7 @@
       const hojeISO = HOJE(), mes = mesAtual(), d120 = _diasAtras(120);
       const [profs, hoje, mens, ckAll, grads, enrolls] = await Promise.all([
         // Todos os usuários da academia (aluno + professor + dono). O papel vai no
-        // campo `role` de cada linha; os KPIs (getKPIs) filtram só 'aluno'.
+        // campo `role` de cada linha; os KPIs (getKPIs) contam todos.
         SB.from('profiles').select('*').eq('academy_id', acad).eq('ativo', true),
         SB.from('checkins').select('user_id,hora').eq('academy_id', acad).eq('data', hojeISO),               // M6: índice (academy_id,data)
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
@@ -568,6 +571,10 @@
         base.freq = Math.min(100, Math.round(diasMes / _METAS().META_MES * 100));
         // aulas desde o início do grau/faixa atual → apto a graduar (aprox.)
         const gs = gradByUser[p.id] || [];
+        // v345: a TIMELINE é a fonte da verdade da graduação. Sem nenhum evento, o
+        // aluno é "não graduado" — a lista mostra isso em vez de uma faixa branca lisa
+        // que ninguém registrou. (profiles.faixa segue como valor técnico.)
+        base.semGrad = gs.length === 0;
         const ref = (p.graus > 0
           ? gs.filter(g => g.tipo === 'grau' && g.faixa === p.faixa && g.graus === p.graus)
           : gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa)
@@ -623,7 +630,7 @@
         SB.from('client_errors').select('id', { count: 'exact', head: true })
           .gte('criado_em', new Date(Date.now() - 86400000).toISOString()),
       ]);
-      const soAlunos = alunos.filter(a => a.role === 'aluno');   // KPIs de negócio contam só alunos
+      const soAlunos = alunos;   // conta todo cadastro ativo (aluno, professor, dono) — bate com a lista de Alunos
       const presentes = soAlunos.filter(a => a.pres).length;
       const ativos = soAlunos.filter(a => (a.diasSem ?? 999) <= _METAS().RISCO_DIAS).length;   // treinou nos últimos 14d
       const receitaMes = soAlunos.filter(a => a.pago === 'ok').reduce((s, a) => s + (a.mensValor || 0), 0);
@@ -937,12 +944,20 @@
       const acad = await myAcademyId(); if (!acad) return null;
       const d120 = _diasAtras(120);
       const [ck, grads, prog, les] = await Promise.all([
-        SB.from('checkins').select('user_id,data,hora,tipo,turma_id').eq('academy_id', acad).gte('data', d120),
+        // aulas(hora) = hora AGENDADA da sessão (≠ checkins.hora, que é a hora que o
+        // aluno bateu). É o que permite separar 2 horários da mesma turma no mesmo dia
+        // (0010). Check-ins legados sem aula_id vêm com aulas=null → caem na média rateada.
+        SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora)').eq('academy_id', acad).gte('data', d120),
         SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),
         SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct'),
         SB.from('lesoes').select('user_id,parte,status,data,nota'),
       ]);
-      const out = { checkins: ck.data || [], graduacoes: grads.data || [], progresso: prog.data || [], lesoes: les.data || [] };
+      // achata aulas(hora) → aulaHora (o app não conhece o shape do embed)
+      const checkins = (ck.data || []).map(c => ({
+        user_id: c.user_id, data: c.data, hora: c.hora, tipo: c.tipo,
+        turma_id: c.turma_id, aulaHora: (c.aulas && c.aulas.hora) || null,
+      }));
+      const out = { checkins, graduacoes: grads.data || [], progresso: prog.data || [], lesoes: les.data || [] };
       _relMemo = { t: Date.now(), data: out };
       return out;
     }),
@@ -1042,6 +1057,22 @@
     // Cancela o pedido (sem baixa).
     cancelarPedido: wrap(async (id) => { const { error } = await SB.rpc('cancelar_pedido', { p_id: id }); if (error) throw error; }),
   };
+
+  // Toda MUTAÇÃO (tudo que não é get*) invalida os memos e avisa a UI.
+  // Sem isso, apagar uma presença só aparecia depois de recarregar o app — no
+  // desktop era F5, no PWA obrigava a fechar e abrir. Um único ponto: cada write
+  // já passa por aqui, então nenhum call site precisa lembrar de limpar cache.
+  Object.keys(sbProf).forEach(k => {
+    if (/^get/.test(k) || typeof sbProf[k] !== 'function') return;
+    const fn = sbProf[k];
+    sbProf[k] = async function () {
+      const r = await fn.apply(this, arguments);
+      _alunosMemo = { t: 0, data: null };
+      _relMemo = { t: 0, data: null };
+      try { global.onDadosMudaram && global.onDadosMudaram(); } catch (_) {}
+      return r;
+    };
+  });
 
   // produtos(+variantes) → shape do app (tam[] + estoque{})
   function _produtoToApp(p, variantes) {
