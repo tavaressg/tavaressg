@@ -4240,6 +4240,26 @@ function renderTrocarSenha(){
 let _profData = null;
 let _profTs   = 0;
 
+// Status de atividade do aluno: regra automática (90d sem treinar = inativo) com
+// override manual do professor (0023). Distinto de "Ativos (14d)" — aquele é sobre
+// presença recente; este é sobre abandono/desistência de fato.
+const STATUS_INATIVO_DIAS = 90;
+function _statusAluno(a){
+  if(a.statusManual==='ativo')   return { valor:'ativo',   origem:'manual', desde:a.statusManualEm };
+  if(a.statusManual==='inativo') return { valor:'inativo', origem:'manual', desde:a.statusManualEm };
+  const inativo = (a.diasSem||0) >= STATUS_INATIVO_DIAS;
+  return { valor: inativo?'inativo':'ativo', origem:'auto', desde:null };
+}
+function _statusAlunoTxt(a){
+  const s=_statusAluno(a);
+  const lbl = s.valor==='ativo' ? 'Ativo' : 'Inativo';
+  if(s.origem==='manual'){
+    const dt = s.desde ? new Date(s.desde) : null;
+    const dtTxt = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}` : '';
+    return `${lbl} (manual${dtTxt?' · '+dtTxt:''})`;
+  }
+  return s.valor==='inativo' ? `${lbl} (${STATUS_INATIVO_DIAS}d+)` : lbl;
+}
 // "Desde quando o aluno é a faixa atual". Regra:
 //  1) Última data de evento tipo `faixa` ou `inicio` na faixa atual (canônico).
 //  2) Se não houver: primeira data de evento tipo `grau` na faixa atual —
@@ -5437,7 +5457,7 @@ function profAlunos(){
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'' };
+  const advF = { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'', status:'' };
   if(DB._pendingAlunosAniv){ advF.aniversario = DB._pendingAlunosAniv; DB._pendingAlunosAniv=null; }
   const PAGE = 20; let shown = PAGE;
 
@@ -5576,6 +5596,7 @@ function profAlunos(){
     if(advF.plano==='ok') arr = arr.filter(a=> a.pago==='ok');
     else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
     else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
+    if(advF.status) arr = arr.filter(a=> _statusAluno(a).valor===advF.status);
     if(advF.aniversario) arr = arr.filter(a=> (a.nascData||'').slice(5,7) === advF.aniversario);
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
     else arr.sort(_cmp);
@@ -5705,6 +5726,7 @@ function profAlunos(){
       <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
       <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
       <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
+      <label><span>Status atividade</span><select class="inp" id="advf-status"><option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
       <label><span>Aniversário no mês</span><select class="inp" id="advf-aniv"><option value="">Todos</option>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label>
     </div>
     <div class="erp-alunos-adv-acts">
@@ -5723,6 +5745,7 @@ function profAlunos(){
     advF.turma     = advPanel.querySelector('#advf-turma').value;
     advF.plano     = advPanel.querySelector('#advf-plano').value;
     advF.aniversario = advPanel.querySelector('#advf-aniv').value;
+    advF.status    = advPanel.querySelector('#advf-status').value;
     _advBadge();
     shown=PAGE; renderList();
   };
@@ -6549,6 +6572,7 @@ function _erpActions(a, tab, refresh, paint, hora){
   if(a.pago==='late') rows.push(['pa-pago','💰 Marcar como pago','', ()=>{ _profSetPago(a,'ok'); refresh(); paint(); toast('Pago ✔'); }]);
   else rows.push(['pa-late','⚠️ Marcar vencido','danger', ()=>{ _profSetPago(a,'late'); refresh(); paint(); toast('Vencido'); }]);
   if(_waLink(a)) rows.push(['pa-wa','💬 WhatsApp','', ()=>{ const u=_waLink(a); if(u) window.open(u,'_blank','noopener'); }]);
+  if(!a._self) rows.push(['pa-status',`🔘 Status: ${_statusAlunoTxt(a)}`,'', ()=>_statusManualSheet(a, refresh, paint)]);
   // v300: "Graduação retroativa" unificado no "+ Novo evento" da timeline (aba Graduação).
   if(DB.eu && DB.eu.role==='dono' && !a._self) rows.push(['pa-promo','⬆️ Promover a professor','', ()=>{ _profPromoverSheet(a, ()=>{ refresh(); paint(); }); }]);
   if(!(a._self||a.role==='professor'||a.role==='dono')) rows.push(['pa-del','🗑️ Excluir','danger', ()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; DB._alunoTab=null; refresh(); render(); }); }]);
@@ -7441,7 +7465,7 @@ function _relAlunosExcel(w, secTitle, note){
   const alunos = _profAlunosArr().slice();
   _loadTurmas(); const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
 
-  let busca='', filtroEt='todos', filtroRisco='todos';
+  let busca='', filtroEt='todos', filtroRisco='todos', filtroStatus='todos';
   const wrap = el('<div class="xls-wrap"></div>');
 
   const bar = el(`<div class="xls-bar">
@@ -7458,6 +7482,10 @@ function _relAlunosExcel(w, secTitle, note){
     chips.appendChild(el(`<span class="xls-sep"></span>`));
     RISCO_NIVEIS.forEach(([id,lbl])=> chips.appendChild(_chip(lbl, filtroRisco, v=>filtroRisco=v, id)));
     chips.appendChild(_chip('Todos', filtroRisco, v=>filtroRisco=v, 'todos'));
+    chips.appendChild(el(`<span class="xls-sep"></span>`));
+    chips.appendChild(_chip('Status: Todos', filtroStatus, v=>filtroStatus=v, 'todos'));
+    chips.appendChild(_chip('Ativos', filtroStatus, v=>filtroStatus=v, 'ativo'));
+    chips.appendChild(_chip('Inativos', filtroStatus, v=>filtroStatus=v, 'inativo'));
   };
   bar.querySelector('.dt-search-inp').oninput=(e)=>{ busca=e.target.value.trim().toLowerCase(); rebuild(); };
   bar.querySelector('#xls-csv').onclick=()=>_xlsExportCSV(getRows());
@@ -7478,6 +7506,7 @@ function _relAlunosExcel(w, secTitle, note){
     ['Últ. presença',a => a.pres || 'ausente'],
     ['Dias sem',    a => a.diasSem||0],
     ['Nível risco', a => { const nv=_riscoNivel(a); return (RISCO_NIVEIS.find(x=>x[0]===nv)||[])[1]||''; }],
+    ['Status',      a => _statusAlunoTxt(a)],
     ['Pgto',        a => a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'—'],
     ['Cidade',      a => (a.cad&&a.cad.endereco&&a.cad.endereco.cidade)||''],
     ['Bairro',      a => (a.cad&&a.cad.endereco&&a.cad.endereco.bairro)||''],
@@ -7491,6 +7520,7 @@ function _relAlunosExcel(w, secTitle, note){
     let arr = alunos.slice();
     if(filtroEt!=='todos')    arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===filtroEt);
     if(filtroRisco!=='todos') arr = arr.filter(a=>_riscoNivel(a)===filtroRisco);
+    if(filtroStatus!=='todos') arr = arr.filter(a=>_statusAluno(a).valor===filtroStatus);
     if(busca){
       arr = arr.filter(a=>{
         const bag = [a.nm, a.cad?.email, a.cad?.telefone, a.cad?.endereco?.cidade].join(' ').toLowerCase();
@@ -7656,7 +7686,7 @@ function profVideosOnboard(){
 /* Exporta as linhas visíveis do "Alunos (Excel)" pra .xlsx (vendor/xlsx.min.js). */
 function _xlsExportCSV(rows){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
-  const cols = ['Nome','E-mail','Telefone','Nascimento','Idade','Faixa etária','Faixa','Turmas','Últ. presença','Dias sem','Nível risco','Pgto','Cidade','Bairro','UF','Responsável','Tel. resp.','Data início'];
+  const cols = ['Nome','E-mail','Telefone','Nascimento','Idade','Faixa etária','Faixa','Turmas','Últ. presença','Dias sem','Nível risco','Status','Pgto','Cidade','Bairro','UF','Responsável','Tel. resp.','Data início'];
   const aoa = [cols];
   _loadTurmas(); const turmaMap={}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
   rows.forEach(a=>{
@@ -7669,6 +7699,7 @@ function _xlsExportCSV(rows){
       (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', '),
       a.pres||'ausente', a.diasSem||0,
       (RISCO_NIVEIS.find(x=>x[0]===_riscoNivel(a))||[])[1]||'',
+      _statusAlunoTxt(a),
       a.pago==='ok'?'Em dia':a.pago==='late'?'Vencido':a.pago==='soon'?'A vencer':'—',
       a.cad?.endereco?.cidade||'', a.cad?.endereco?.bairro||'', a.cad?.endereco?.uf||'',
       a.cad?.responsavel?.nome||'', a.cad?.responsavel?.telefone||'',
@@ -9885,6 +9916,36 @@ function abrirEditarPerfil(){
   };
   document.body.appendChild(sheet);
   requestAnimationFrame(()=> sheet.classList.add('open'));
+}
+
+// ---- Status de atividade do aluno (0023): automático (90d) com override manual ----
+function _statusManualSheet(a, refresh, paint){
+  const atual = a.statusManual || '';   // '' = automático
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Status de atividade</div>
+    <div class="sheet-desc">Por padrão o app decide sozinho: ${STATUS_INATIVO_DIAS}+ dias sem treinar vira "Inativo". Force manualmente só se precisar ignorar essa regra pra este aluno (ex: afastado por lesão mas continua matriculado).</div>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:0 4px 8px">
+      <button class="btn-cad ${atual===''?'primary':''}" type="button" data-a=""><div style="font-weight:800;font-size:14px">🔄 Automático</div><div style="font-size:12px;font-weight:600;margin-top:3px;opacity:.85">Segue a regra: ${STATUS_INATIVO_DIAS}+ dias sem treinar</div></button>
+      <button class="btn-cad ${atual==='ativo'?'primary':''}" type="button" data-a="ativo"><div style="font-weight:800;font-size:14px">✅ Forçar Ativo</div></button>
+      <button class="btn-cad ${atual==='inativo'?'primary':''}" type="button" data-a="inativo"><div style="font-weight:800;font-size:14px">⛔ Forçar Inativo</div></button>
+      <button class="sheet-cancel" id="sm-close">Cancelar</button>
+    </div>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#sm-close').onclick=close;
+  sheet.querySelectorAll('[data-a]').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const valor = btn.dataset.a || null;
+      try{
+        if(!DEMO && typeof sbProf!=='undefined' && sbProf.setStatusAluno) await sbProf.setStatusAluno(a.id, valor);
+        a.statusManual = valor; a.statusManualEm = valor ? new Date().toISOString() : null;
+        toast('Status atualizado ✔'); close(); if(refresh) refresh(); if(paint) paint();
+      }catch(e){ toast('Erro ao salvar: '+(e.message||e)); }
+    };
+  });
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 // ---- Configurações da academia (professor): PIX + WhatsApp ----

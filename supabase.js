@@ -509,6 +509,10 @@
       mensValor: mens ? Number(mens.valor) : 0,
       mensVenc: mens && mens.venc ? mens.venc.slice(8, 10) + '/' + mens.venc.slice(5, 7) : '—',
       desde: p.desde || '—',
+      // Status de atividade: null = segue a regra automática (90d sem treinar); 'ativo'/'inativo'
+      // = override do professor. Ver 0023 e _statusAluno() em app.js.
+      statusManual: p.status_manual || null,
+      statusManualEm: p.status_manual_em || null,
       cad: cadFromProfile(p),   // ficha cadastral (detalhe do aluno)
     };
   }
@@ -802,6 +806,13 @@
     // Atualiza a ficha cadastral de um aluno existente (sob RLS de professor da academia).
     atualizarAluno: wrap(async (id, campos) => {
       const { error } = await SB.from('profiles').update(campos).eq('id', id);
+      if (error) throw error;
+    }),
+
+    // Status de atividade (0023): valor 'ativo'|'inativo'|null (null = volta a seguir a
+    // regra automática de 90d). O carimbo de data/hora é do servidor (trigger), não daqui.
+    setStatusAluno: wrap(async (id, valor) => {
+      const { error } = await SB.from('profiles').update({ status_manual: valor }).eq('id', id);
       if (error) throw error;
     }),
 
