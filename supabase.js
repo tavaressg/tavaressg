@@ -308,34 +308,25 @@
     // fica na UNIQUE (user_id, aula_id) partial da migration 0010.
     pushCheckin: wrap(async () => {
       const d = DB(); if (!d || !d.sbUser || !d.checkinHoje || !d.checkinHoje.feito) return;
-      const u = d.sbUser;
       const ses = d.checkinHoje.sessao || null;
-      const [enrR, acad] = await Promise.all([
-        SB.from('enrollments').select('turma_id').eq('user_id', u.id).limit(1).maybeSingle(),
-        myAcademyId(),
-      ]);
-      const turmaId = (ses && ses.turmaId) || (enrR.data ? enrR.data.turma_id : null);
-      let aulaId = null;
-      if (turmaId && ses && ses.hora) {
-        try {
-          const { data: found } = await SB.from('aulas')
-            .select('id').eq('turma_id', turmaId).eq('data', HOJE()).eq('hora', ses.hora).maybeSingle();
-          if (found) aulaId = found.id;
-          else {
-            const { data: created } = await SB.from('aulas')
-              .insert({ turma_id: turmaId, data: HOJE(), hora: ses.hora }).select('id').single();
-            if (created) aulaId = created.id;
-          }
-        } catch (_) { /* sem aula_id → row legada, ok */ }
-      }
+      // v358: escrita self via RPC checkin_self_registrar (0024). O adapter não
+      // insere mais em `checkins` / `aulas` direto — o servidor resolve aula_id
+      // (que o aluno não tem policy pra criar), checa matrícula ativa na turma
+      // e retorna duplicado: true quando o índice único da 0010 rejeita 2×.
+      // Sem sessão (turma_id) não chama a RPC — check-in solto foi descontinuado.
+      if (!ses || !ses.turmaId) return;
       try {
-        await SB.from('checkins').insert({
-          user_id: u.id, academy_id: acad, turma_id: turmaId, aula_id: aulaId,
-          tipo: ses ? (ses.variacao || 'Aula') : null,
-          data: HOJE(), hora: d.checkinHoje.hora, via: 'app',
+        const { error } = await SB.rpc('checkin_self_registrar', {
+          p_turma_id:     ses.turmaId,
+          p_data:         HOJE(),
+          p_hora_aula:    ses.hora || null,
+          p_hora_checkin: d.checkinHoje.hora,
+          p_tipo:         ses.variacao || 'Aula',
         });
+        if (error) throw error;
       } catch (e) {
-        // Ignora duplicata na MESMA aula (aluno bateu 2x); outros erros propagam
+        // Duplicata (mesma aula, 2×) a RPC devolve ok:true/duplicado:true, então
+        // não cai aqui — se caiu, é erro de verdade (matrícula, janela de data etc).
         if (!(e && String(e.message||'').includes('duplicate'))) throw e;
       }
     }),
