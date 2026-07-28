@@ -5521,6 +5521,7 @@ function profAlunos(){
   const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
   const vencidosN = alunos.filter(a=>a.pago==='late').length;
   const aptosN = (typeof _aptosGraduar==='function'?_aptosGraduar().length:0);
+  const inativosN = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
 
   // Cabeçalho compacto ERP
   w.innerHTML = `<div class="erp-alunos-hd">
@@ -5562,6 +5563,7 @@ function profAlunos(){
   chipsRow.appendChild(kpiChip('sumidos',  'Ausentes 7+d', ausentes,      'gold'));
   chipsRow.appendChild(kpiChip('aptos',    'Aptos a grau', aptosN,        'purple'));
   chipsRow.appendChild(kpiChip('vencidos', 'Vencidos',     vencidosN,     'red'));
+  chipsRow.appendChild(kpiChip('inativos', 'Inativos',     inativosN,     'gray'));
 
   // Faixa etária: chips SEMPRE visíveis (v311). Antes ficava escondido atrás do
   // painel de filtros avançados; o professor filtra por idade o tempo todo, então
@@ -5656,6 +5658,7 @@ function profAlunos(){
       if(filtro==='sumidos') return (a.diasSem||0)>=7;
       if(filtro==='vencidos') return a.pago==='late';
       if(filtro==='aptos') return typeof _aptosGraduar==='function' && _aptosGraduar().some(x=> (x.id||x.nm)===(a.id||a.nm));
+      if(filtro==='inativos') return _statusAluno(a).valor==='inativo';
       return true;
     });
     if(filtroEt==='__sem') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null);
