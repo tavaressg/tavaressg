@@ -4730,6 +4730,7 @@ function profPainel(){
   const aptosFaixa = _aptosNovaFaixa().length;
   const recebendoGrau = aptosGrad + aptosFaixa;
   const anivMes = _aniversariantes();
+  const inativos = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
 
   // Grid de KPI macros — reusa .stat-card (design consagrado com ícone pastel)
   // mas cada card é CLICÁVEL e leva pra tela relevante.
@@ -4750,6 +4751,7 @@ function profPainel(){
   grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', ()=>goProf('graduacao')));
   grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', ()=>{ DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); }));
   grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', ()=>goProf('alunos')));
+  grid.appendChild(kpiCard('gray', '⏸️', inativos, 'Inativos', ()=>{ DB._pendingAlunosFiltro='inativos'; goProf('alunos'); }));
   w.appendChild(grid);
 
   // "O que fazer hoje" — alertas acionáveis (mantido, é o coração do painel)
@@ -5532,7 +5534,8 @@ function profAlunos(){
   _loadTurmas();
   const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
 
-  let filtro = 'todos', busca = '', filtroEt = 'todos';
+  let filtro = DB._pendingAlunosFiltro || 'todos'; DB._pendingAlunosFiltro=null;
+  let busca = '', filtroEt = 'todos';
   let sortKey='nm', sortDir='asc';
   let showAdv = false;
   // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
