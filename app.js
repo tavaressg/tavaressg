@@ -7378,10 +7378,20 @@ function _ocupacaoSessoes(){
   out.sort((x,y)=> y.media-x.media || (x.hora||'').localeCompare(y.hora||''));
   return out;
 }
+/* Presença por TURMA · variação. v366/0025: antes agrupava por `checkins.tipo`
+   e fazia `if(c.tipo)` — como o lote do professor gravava NULL, 20 de 32
+   check-ins sumiam do relatório. Agora a turma vem do JOIN (fonte única) e
+   nenhuma linha é descartada; `tipo` só refina o rótulo quando é uma variação
+   real da sessão (NO-GI, LIVRE…), não o generico 'Aula'. */
 function _presencaPorTipo(){
   if(!_relData) return [];
   const m={};
-  _relData.checkins.forEach(c=>{ if(c.tipo) m[c.tipo]=(m[c.tipo]||0)+1; });
+  _relData.checkins.forEach(c=>{
+    const turma = c.turmaNome || 'Sem turma';
+    const varia = (c.tipo && c.tipo !== 'Aula') ? ' · '+c.tipo : '';
+    const k = turma + varia;
+    m[k]=(m[k]||0)+1;
+  });
   return Object.entries(m).sort((a,b)=>b[1]-a[1]);
 }
 
@@ -7825,8 +7835,8 @@ function _relVisao(w, secTitle, note){
   distWrap.onclick=()=>_irRelDetalhe('faixas'); distWrap.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _irRelDetalhe('faixas'); } };
   w.appendChild(distWrap);
 
-  // Presença por tipo de aula (§7.1-A) — agora REAL: o check-in por sessão grava a variação.
-  w.appendChild(_secTitleLink('Presença por tipo de aula (120 dias)','tipoAula'));
+  // Presença por turma/sessão (§7.1-A). Derivado do JOIN via aula_id (0025).
+  w.appendChild(_secTitleLink('Presença por turma (120 dias)','tipoAula'));
   const tipos=_presencaPorTipo();
   if(!tipos.length) w.appendChild(note('Sem check-ins com tipo de aula ainda. O tipo passa a ser gravado automaticamente quando o aluno faz check-in numa sessão da grade (No-Gi, Avançado, Livre…).'));
   else {
@@ -7944,14 +7954,14 @@ function _relDetFaixas(w, secTitle, note){
   });
 }
 function _relDetTipoAula(w, secTitle, note){
-  w.appendChild(el(`<div class="rel-det-h">Presença por tipo de aula · 120 dias</div>`));
+  w.appendChild(el(`<div class="rel-det-h">Presença por turma · 120 dias</div>`));
   const tipos=_presencaPorTipo();
-  if(!tipos.length){ w.appendChild(note('Sem check-ins com tipo de aula ainda. O tipo é gravado quando o aluno faz check-in numa sessão da grade.')); return; }
+  if(!tipos.length){ w.appendChild(note('Sem check-ins no período.')); return; }
   const tot=tipos.reduce((s,[,n])=>s+n,0)||1;
   const max=Math.max(1,...tipos.map(([,n])=>n));
   w.appendChild(el(`<div class="stat-grid block" style="margin-top:4px">
     <div class="stat-card"><div class="sv">${tot}</div><div class="sl">Check-ins</div></div>
-    <div class="stat-card"><div class="sv">${tipos.length}</div><div class="sl">Tipos</div></div>
+    <div class="stat-card"><div class="sv">${tipos.length}</div><div class="sl">Turmas</div></div>
     <div class="stat-card"><div class="sv" style="font-size:15px">${safeTxt(tipos[0][0])}</div><div class="sl">Mais frequentado</div></div>
   </div>`));
   w.appendChild(secTitle('Distribuição'));

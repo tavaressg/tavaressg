@@ -961,15 +961,18 @@
         // aulas(hora) = hora AGENDADA da sessão (≠ checkins.hora, que é a hora que o
         // aluno bateu). É o que permite separar 2 horários da mesma turma no mesmo dia
         // (0010). Check-ins legados sem aula_id vêm com aulas=null → caem na média rateada.
-        SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora)').eq('academy_id', acad).gte('data', d120),
+        SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora),turmas(nome)').eq('academy_id', acad).gte('data', d120),
         SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),
         SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct'),
         SB.from('lesoes').select('user_id,parte,status,data,nota'),
       ]);
       // achata aulas(hora) → aulaHora (o app não conhece o shape do embed)
+      // 0025: turmaNome vem do JOIN (fonte única = FK), nunca de `tipo`. A coluna
+      // `tipo` agora é só a VARIAÇÃO da sessão (NO-GI/LIVRE/…) ou 'Aula'.
       const checkins = (ck.data || []).map(c => ({
         user_id: c.user_id, data: c.data, hora: c.hora, tipo: c.tipo,
         turma_id: c.turma_id, aulaHora: (c.aulas && c.aulas.hora) || null,
+        turmaNome: (c.turmas && c.turmas.nome) || null,
       }));
       const out = { checkins, graduacoes: grads.data || [], progresso: prog.data || [], lesoes: les.data || [] };
       _relMemo = { t: Date.now(), data: out };
