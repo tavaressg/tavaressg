@@ -7998,7 +7998,7 @@ function _relDetOcupacao(w, secTitle, note){
     <div class="bar-track"><span class="bar-fill" style="width:${Math.round(o.media/maxO*100)}%;background:${safeAttr(o.cor||'var(--red)')}"></span></div>
     <span class="bar-n">${o.media}</span></div>`)); });
   w.appendChild(ow);
-  w.appendChild(el('<div class="empty-line" style="padding:8px 20px;font-size:11px;color:var(--muted)">Média de presentes por aula. Sessões da mesma turma no mesmo dia dividem a média.</div>'));
+  w.appendChild(el('<div class="empty-line" style="padding:8px 20px;font-size:11px;color:var(--muted)">Média de presentes por aula. Cada horário é calculado sozinho — Seg 19:30 nunca divide com Seg 06:00.</div>'));
 }
 function _relDetLesoes(w, secTitle, note){
   w.appendChild(el(`<div class="rel-det-h">Lesões na academia</div>`));
