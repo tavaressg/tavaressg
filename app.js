@@ -705,7 +705,14 @@ DB.analytics = DB.analytics || { events:[] };
    ============================================================ */
 const STORE_KEY = 'yama.v1';  // usado só p/ migração do legado e formato do backup
 const SCHEMA = 1;
-const APP_VERSION = 'v353';   // bate com app.js?v=N — mostrado no Perfil p/ confirmar a versão no aparelho
+// Lida do próprio <script src="app.js?v=N"> em runtime — nunca precisa editar à mão.
+// Antes era uma constante 'vNNN' duplicada do ?v=N do index.html, e ficava desatualizada
+// toda vez que alguém esquecia de bater as duas (aconteceu: ficou 5+ versões parada).
+const APP_VERSION = (()=>{
+  const s = document.currentScript || Array.from(document.scripts).find(x=>/(?:^|\/)app\.js(?:\?|$)/.test(x.src));
+  const m = s && s.src.match(/[?&]v=([^&]+)/);
+  return m ? 'v'+m[1] : '—';
+})();
 window.APP_VERSION = APP_VERSION;   // usado pelo adapter (sbSync.logError)
 // >>> canal de feedback dos testers. WhatsApp (https://wa.me/55DDDNUMERO) ou e-mail (mailto:voce@exemplo.com)
 const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.join('')+'?text=';
