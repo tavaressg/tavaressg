@@ -4880,10 +4880,11 @@ const IMPORT_MAX = 200;
 // v311: "Ano nascimento" saiu do modelo — o ano é DERIVADO da data. A coluna
 // continua sendo aceita na leitura (planilhas antigas), mas não se oferece mais
 // um campo que pode divergir da data e não serve pra nada além de confundir.
-const IMPORT_TPL_HEADERS = ['Nome','E-mail','Telefone','Data nascimento','CEP','Logradouro','Número','Bairro','Cidade','UF','Responsável nome','Responsável telefone','Responsável parentesco'];
+const IMPORT_TPL_HEADERS = ['Nome','E-mail','Telefone','Data nascimento','CEP','Logradouro','Número','Bairro','Cidade','UF','Responsável nome','Responsável telefone','Responsável parentesco','Status'];
 function _alunosImportTemplate(){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
-  const exemplo = ['Gabriel Tavares de Jesus','gabriel@email.com','(31) 99999-9999','15/03/1998','33252-034','Rua Antônio José Buffe','123','Felipe Cláudio de Sales','Pedro Leopoldo','MG','Maria da Silva','(31) 98888-7777','Mãe'];
+  // Status: "Ativo" ou "Inativo" — se vazio, segue a regra automatica (>= 90d sem treinar).
+  const exemplo = ['Gabriel Tavares de Jesus','gabriel@email.com','(31) 99999-9999','15/03/1998','33252-034','Rua Antônio José Buffe','123','Felipe Cláudio de Sales','Pedro Leopoldo','MG','Maria da Silva','(31) 98888-7777','Mãe','Ativo'];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([IMPORT_TPL_HEADERS, exemplo]);
   ws['!cols'] = IMPORT_TPL_HEADERS.map(h=> ({wch: Math.max(12, h.length+2)}));
@@ -4925,7 +4926,16 @@ const _COL_MAP = {
   'responsavel nome':'resp_nome','responsavel':'resp_nome','nome do responsavel':'resp_nome',
   'responsavel telefone':'resp_tel','telefone responsavel':'resp_tel',
   'responsavel parentesco':'resp_par','parentesco':'resp_par',
+  'status':'status','situacao':'status','situação':'status','ativo':'status',
 };
+// Normaliza "Ativo"/"Inativo"/"A"/"I"/"1"/"0" pro shape do 0023 (ativo|inativo|null).
+function _normStatus(v){
+  const s = String(v||'').trim().toLowerCase();
+  if(!s) return null;
+  if(/^(a|ativo|ativa|sim|s|true|1|on)$/.test(s)) return 'ativo';
+  if(/^(i|inativo|inativa|nao|não|n|false|0|off)$/.test(s)) return 'inativo';
+  return null;   // valor estranho: nao inventa — cai na regra automatica
+}
 function _alunosImportValidate(rawRows){
   // Mapa email → aluno JÁ cadastrado. Antes era só um Set p/ bloquear duplicata;
   // agora guarda o aluno inteiro pra permitir o modo ATUALIZAR (v311).
@@ -4992,6 +5002,7 @@ function _alunosImportValidate(rawRows){
         cep: _norm(d.cep), logradouro: _norm(d.logradouro), numero: _norm(d.numero),
         bairro: _norm(d.bairro), cidade: _norm(d.cidade), uf: _norm(d.uf).toUpperCase(),
         resp_nome: _norm(d.resp_nome), resp_telefone: _normTelBR(_norm(d.resp_tel)), resp_parentesco: _norm(d.resp_par),
+        status_manual: _normStatus(d.status),
       },
     };
   });
@@ -5224,6 +5235,7 @@ function profImportAlunos(){
             if(d.resp_nome) patch.resp_nome       = d.resp_nome;
             if(d.resp_telefone)  patch.resp_telefone  = d.resp_telefone;
             if(d.resp_parentesco)patch.resp_parentesco= d.resp_parentesco;
+            if(d.status_manual)  patch.status_manual  = d.status_manual;
             if(Object.keys(patch).length) await _impComRetry(()=>sbProf.atualizarAluno(r.existenteId, patch));
             upd++;
           } else {
@@ -5238,9 +5250,14 @@ function profImportAlunos(){
               resp_nome:d.resp_nome, resp_telefone:d.resp_telefone, resp_parentesco:d.resp_parentesco,
               data_inicio: HOJE_ISO, observacoes: '' };
             const rr = await _impComRetry(()=>sbProf.criarAluno(payload));
-            if(d.nascData && rr && (rr.user_id||rr.id) && sbProf.atualizarAluno){
-              // best-effort: se falhar, a reimportação corrige pelo modo ATUALIZAR
-              try{ await sbProf.atualizarAluno(rr.user_id||rr.id, {nascimento_data:d.nascData}); }catch(_){}
+            const novoId = rr && (rr.user_id||rr.id);
+            if(novoId && sbProf.atualizarAluno){
+              // best-effort: se falhar, a reimportação corrige pelo modo ATUALIZAR.
+              // Junta nascData + status_manual num patch só pra economizar round-trip.
+              const patch = {};
+              if(d.nascData)    patch.nascimento_data = d.nascData;
+              if(d.status_manual) patch.status_manual = d.status_manual;
+              if(Object.keys(patch).length){ try{ await sbProf.atualizarAluno(novoId, patch); }catch(_){} }
             }
             ok++;
           }
