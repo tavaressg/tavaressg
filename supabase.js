@@ -582,6 +582,10 @@
         ).map(g => g.data).sort().pop() || gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa).map(g => g.data).sort().pop();
         const aulasNoGrau = a ? (ref ? [...a.dias].filter(d => d >= ref).length : a.dias.size) : 0;
         base.aulasNoGrau = aulasNoGrau;   // exposto p/ o semáforo de graduação (relatórios)
+        // Data do evento mais recente (grau atual, ou faixa se grau=0) — é a mesma âncora
+        // usada acima pra contar aulasNoGrau. Exposta pro export "Base completa" (Alunos):
+        // é a data que ancora o crédito de presença na importação do app antigo.
+        base.grauDesde = ref || null;
         base.aptoGrad = aulasNoGrau >= _METAS().META_GRAU;
         // Data da faixa ATUAL (última graduação tipo 'faixa' dessa faixa) → eixo "tempo CBJJ"
         // "Desde quando é a faixa atual":

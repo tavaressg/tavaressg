@@ -5380,6 +5380,7 @@ function _alunosBuildRowsCompleta(alunos, turmaMap){
       'Tel. responsável': r.telefone || '',
       'Dt. Início': _fmtDataBR(c.dataInicio || a.desde),
       'Faixa desde': _fmtDataBR(a.faixaDesde),
+      'Data último grau': _fmtDataBR(a.grauDesde || a.faixaDesde),
       'Nível': nivel,
       'Graus': a.graus||0,
       'Aulas no grau': a.aulasNoGrau||0,
