@@ -6618,10 +6618,14 @@ function _erpPresencas(freq, aluno, refresh, paint){
     const dt = new Date(c.data+'T12:00:00');
     const dow = DIA[dt.getDay()];
     const hora = c.hora ? String(c.hora).slice(0,5) : '—';
-    const tipo = c.tipo || 'Aula';
+    // v363: monta "TURMA · variacao" (ex: "ADULTO · No-Gi"). Antes so mostrava
+    // "Aula" fixo, que era o default do payload da RPC sem variacao.
+    const turma = c.turmaNome || '';
+    const tipo  = c.tipo && c.tipo !== 'Aula' ? c.tipo : '';
+    const label = turma && tipo ? `${turma} · ${tipo}` : (turma || tipo || 'Aula');
     const row = el(`<div class="erp-pres-row">
       <div class="erp-pres-dt"><b>${d}/${m}</b><span>${dow}</span></div>
-      <div class="erp-pres-tp">${safeTxt(tipo)}</div>
+      <div class="erp-pres-tp">${safeTxt(label)}</div>
       <div class="erp-pres-hr">${safeTxt(hora)}</div>
       ${c.id?'<button class="erp-pres-del" type="button" aria-label="Remover presença" title="Remover presença">×</button>':''}
     </div>`);

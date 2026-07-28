@@ -666,7 +666,8 @@
     getAlunoDetalhe: wrap(async (id) => {
       const [prof, freq, grads, lesoes, prog, notas] = await Promise.all([
         SB.from('profiles').select('*').eq('id', id).single(),
-        SB.from('checkins').select('id,data,tipo,hora').eq('user_id', id).order('data', { ascending: false }).limit(90),
+        // v363: traz o nome da turma junto (histórico de presenças exibia só "Aula" fixo).
+        SB.from('checkins').select('id,data,tipo,hora,turma_id,turmas(nome)').eq('user_id', id).order('data', { ascending: false }).limit(90),
         SB.from('graduations').select('*').eq('user_id', id).order('data'),
         SB.from('lesoes').select('*').eq('user_id', id).order('data', { ascending: false }),
         SB.from('technique_progress').select('*').eq('user_id', id), // objetivo, sem privado
@@ -675,8 +676,13 @@
         SB.from('member_notes').select('id,autor,texto,criado_em').eq('user_id', id)
           .order('criado_em', { ascending: false }).then(r => r).catch(() => ({ data: [] })),
       ]);
+      // Achata turmas(nome) → turmaNome (o cliente não conhece o shape do embed).
+      const frequencia = (freq.data || []).map(c => ({
+        id: c.id, data: c.data, hora: c.hora, tipo: c.tipo,
+        turmaId: c.turma_id, turmaNome: (c.turmas && c.turmas.nome) || null,
+      }));
       return { perfil: prof.data, cad: cadFromProfile(prof.data),
-        frequencia: freq.data || [], graduacoes: grads.data || [],
+        frequencia, graduacoes: grads.data || [],
         lesoes: lesoes.data || [], progresso: prog.data || [],
         notas: (notas && notas.data) || [] };
     }),
