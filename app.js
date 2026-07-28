@@ -731,12 +731,17 @@ function _acadCfg(){ return DB.academyConfig || {}; }
 /* Única porta de escrita em academies.config. `salvarConfig` substitui o JSONB
    INTEIRO, então quem manda só a sua parte apaga a dos outros (metaAulas sumia ao
    salvar PIX; pix/whatsapp sumiam ao salvar meta de aulas). Aqui sempre relê o
-   remoto, faz merge e só então grava. Devolve Promise pra UI tratar erro. */
+   remoto, faz merge e só então grava. Devolve Promise pra UI tratar erro.
+   O merge é `remoto + patch` — DB.academyConfig fica DE FORA de propósito: é só
+   cache de sessão (não entra no dump), e quando entrava no meio ele sobrescrevia
+   com valor velho o que outro professor tinha acabado de gravar. Quem manda no que
+   não está no patch é o remoto. A atribuição otimista abaixo é só pra UI responder
+   na hora; o `merged` do sucesso corrige qualquer divergência. */
 function _salvarAcademyConfig(patch){
   DB.academyConfig = Object.assign({}, DB.academyConfig, patch);
   if(DEMO || typeof sbProf==='undefined' || !sbProf.salvarConfig) return Promise.resolve();
   return sbProf.getConfig().then(atual=>{
-    const merged = Object.assign({}, atual, DB.academyConfig, patch);
+    const merged = Object.assign({}, atual, patch);
     return sbProf.salvarConfig(merged).then(()=>{ DB.academyConfig = merged; });
   });
 }
@@ -3544,7 +3549,16 @@ const CHECKIN_JANELA_POS = 240;   // depois do início (dur. máx 120 + 120 do a
 function _sessaoLabel(s){ return `${s.turmaNome} · ${s.hora}${s.variacao?' · '+s.variacao:''}`; }
 function sessoesDeHoje(){
   const dk = DOW_KEY[hoje.getDay()]; const out=[];
-  (DB.turmas||[]).forEach(t=>{ (t.sessoes||[]).forEach(s=>{ if(s.dia===dk) out.push({ turmaId:t.id, turmaNome:t.nome, cor:t.cor, hora:s.hora, variacao:s.variacao, bilingue:s.bilingue }); }); });
+  // v358: só sessões das turmas do aluno. Sem esse filtro o card de check-in
+  // listava KODOMO/CHIISAI (infantis) pra aluno adulto, e o servidor gravava.
+  // Fonte: _minhasTurmasIds (adapter). Se ainda não carregou, fica vazio — o
+  // aluno vê "sem aula na grade" em vez de aula alheia; o pull normal preenche.
+  const meus = new Set(DB._minhasTurmasIds || (DB.eu && DB.eu.turmas) || []);
+  const filtroPorMatricula = meus.size > 0;
+  (DB.turmas||[]).forEach(t=>{
+    if(filtroPorMatricula && !meus.has(t.id)) return;
+    (t.sessoes||[]).forEach(s=>{ if(s.dia===dk) out.push({ turmaId:t.id, turmaNome:t.nome, cor:t.cor, hora:s.hora, variacao:s.variacao, bilingue:s.bilingue }); });
+  });
   out.sort((a,b)=>(a.hora||'').localeCompare(b.hora||'')); return out;
 }
 // Diferença em minutos entre "agora" e o horário HH:MM da sessão (positiva se sessão no futuro).
