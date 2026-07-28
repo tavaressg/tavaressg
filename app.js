@@ -660,6 +660,14 @@ window.DB = DB;   // expõe p/ o adapter (supabase.js lê global.DB; `const` nã
 // (aproximação Gymdesk-style até existir currículo por faixa — calibrável pelo dono).
 const PROF_METAS = { META_MES:12, META_GRAU:40, RISCO_DIAS:14, META_TEC:8 };
 window.PROF_METAS = PROF_METAS;
+// Data em que a academia comecou a operar no app. Toda janela historica
+// (freq4/base4, ocupacao, pace, dias sem treinar) e' CAPADA por esta data
+// via _diasAtrasISO() e _dISO() — antes disso nao havia dados, entao dividir
+// por "N dias atras" inflava denominadores e deprimia medias.
+// Cap DINAMICO: quando N dias caiba depois desta data (nov/2026 pra janela
+// de 120d), o cap deixa de morder sozinho — nao precisa lembrar de mexer.
+const APP_INICIO_ISO = '2026-07-20';
+window.APP_INICIO_ISO = APP_INICIO_ISO;   // adapter (supabase.js) tambem consulta
 const isHoje = (s) => s === HOJE_ISO;
 
 /* ============================================================
@@ -1753,11 +1761,16 @@ function jornadaHistorico(){
 // Sub-aba Frequência: metas, presença, evolução + retrospectiva
 // ritmo real de treino — calculado pela MÉDIA SEMANAL (mais justo) e convertido p/ mês
 function paceSemanal(){
-  const ds=(DB.treinos||[]).map(t=>t.data).filter(Boolean).sort();
+  const ds=(DB.treinos||[]).map(t=>t.data).filter(Boolean);
   if(ds.length===0) return 0;
-  const p=ds[0].split('-').map(Number); const first=new Date(p[0],p[1]-1,p[2]); first.setHours(0,0,0,0);
-  const semanas=Math.max(1,(hoje-first)/(86400000*7));   // semanas decorridas (≥1)
-  return DB.treinos.length/semanas;                       // média de treinos por semana
+  // v372: denominador = semanas DISTINTAS com >=1 treino (regra "media sobre > 0").
+  // Antes: semanas TOTAIS desde o 1o treino — ferias/lesao/afastamento derrubavam
+  // o pace do aluno como se ele tivesse sumido, mesmo treinando forte quando volta.
+  // Bucket por bloco de 7 dias desde a epoca (agrupamento consistente, ISO week
+  // seria overkill p/ isso).
+  const semBucket=(iso)=> Math.floor(new Date(iso+'T12:00:00').getTime()/(86400000*7));
+  const semanas=new Set(ds.map(semBucket)).size || 1;
+  return DB.treinos.length/semanas;
 }
 function paceMensal(){
   const ps=paceSemanal();
@@ -4372,7 +4385,7 @@ function _selfAluno(){
   // eixos do semáforo de graduação + tendência de queda (mesmos campos do adapter)
   const fg=_faixaDesde(DB.graduacoes||[], me.faixa);
   const dias=[...new Set(datas)];
-  const _dISO=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const _dISO=n=>{ const d=new Date(); d.setDate(d.getDate()-n); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return iso < APP_INICIO_ISO ? APP_INICIO_ISO : iso; };
   const d28=_dISO(28), d120=_dISO(120);
   const freq4=dias.filter(x=>x>=d28).length;
   const base4=Math.round(dias.filter(x=>x>=d120&&x<d28).length/3*10)/10;
@@ -6038,7 +6051,7 @@ function _perfilTreinoNode(freq){
   const box=el('<div></div>');
   const arr=(freq||[]).filter(c=>c&&c.data);
   if(!arr.length){ box.appendChild(el('<div class="list block"><div class="empty-line" style="padding:12px;color:var(--muted);text-align:center;font-size:13px">Sem presenças registradas ainda.</div></div>')); return box; }
-  const _dISO=n=>{ const d=new Date(); d.setDate(d.getDate()-n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const _dISO=n=>{ const d=new Date(); d.setDate(d.getDate()-n); const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return iso < APP_INICIO_ISO ? APP_INICIO_ISO : iso; };
   const d28=_dISO(28), d56=_dISO(56);
   const n28=new Set(arr.filter(c=>c.data>=d28).map(c=>c.data)).size;
   const nPrev=new Set(arr.filter(c=>c.data>=d56&&c.data<d28).map(c=>c.data)).size;
@@ -7386,7 +7399,11 @@ function _ocupacaoSessoes(dias){
   out.sort((x,y)=> y.media-x.media || (x.hora||'').localeCompare(y.hora||''));
   return out;
 }
-function _diasAtrasISO(n){ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function _diasAtrasISO(n){
+  const d=new Date(); d.setDate(d.getDate()-n);
+  const iso=d.toISOString().slice(0,10);
+  return iso < APP_INICIO_ISO ? APP_INICIO_ISO : iso;
+}
 /* Presença por TURMA · variação. v366/0025: antes agrupava por `checkins.tipo`
    e fazia `if(c.tipo)` — como o lote do professor gravava NULL, 20 de 32
    check-ins sumiam do relatório. Agora a turma vem do JOIN (fonte única) e

@@ -532,7 +532,16 @@
   // Fase 1 — agregados de retenção/evolução (§7.1) calculados de checkins + graduations.
   // Fonte única: window.PROF_METAS (definido em app.js). Fallback = valores default.
   const _METAS = () => global.PROF_METAS || { META_MES:12, META_GRAU:40, RISCO_DIAS:14 };
-  const _diasAtras = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return _isoLocal(d); };   // C1: data local
+  // v372: janelas historicas capadas na data em que a academia comecou no app
+  // (2026-07-20). Compartilhado com app.js via window.APP_INICIO_ISO. Fallback pra
+  // caso o adapter seja carregado sem o app (raro). Cap DINAMICO: quando N dias
+  // caiba depois dessa data, o cap deixa de morder sozinho.
+  const _APP_INICIO = (typeof window !== 'undefined' && window.APP_INICIO_ISO) || '2026-07-20';
+  const _diasAtras = (n) => {
+    const d = new Date(); d.setDate(d.getDate() - n);
+    const iso = _isoLocal(d);
+    return iso < _APP_INICIO ? _APP_INICIO : iso;
+  };
   let _alunosMemo = { t: 0, data: null };   // M6: evita 2ª query no getKPIs (cache curto)
   let _relMemo = { t: 0, data: null };      // relatórios agregados (cache 30s, mesmo ritmo do _loadProfData)
 
