@@ -7359,11 +7359,11 @@ function _aptosGraduar(){
    pra rebater checkins sem aula_id (pré-0010). Depois da 0025 quase todos
    passaram a ter aula_id, então o galho legado virou contagem dupla: aula
    com 5 presenças aparecia como 6. Agora usa só o real. */
-function _ocupacaoSessoes(semanas){
+function _ocupacaoSessoes(dias){
   if(!_relData) return [];
-  semanas = semanas || 8;
+  dias = dias || 56;   // default: 8 semanas
   const DIA_IDX={dom:0,seg:1,ter:2,qua:3,qui:4,sex:5,sab:6};
-  const corte = _diasAtrasISO(semanas*7);
+  const corte = _diasAtrasISO(dias);
   const aggH={};     // turma|dow|horaAula  → {pres, datas:Set}
   _relData.checkins.forEach(c=>{
     if(!c.turma_id || !c.aulaHora) return;   // legado sem aula_id sai da conta (ruído)
@@ -8812,11 +8812,14 @@ function _ocupCell(turma){
 function _viewHeatmap(turmas){
   const wrap = el('<div></div>');
   const modo = DB._heatMode==='pres' ? 'pres' : 'matr';
-  const semanas = [4,8,12,16].includes(DB._heatSem) ? DB._heatSem : 8;
+  // Janela em DIAS (v368): antes só semanas. Agora aceita 7/14 pra ver a semana
+  // corrente/quinzena antes que a média se dilua.
+  const JANELAS = [ [7,'7 d'], [14,'14 d'], [28,'4 sem'], [56,'8 sem'], [84,'12 sem'], [112,'16 sem'] ];
+  const dias = JANELAS.some(([n])=>n===DB._heatDias) ? DB._heatDias : 56;
   if(modo==='pres') _loadRelData();
   // Presença média por sessão (real, de checkins) na janela escolhida.
   const presBy = {}; const aulasBy = {};
-  if(modo==='pres') _ocupacaoSessoes(semanas).forEach(o=>{
+  if(modo==='pres') _ocupacaoSessoes(dias).forEach(o=>{
     const k=o.dia+'|'+o.hora; presBy[k]=(presBy[k]||0)+o.media; aulasBy[k]=(aulasBy[k]||0)+o.aulas;
   });
   const seg = el(`<div class="seg" style="margin-bottom:8px">
@@ -8826,10 +8829,10 @@ function _viewHeatmap(turmas){
   seg.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatMode=b.dataset.m; render(); });
   wrap.appendChild(seg);
   if(modo==='pres'){
-    const jan = el(`<div class="seg heat-janela" style="margin-bottom:12px">
-      ${[4,8,12,16].map(n=>`<button class="${n===semanas?'active':''}" data-s="${n}" type="button">${n} sem</button>`).join('')}
+    const jan = el(`<div class="seg heat-janela" style="margin-bottom:12px;flex-wrap:wrap">
+      ${JANELAS.map(([n,lbl])=>`<button class="${n===dias?'active':''}" data-d="${n}" type="button">${lbl}</button>`).join('')}
     </div>`);
-    jan.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatSem = +b.dataset.s; render(); });
+    jan.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatDias = +b.dataset.d; render(); });
     wrap.appendChild(jan);
   }
   if(modo==='pres' && !_relData){ wrap.appendChild(el('<div class="loading-center">Carregando presenças…</div>')); return wrap; }
@@ -8873,7 +8876,7 @@ function _viewHeatmap(turmas){
     <span><i class="green"></i> 40-70%</span>
     <span><i class="gold"></i> 70-90%</span>
     <span><i class="red"></i> ≥90%</span>
-    <span class="heat-note">${modo==='pres'?('Presença média por sessão nas últimas '+semanas+' semanas.'):'Matriculados por sessão (n / capacidade).'}</span>
+    <span class="heat-note">${modo==='pres'?('Presença média por sessão nos últimos '+dias+' dias.'):'Matriculados por sessão (n / capacidade).'}</span>
   </div>`));
   return wrap;
 }
