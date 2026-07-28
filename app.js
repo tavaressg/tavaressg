@@ -8815,11 +8815,11 @@ function _viewHeatmap(turmas){
   // Janela em DIAS (v368): antes só semanas. Agora aceita 7/14 pra ver a semana
   // corrente/quinzena antes que a média se dilua.
   const JANELAS = [ [7,'7 d'], [14,'14 d'], [28,'4 sem'], [56,'8 sem'], [84,'12 sem'], [112,'16 sem'] ];
-  const dias = JANELAS.some(([n])=>n===DB._heatDias) ? DB._heatDias : 56;
+  const janelaDias = JANELAS.some(([n])=>n===DB._heatDias) ? DB._heatDias : 56;
   if(modo==='pres') _loadRelData();
   // Presença média por sessão (real, de checkins) na janela escolhida.
   const presBy = {}; const aulasBy = {};
-  if(modo==='pres') _ocupacaoSessoes(dias).forEach(o=>{
+  if(modo==='pres') _ocupacaoSessoes(janelaDias).forEach(o=>{
     const k=o.dia+'|'+o.hora; presBy[k]=(presBy[k]||0)+o.media; aulasBy[k]=(aulasBy[k]||0)+o.aulas;
   });
   const seg = el(`<div class="seg" style="margin-bottom:8px">
@@ -8830,7 +8830,7 @@ function _viewHeatmap(turmas){
   wrap.appendChild(seg);
   if(modo==='pres'){
     const jan = el(`<div class="seg heat-janela" style="margin-bottom:12px;flex-wrap:wrap">
-      ${JANELAS.map(([n,lbl])=>`<button class="${n===dias?'active':''}" data-d="${n}" type="button">${lbl}</button>`).join('')}
+      ${JANELAS.map(([n,lbl])=>`<button class="${n===janelaDias?'active':''}" data-d="${n}" type="button">${lbl}</button>`).join('')}
     </div>`);
     jan.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatDias = +b.dataset.d; render(); });
     wrap.appendChild(jan);
@@ -8876,7 +8876,7 @@ function _viewHeatmap(turmas){
     <span><i class="green"></i> 40-70%</span>
     <span><i class="gold"></i> 70-90%</span>
     <span><i class="red"></i> ≥90%</span>
-    <span class="heat-note">${modo==='pres'?('Presença média por sessão nos últimos '+dias+' dias.'):'Matriculados por sessão (n / capacidade).'}</span>
+    <span class="heat-note">${modo==='pres'?('Presença média por sessão nos últimos '+janelaDias+' dias.'):'Matriculados por sessão (n / capacidade).'}</span>
   </div>`));
   return wrap;
 }
