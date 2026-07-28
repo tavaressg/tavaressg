@@ -2877,19 +2877,54 @@ function evoluirGraduacao(){
     });
   }
 
-  const ag = aulasStats();
-  const paceSem = DEMO ? 3 : Math.round(paceSemanal()*10)/10;
-  const grauLbl = (me.graus >= maxGrausDe(me.faixa)) ? 'p/ proxima faixa' : 'p/ proximo grau';
-  w.appendChild(el(`<div class="mod-card aulas-card">
-    <div class="mod-title" style="font-size:13px">Progresso por aulas</div>
-    <div class="mod-grid">
-      <div class="mc"><div class="big" style="font-size:18px">${ag.atual}/${ag.meta}</div>
-        <div class="lbl">${ag.atual>=ag.meta?aptoMsg(me, me.graus>=maxGrausDe(me.faixa), ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' '+grauLbl}</div>
-        <div class="mini-bar"><span style="width:${ag.pct}%"></span></div></div>
-      <div class="mc bd"><div class="big" style="font-size:18px">~${ag.restantes}</div>
-        <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem</div></div>
-    </div>
-  </div>`));
+  // Preta: progressão de grau é por TEMPO acumulado (CBJJ.black_belt_degrees:
+  // 3-3-3-5-5-5-7-7-10 anos), não por aulas. Mostrar "40/40 aulas p/ próximo grau"
+  // pra faixa preta é errado e engana o aluno. Ninguém graduou ninguém pela contagem
+  // de aulas na preta — quem manda é o relógio.
+  if(me.faixa === 'preta'){
+    const fgData = _faixaDesde(DB.graduacoes||[], 'preta');
+    const anosNaPreta = fgData ? Math.floor(tempoNaFaixaMeses(fgData)/12) : null;
+    const nextDeg = CBJJ.black_belt_degrees.find(d => d.degree === me.graus + 1);
+    if(nextDeg){
+      const cumul = nextDeg.cumulative;
+      const anosTxt = anosNaPreta!=null ? `${anosNaPreta} ano${anosNaPreta===1?'':'s'} de preta` : 'Sem data da preta registrada';
+      const faltaTxt = anosNaPreta!=null
+        ? (anosNaPreta>=cumul ? `Elegivel para o ${nextDeg.degree}º grau` : `${cumul - anosNaPreta} ano${cumul-anosNaPreta===1?'':'s'} p/ o ${nextDeg.degree}º grau`)
+        : `${nextDeg.years} ano${nextDeg.years===1?'':'s'} entre graus (CBJJ)`;
+      const pct = anosNaPreta!=null ? Math.min(100, Math.round(anosNaPreta/cumul*100)) : 0;
+      w.appendChild(el(`<div class="mod-card aulas-card">
+        <div class="mod-title" style="font-size:13px">Progresso da faixa preta</div>
+        <div class="mod-grid">
+          <div class="mc"><div class="big" style="font-size:18px">${anosNaPreta!=null?anosNaPreta:'—'}/${cumul}</div>
+            <div class="lbl">${safeTxt(faltaTxt)}</div>
+            <div class="mini-bar"><span style="width:${pct}%"></span></div></div>
+          <div class="mc bd"><div class="big" style="font-size:14px;line-height:1.3">${safeTxt(anosTxt)}</div>
+            <div class="lbl">progressão por tempo — sem meta de aulas</div></div>
+        </div>
+      </div>`));
+    } else {
+      w.appendChild(el(`<div class="mod-card aulas-card">
+        <div class="mod-title" style="font-size:13px">Faixa preta · ${me.graus}º grau</div>
+        <div class="mod-note" style="color:var(--muted);font-size:12.5px;margin-top:6px">
+          Grau máximo alcançado. As proximas etapas (7º→coral, 8º→coral e branca, 9º→vermelha)
+          seguem tabela CBJJ por tempo acumulado.</div>
+      </div>`));
+    }
+  } else {
+    const ag = aulasStats();
+    const paceSem = DEMO ? 3 : Math.round(paceSemanal()*10)/10;
+    const grauLbl = (me.graus >= maxGrausDe(me.faixa)) ? 'p/ proxima faixa' : 'p/ proximo grau';
+    w.appendChild(el(`<div class="mod-card aulas-card">
+      <div class="mod-title" style="font-size:13px">Progresso por aulas</div>
+      <div class="mod-grid">
+        <div class="mc"><div class="big" style="font-size:18px">${ag.atual}/${ag.meta}</div>
+          <div class="lbl">${ag.atual>=ag.meta?aptoMsg(me, me.graus>=maxGrausDe(me.faixa), ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' '+grauLbl}</div>
+          <div class="mini-bar"><span style="width:${ag.pct}%"></span></div></div>
+        <div class="mc bd"><div class="big" style="font-size:18px">~${ag.restantes}</div>
+          <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem</div></div>
+      </div>
+    </div>`));
+  }
 
   const tlHead = el(`<div class="sec-row"><div class="sec-title" style="margin:0">Linha do tempo</div></div>`);
   // Conta provisionada: histórico de graduação vem do professor (sem importar/corrigir aqui).
@@ -4455,7 +4490,11 @@ function renderProfessor(){
 // dataISO vem do PAINEL (strip de dias + navegação de semana). O batch não decide
 // mais data — só executa. Fonte única evita divergência entre as duas telas.
 function profBatchCheckin(turma, sessao, dataISO){
-  const alunos = (typeof _turmaAlunos==='function' ? _turmaAlunos(turma.id) : []);
+  // Ordena A-Z pelo nome de exibição (mesmo _nomeInst() usado na renderização
+  // da linha) — evita a ordem "aleatória" do backend na tela de presença.
+  const alunos = (typeof _turmaAlunos==='function' ? _turmaAlunos(turma.id) : [])
+    .slice()
+    .sort((a,b)=> String(_nomeInst(a)||'').localeCompare(String(_nomeInst(b)||''), 'pt-BR', {sensitivity:'base'}));
   const DIAS_K = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
   let onlyPending = true;
   const marcados = new Set();
