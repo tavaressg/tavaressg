@@ -224,6 +224,38 @@ const BELTS = {
 };
 const ADULT_BELTS = ['branca','azul','roxa','marrom','preta'];
 
+/* Ordem HIERARQUICA COMPLETA CBJJ (menor -> maior grau), infantil + adulto misturados.
+   Fonte unica pra sort/comparacao. Um verde (infantil) e mais graduado que branca
+   (adulto) por definicao — nao ha separacao "infantil vs adulto" pra fins de ordem.
+   NAO renomear as chaves — sao os mesmos identificadores usados em BELTS.
+   Faixa desconhecida cai no FIM (rank 999) via beltRank(). */
+const BELT_ORDEM = [
+  'branca',          // 0
+  'cinza_branca',    // 1
+  'cinza',           // 2
+  'cinza_preta',     // 3
+  'amarela_branca',  // 4
+  'amarela',         // 5
+  'amarela_preta',   // 6
+  'laranja_branca',  // 7
+  'laranja',         // 8
+  'laranja_preta',   // 9
+  'verde_branca',    // 10
+  'verde',           // 11
+  'verde_preta',     // 12
+  'azul',            // 13
+  'roxa',            // 14
+  'marrom',          // 15
+  'preta',           // 16
+  'coral',           // 17 · Vermelha/Preta
+  'coral_branca',    // 18 · Vermelha/Branca
+  'vermelha',        // 19
+];
+function beltRank(faixa){
+  const i = BELT_ORDEM.indexOf(faixa);
+  return i === -1 ? 999 : i;
+}
+
 /* === CBJJ / IBJJF — Sistema Geral de Graduacao v3.2 (dez/2025) === */
 const CBJJ = {
   version: '3.2',
@@ -5709,8 +5741,9 @@ function profAlunos(){
   const _cmp = (a,b)=>{
     const dir = sortDir==='asc'?1:-1;
     if(sortKey==='faixa'){
-      const ORD=['branca','cinza','amarela','laranja','verde','azul','roxa','marrom','preta','coral','vermelha'];
-      const ai=ORD.indexOf(a.faixa), bi=ORD.indexOf(b.faixa);
+      // v383: usa BELT_ORDEM (hierarquia CBJJ completa, 20 posicoes) — antes
+      // tratava cinza/amarela/laranja/verde como uma so, sem distinguir listras.
+      const ai=beltRank(a.faixa), bi=beltRank(b.faixa);
       if(ai!==bi) return (ai-bi)*dir;
       return ((a.graus||0)-(b.graus||0))*dir;
     }
