@@ -5611,11 +5611,14 @@ function profAlunos(){
   const vencidosN = alunos.filter(a=>a.pago==='late').length;
   const aptosN = (typeof _aptosGraduar==='function'?_aptosGraduar().length:0);
   const inativosN = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
+  // v382: "Todos" da lista deixa de contar inativos — usuario ve o total LIQUIDO
+  // por padrao. Inativos ainda aparecem via chip "Inativos" (dedicado).
+  const totalLiquido = alunos.length - inativosN;
 
   // Cabeçalho compacto ERP
   w.innerHTML = `<div class="erp-alunos-hd">
     <div class="erp-alunos-title">Alunos</div>
-    <div class="erp-alunos-sub" id="alunos-sub-kpi">${_profData?alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
+    <div class="erp-alunos-sub" id="alunos-sub-kpi">${_profData?totalLiquido+' ativos · '+alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
   </div>`;
 
   _loadTurmas();
@@ -5647,7 +5650,7 @@ function profAlunos(){
     return b;
   };
   const chipsRow = el(`<div class="erp-alunos-chips block"></div>`);
-  chipsRow.appendChild(kpiChip('todos',    'Todos',        alunos.length, 'gray'));
+  chipsRow.appendChild(kpiChip('todos',    'Todos',        totalLiquido, 'gray'));
   chipsRow.appendChild(kpiChip('presentes','Presentes',    presentes,     'green'));
   chipsRow.appendChild(kpiChip('ativos',   'Ativos (14d)', ativos,        'blue'));
   chipsRow.appendChild(kpiChip('sumidos',  'Ausentes 7+d', ausentes,      'gold'));
@@ -5742,7 +5745,10 @@ function profAlunos(){
   let _arrFiltrada = [];
   const _aplicarFiltros = ()=>{
     let arr = ((_profData?.alunos)||[]).filter(a=>{
-      if(filtro==='todos') return true;
+      // v382: "Todos" = todos MENOS os inativos (o total liquido). Inativos so
+      // aparecem via chip dedicado. Todos os demais chips continuam operando
+      // sobre a base bruta (nao removem inativos de novo).
+      if(filtro==='todos') return _statusAluno(a).valor !== 'inativo';
       if(filtro==='presentes') return !!a.pres;
       if(filtro==='ativos') return !a.diasSem || a.diasSem<14;
       if(filtro==='sumidos') return (a.diasSem||0)>=7;
@@ -5778,12 +5784,15 @@ function profAlunos(){
     if(!_profData){ sub.textContent='Carregando…'; return; }
     const total = ((_profData?.alunos)||[]).length;
     const n = arr.length;
-    const filtrando = n !== total;
+    // v382: "Todos" default agora exclui inativos, então n != total mesmo sem
+    // filtro. O sinal de "filtrando" precisa vir dos controles, não da contagem.
+    const filtrando = filtro !== 'todos' || filtroEt !== 'todos' || !!busca ||
+                      Object.values(advF).some(v => v);
     const presN = arr.filter(a=>a.pres).length;
     const inatN = arr.filter(a=>(a.diasSem||0)>=14).length;
     const vencN = arr.filter(a=>a.pago==='late').length;
     if(!filtrando){
-      sub.textContent = `${total} cadastrados · ${presN} presentes hoje`;
+      sub.textContent = `${n} ativos · ${total} cadastrados · ${presN} presentes hoje`;
     } else {
       sub.textContent = `${n} de ${total} · ${presN} presentes · ${inatN} inativos · ${vencN} vencidos`;
     }
