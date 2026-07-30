@@ -3755,14 +3755,80 @@ function _presencaSemCamera(msg){
   toast(msg || 'Câmera indisponível — peça ao professor pra registrar sua presença');
   DB.flow = null; render();
 }
+/* v378: leitor de QR resiliente.
+   Fluxo novo (invertido em relação à v374): pede CÂMERA primeiro (aluno sempre vê
+   o prompt de permissão nativo do iOS/Chrome), depois escolhe o motor de leitura.
+   Motor: BarcodeDetector nativo (Chrome/Android/Edge) OU jsQR vendorizado (Safari,
+   Firefox — que não têm BarcodeDetector em nenhuma versão). Sem jsQR, iPhones em
+   Safari PWA ficavam sem check-in nenhum. */
+function _fazerDetectorQR(){
+  // Preferência nativa (mais rápida, sem alocar canvas por frame).
+  if(typeof BarcodeDetector !== 'undefined'){
+    try{
+      const det = new BarcodeDetector({ formats:['qr_code'] });
+      return async (video)=>{
+        try{
+          const codes = await det.detect(video);
+          return codes && codes.length ? (codes[0].rawValue||'').trim() : null;
+        }catch(_){ return null; }
+      };
+    }catch(_){ /* cai no jsQR */ }
+  }
+  // Fallback jsQR (vendorizado). Amostra o frame num canvas e roda o decoder puro.
+  if(typeof jsQR === 'function'){
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently:true });
+    return async (video)=>{
+      const w = video.videoWidth|0, h = video.videoHeight|0;
+      if(!w || !h) return null;
+      canvas.width = w; canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      let img; try{ img = ctx.getImageData(0, 0, w, h); }catch(_){ return null; }
+      const r = jsQR(img.data, w, h, { inversionAttempts:'dontInvert' });
+      return r ? (r.data||'').trim() : null;
+    };
+  }
+  return null;
+}
+function _presencaCameraErro(e){
+  const n = String(e && e.name || '');
+  if(n==='NotAllowedError' || n==='PermissionDeniedError' || n==='SecurityError'){
+    return 'Você bloqueou a câmera. Vai em Ajustes do celular → Yama Jiu-Jitsu → Câmera → Permitir, e tente de novo.';
+  }
+  if(n==='NotFoundError' || n==='DevicesNotFoundError' || n==='OverconstrainedError'){
+    return 'Este aparelho não tem câmera disponível — peça ao professor pra registrar sua presença.';
+  }
+  if(n==='NotReadableError' || n==='TrackStartError'){
+    return 'A câmera está sendo usada por outro app — feche ele e tente de novo.';
+  }
+  return 'Câmera indisponível — peça ao professor pra registrar sua presença.';
+}
 async function presencaScan(){
   const token = _qrToken();
   if(!token){ _presencaSemCamera('QR da academia ainda não configurado — avise o professor'); return; }
-  if(!('BarcodeDetector' in window)){ _presencaSemCamera('Este navegador não lê QR — peça ao professor pra registrar sua presença'); return; }
+
+  // 1. Pede câmera PRIMEIRO — usuário sempre vê o prompt nativo (mesmo se depois
+  // faltar leitor). No iOS o prompt só aparece em resposta direta ao clique.
   let stream;
-  try{ stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }
-  catch(e){ _presencaSemCamera('Sem acesso à câmera — peça ao professor pra registrar sua presença'); return; }
-  let det; try{ det = new BarcodeDetector({ formats:['qr_code'] }); }catch(e){ stream.getTracks().forEach(t=>t.stop()); _presencaSemCamera('Leitor de QR indisponível — peça ao professor pra registrar sua presença'); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' } } });
+  }catch(e){
+    // Se o constraint 'environment' quebrou (laptop sem traseira), tenta câmera qualquer
+    if(e && e.name==='OverconstrainedError'){
+      try{ stream = await navigator.mediaDevices.getUserMedia({ video:true }); }
+      catch(e2){ _presencaSemCamera(_presencaCameraErro(e2)); return; }
+    } else { _presencaSemCamera(_presencaCameraErro(e)); return; }
+  }
+
+  // 2. Escolhe o motor (nativo ou jsQR). Se nenhum, para e libera a câmera.
+  const detect = _fazerDetectorQR();
+  if(!detect){
+    stream.getTracks().forEach(t=>t.stop());
+    _presencaSemCamera('Leitor de QR não carregou — recarregue o app e tente de novo.');
+    return;
+  }
+
+  // 3. Overlay + loop de detecção
   const ov = el(`<div class="scan-overlay">
     <video autoplay playsinline muted></video>
     <div class="scan-frame"></div>
@@ -3771,22 +3837,19 @@ async function presencaScan(){
   </div>`);
   const video = ov.querySelector('video'); video.srcObject = stream;
   let stop=false, avisou=false;
-  const close=()=>{ stop=true; try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} ov.remove(); };
+  const close=()=>{ stop=true; try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){} ov.remove(); };
   ov.querySelector('.scan-close').onclick=close;
   document.body.appendChild(ov);
   const tick=async()=>{
     if(stop) return;
-    try{
-      const codes = await det.detect(video);
-      if(codes && codes.length){
-        const val = (codes[0].rawValue||'').trim();
-        // Comparação estrita contra o token da academia (v374). Aceita também
-        // o formato URL "…?qr=<token>" pra imprimir QRs que abrem o app direto.
-        const casa = val === token || val.endsWith('?qr='+token) || val.endsWith('&qr='+token);
-        if(casa){ close(); _flowCheckin(); return; }
-        if(!avisou){ avisou = true; toast('QR não é da academia — peça ao professor pra conferir'); }
-      }
-    }catch(e){}
+    const val = await detect(video);
+    if(val){
+      // Comparação estrita contra o token (v374). Aceita URL "…?qr=<token>" pra
+      // QRs que abrem o app direto no aparelho.
+      const casa = val === token || val.endsWith('?qr='+token) || val.endsWith('&qr='+token);
+      if(casa){ close(); _flowCheckin(); return; }
+      if(!avisou){ avisou = true; toast('QR não é da academia — peça ao professor pra conferir'); }
+    }
     requestAnimationFrame(tick);
   };
   video.onloadedmetadata=()=>{ video.play().catch(()=>{}); requestAnimationFrame(tick); };
