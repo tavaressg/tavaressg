@@ -763,7 +763,9 @@ function _salvarAcademyConfig(patch){
 function _lojaPix(){ return _acadCfg().pix || (DB.loja && DB.loja.config && DB.loja.config.pix) || LOJA_PIX; }
 function _lojaWa(){ return _acadCfg().whatsapp || (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || LOJA_WHATSAPP; }
 // Código de presença do totem (fixo — ver CLAUDE.md). Com backend vira o código rotativo da aula.
-const PRESENCA_CODE = '0000';
+// v374: QR obrigatório com token estático da academia (academies.config.qr_token).
+// O professor gera/renova em Alunos → 🔑 Acesso → ⚙️ Configurações da academia.
+function _qrToken(){ return (DB.academyConfig && DB.academyConfig.qrToken) || null; }
 // DEMO já definido no topo (vitrine ?demo=1)
 // chaves de DB que pertencem ao usuário (persistidas)
 const USER_KEYS = ['eu','treinos','graduacoes','checkinHoje','semana','notas','lesoes','notificacoes','retro','analytics','links','loja'];
@@ -1137,9 +1139,10 @@ function salvar(){
     t.treinos=(t.treinos||0)+1; t.ultima=ehHoje?'hoje':'ontem'; t.ultimaRev=dataTreino;
     t.hojeA=0; t.hojeT=0;
   });
-  if(ehHoje && !DB.checkinHoje.feito){
-    DB.checkinHoje={feito:true,hora:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})};
-  } // semana/streak são recalculados em atualizarSemana()
+  // Presença só nasce pelo check-in real (QR/código → RPC). Não mentir localmente:
+  // se o aluno chegou aqui sem `checkinHoje.feito`, salvar registra o treino no
+  // dump mas NÃO marca presença falsa. Fecha o "check-in fantasma" (0027).
+  // semana/streak são recalculados em atualizarSemana()
   const aula=aulaDoDia();
   const novoId = Date.now();
   const tecLabel = reps.length ? ('Renshū · '+det.renshu.map(r=>r.jp).join(', ')) : (reg.randori?'Treino com randori':'Treino (sem randori)');
@@ -3729,10 +3732,10 @@ function renderFlow(){
 }
 
 /* ============================================================
-   TOTEM DE PRESENÇA — Fase 1 do flow (escanear QR ou digitar código)
-   Código fixo PRESENCA_CODE ('0000'). Com backend vira código rotativo da aula.
+   TOTEM DE PRESENÇA — Fase 1 do flow (QR obrigatório).
+   v374: token estático da academia em academies.config.qrToken (renovável pelo
+   professor em Alunos → 🔑 Acesso → ⚙️ Configurações da academia → 📷 QR de presença).
    ============================================================ */
-let _otp = '';
 function icoQRbig(){
   // QR estilizado (3 marcadores de posição + módulos) — só visual.
   const m = (x,y)=>`<rect x="${x}" y="${y}" width="22" height="22" rx="3" fill="currentColor"/><rect x="${x+5}" y="${y+5}" width="12" height="12" rx="1.5" fill="var(--card)"/><rect x="${x+8}" y="${y+8}" width="6" height="6" fill="currentColor"/>`;
@@ -3740,34 +3743,28 @@ function icoQRbig(){
   const dots=d.map(([x,y])=>`<rect x="${x}" y="${y}" width="8" height="8" rx="1.5" fill="currentColor"/>`).join('');
   return `<svg viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${m(2,2)}${m(62,2)}${m(2,62)}${dots}</svg>`;
 }
-function _atualizaOtp(){
-  const boxes = document.querySelectorAll('.otp-box');
-  boxes.forEach((b,i)=>{
-    b.textContent = _otp[i] || '';
-    b.classList.toggle('filled', i < _otp.length);
-    b.classList.toggle('active', i === _otp.length);
-  });
+// Câmera / QR não disponíveis: fecha o flow com toast honesto. Batch do professor
+// resolve o edge case (aluno sem câmera bate presença via "Adicionar frequência").
+function _presencaSemCamera(msg){
+  toast(msg || 'Câmera indisponível — peça ao professor pra registrar sua presença');
+  DB.flow = null; render();
 }
-function presencaDigit(n){
-  if(_otp.length >= 4) return;
-  _otp += n; _atualizaOtp();
-  if(_otp.length === 4) setTimeout(confirmarPresenca, 160);
-}
-function presencaBack(){ _otp = _otp.slice(0,-1); _atualizaOtp(); }
 async function presencaScan(){
-  if(!('BarcodeDetector' in window)){ toast('Câmera/QR não suportado aqui — use o código'); return; }
+  const token = _qrToken();
+  if(!token){ _presencaSemCamera('QR da academia ainda não configurado — avise o professor'); return; }
+  if(!('BarcodeDetector' in window)){ _presencaSemCamera('Este navegador não lê QR — peça ao professor pra registrar sua presença'); return; }
   let stream;
   try{ stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }
-  catch(e){ toast('Sem acesso à câmera — use o código'); return; }
-  let det; try{ det = new BarcodeDetector({ formats:['qr_code'] }); }catch(e){ stream.getTracks().forEach(t=>t.stop()); toast('Leitor de QR indisponível — use o código'); return; }
+  catch(e){ _presencaSemCamera('Sem acesso à câmera — peça ao professor pra registrar sua presença'); return; }
+  let det; try{ det = new BarcodeDetector({ formats:['qr_code'] }); }catch(e){ stream.getTracks().forEach(t=>t.stop()); _presencaSemCamera('Leitor de QR indisponível — peça ao professor pra registrar sua presença'); return; }
   const ov = el(`<div class="scan-overlay">
     <video autoplay playsinline muted></video>
     <div class="scan-frame"></div>
-    <div class="scan-hint">Aponte para o QR da aula</div>
+    <div class="scan-hint">Aponte para o QR da academia</div>
     <button class="scan-close">Cancelar</button>
   </div>`);
   const video = ov.querySelector('video'); video.srcObject = stream;
-  let stop=false;
+  let stop=false, avisou=false;
   const close=()=>{ stop=true; try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} ov.remove(); };
   ov.querySelector('.scan-close').onclick=close;
   document.body.appendChild(ov);
@@ -3777,24 +3774,18 @@ async function presencaScan(){
       const codes = await det.detect(video);
       if(codes && codes.length){
         const val = (codes[0].rawValue||'').trim();
-        // aceita o código puro, "YAMA:0000" ou qualquer payload que contenha o código da aula
-        if(val===PRESENCA_CODE || val.includes(PRESENCA_CODE) || /yama/i.test(val)){ close(); _otp=''; _flowCheckin(); return; }
+        // Comparação estrita contra o token da academia (v374). Aceita também
+        // o formato URL "…?qr=<token>" pra imprimir QRs que abrem o app direto.
+        const casa = val === token || val.endsWith('?qr='+token) || val.endsWith('&qr='+token);
+        if(casa){ close(); _flowCheckin(); return; }
+        if(!avisou){ avisou = true; toast('QR não é da academia — peça ao professor pra conferir'); }
       }
     }catch(e){}
     requestAnimationFrame(tick);
   };
   video.onloadedmetadata=()=>{ video.play().catch(()=>{}); requestAnimationFrame(tick); };
 }
-function confirmarPresenca(){
-  if(_otp === PRESENCA_CODE){ _otp = ''; _flowCheckin(); return; }
-  _otp = '';
-  const row = document.querySelector('.otp-row');
-  if(row){ row.classList.add('shake'); setTimeout(()=>row.classList.remove('shake'), 420); }
-  _atualizaOtp();
-  toast('Código incorreto ✕');
-}
 function _renderPhase1(){
-  _otp = '';
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
     <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeFlow">‹</div>
@@ -3808,24 +3799,15 @@ function _renderPhase1(){
   }
   const qr = el(`<div class="qr-card">
     <div class="qr-frame">${icoQRbig()}</div>
-    <button class="btn-scan">📷 Escanear QR da aula</button>
-    <div class="qr-hint">Aponte para o QR exibido no tatame</div>
+    <div class="qr-title">Escaneie o QR da academia</div>
+    <div class="qr-hint">Procure o QR no tatame ou na parede</div>
+    <button class="btn-scan">📷 Abrir câmera</button>
+    <div class="qr-foot">Sem câmera? Peça ao professor pra registrar sua presença.</div>
   </div>`);
   qr.querySelector('.btn-scan').onclick = presencaScan;
   body.appendChild(qr);
-  body.appendChild(el(`<div class="or-div"><span>ou digite o código</span></div>`));
-  body.appendChild(el(`<div class="otp-row">${[0,1,2,3].map(()=>'<div class="otp-box"></div>').join('')}</div>`));
-  const kp = el(`<div class="keypad"></div>`);
-  ['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{
-    if(k===''){ kp.appendChild(el('<div></div>')); return; }
-    const b = el(`<button class="key" aria-label="${k==='⌫'?'Apagar':k}">${k}</button>`);
-    b.onclick = ()=> k==='⌫' ? presencaBack() : presencaDigit(k);
-    kp.appendChild(b);
-  });
-  body.appendChild(kp);
   body.appendChild(el(`<div style="height:24px"></div>`));
   v.appendChild(body);
-  setTimeout(_atualizaOtp, 0);
   return v;
 }
 
@@ -3843,8 +3825,8 @@ function _renderPhase2(){
   return v;
 }
 
-/* Totem de presença = Fase 1 do flow (_renderPhase1): QR + código PRESENCA_CODE.
-   Código correto → _flowCheckin() confirma a presença. */
+/* Totem de presença = Fase 1 do flow (_renderPhase1): QR obrigatório contra o
+   token estático da academia (academies.config.qrToken). Match → _flowCheckin(). */
 
 /* ============================================================
    LOJA — produtos da academia (retirada na recepção)
@@ -4492,6 +4474,7 @@ function renderProfessor(){
   if (nav==='pedidos')   body.appendChild(profPedidos());
   if (nav==='financeiro')body.appendChild(profFinanceiro());
   if (nav==='videos')    body.appendChild(profVideosOnboard());
+  if (nav==='yama')      body.appendChild(profYama());
   if (nav==='perfil')    body.appendChild(alunoPerfil());   // "Mais": o professor também é aluno (mesmo DB.eu)
   v.appendChild(body);
   v.appendChild(tabbarProf());
@@ -4652,12 +4635,15 @@ function profPainel(){
 
   // Header institucional: nome da academia + saudação
   const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
-  w.appendChild(el(`<div class="erp-dash-hd">
+  const dashHd = el(`<div class="erp-dash-hd">
     <div class="erp-dash-hd-l">
       <div class="erp-dash-acad">${safeTxt(acadNm)}</div>
       <div class="erp-dash-greet">Olá, ${safeTxt(DB.professor.nome||'Professor')} — ${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
     </div>
-  </div>`));
+    <button class="erp-yama-btn" aria-label="Yama · Configurações" title="Yama · Configurações">⚙️</button>
+  </div>`);
+  dashHd.querySelector('.erp-yama-btn').onclick = ()=>{ DB.navProf='yama'; render(); window.scrollTo(0,0); };
+  w.appendChild(dashHd);
 
   // ---- Strip de dias com navegação de SEMANA (‹ ›) ----
   // DB._painelSemana = offset em semanas (0=atual, -1=passada, +1=próxima).
@@ -5099,7 +5085,7 @@ function profAcessoAlunos(){
     </div>
   </div>`);
   page.querySelector('#ac-close').onclick = close;
-  page.querySelector('#ac-edit-senha').onclick = ()=>abrirConfigAcademia();
+  page.querySelector('#ac-edit-senha').onclick = ()=>_senhaPadraoSheet();
   const listEl = page.querySelector('#ac-list');
   const goBtn  = page.querySelector('#ac-go');
 
@@ -7060,15 +7046,34 @@ function _waLink(a, msg){
   return 'https://wa.me/'+d + (msg?('?text='+encodeURIComponent(msg)):'');
 }
 
-/* ---- Templates de WhatsApp: textos prontos por contexto (professor edita antes de enviar) ---- */
-const WA_TEMPLATES = {
-  abrir:     { icon:'💬', label:'Só abrir chat',      body:()=>'' },
-  sumido7:   { icon:'👋', label:'Sumido 1 semana',    body:(a)=>`Oi ${_waNome(a)}, senti sua falta no tatame essa semana. Tá tudo bem? Te espero na próxima aula 🥋` },
-  sumido30:  { icon:'💪', label:'Sumido 1 mês',       body:(a)=>`Oi ${_waNome(a)}, notei que faz um tempo que você não vem treinar. Vamos marcar sua volta? Se precisar de qualquer ajuda, chama aqui.` },
-  aniv:      { icon:'🎂', label:'Aniversário',        body:(a)=>`Oi ${_waNome(a)}, parabéns pelo seu dia! 🎂 Que venha mais um ano de tatame — a Yama torce por você.` },
-  gradProx:  { icon:'🥋', label:'Graduação próxima',  body:(a)=>`Oi ${_waNome(a)}, você tá quase pronto pra próxima graduação — continue firme, tá muito perto!` },
-  bemVindo:  { icon:'🙌', label:'Boas-vindas',        body:(a)=>`Oi ${_waNome(a)}, seja bem-vindo(a) à Yama Jiu-Jitsu! Qualquer dúvida sobre horários ou material, me chama aqui.` },
-};
+/* ---- Templates de WhatsApp: 8 slots editáveis pelo professor (v376).
+   Defaults hard-coded pra os 6 casos originais + 2 slots livres. Overrides do
+   professor vivem em academies.config.waTemplates (JSONB, array de 8). Editor:
+   _waTemplatesSheet (hub YAMA). Placeholder reconhecido: {nome} — substituído
+   por _waNome(a) na hora de enviar. */
+const _WA_DEFAULTS = [
+  { key:'abrir',    icon:'💬', label:'Só abrir chat',     body:'' },
+  { key:'sumido7',  icon:'👋', label:'Sumido 1 semana',   body:'Oi {nome}, senti sua falta no tatame essa semana. Tá tudo bem? Te espero na próxima aula 🥋' },
+  { key:'sumido30', icon:'💪', label:'Sumido 1 mês',      body:'Oi {nome}, notei que faz um tempo que você não vem treinar. Vamos marcar sua volta? Se precisar de qualquer ajuda, chama aqui.' },
+  { key:'aniv',     icon:'🎂', label:'Aniversário',       body:'Oi {nome}, parabéns pelo seu dia! 🎂 Que venha mais um ano de tatame — a Yama torce por você.' },
+  { key:'gradProx', icon:'🥋', label:'Graduação próxima', body:'Oi {nome}, você tá quase pronto pra próxima graduação — continue firme, tá muito perto!' },
+  { key:'bemVindo', icon:'🙌', label:'Boas-vindas',       body:'Oi {nome}, seja bem-vindo(a) à Yama Jiu-Jitsu! Qualquer dúvida sobre horários ou material, me chama aqui.' },
+  { key:'slot7',    icon:'✨', label:'Personalizada 1',   body:'' },
+  { key:'slot8',    icon:'✨', label:'Personalizada 2',   body:'' },
+];
+function _waTpls(){
+  const over = ((DB.academyConfig||{}).waTemplates)||[];
+  return _WA_DEFAULTS.map((d,i)=>{
+    const o = over[i] || {};
+    return {
+      key:   d.key,
+      icon:  o.icon  || d.icon,
+      label: o.label || d.label,
+      body:  (o.body!=null ? o.body : d.body),
+    };
+  });
+}
+function _waResolve(body, a){ return String(body||'').replace(/\{nome\}/gi, _waNome(a)); }
 
 /* === CONVITE DE ACESSO (v308) ===
    O aluno importado não sabe o link do app, nem que tem conta. Esta mensagem
@@ -7102,8 +7107,8 @@ function _waNome(a){
 }
 /* Abre wa.me com template pré-pronto e registra o envio (evita mandar 2× na mesma semana). */
 function _waSend(a, tplKey){
-  const tpl = WA_TEMPLATES[tplKey]; if(!tpl) return;
-  const url = _waLink(a, tpl.body(a));
+  const tpl = _waTpls().find(t => t.key===tplKey); if(!tpl) return;
+  const url = _waLink(a, _waResolve(tpl.body, a));
   if(!url){ toast('Sem telefone cadastrado na ficha'); return; }
   a._waLast = { at: Date.now(), tpl: tplKey };
   try{ window.open(url, '_blank', 'noopener'); }catch(_){ location.href=url; }
@@ -7125,9 +7130,11 @@ function _waSheet(a){
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#wa-close').onclick=close;
   const grid = sheet.querySelector('#wa-tpl');
-  Object.entries(WA_TEMPLATES).forEach(([k,t])=>{
-    const b = el(`<button class="wa-tpl"><span class="wa-tpl-ic">${t.icon}</span><span class="wa-tpl-lbl">${safeTxt(t.label)}</span></button>`);
-    b.onclick=()=>{ _waSend(a,k); close(); render(); };
+  // Slots 7/8 só aparecem se o professor preencheu — evita botões vazios pro user.
+  _waTpls().forEach(t=>{
+    if(t.body==='' && t.key!=='abrir') return;
+    const b = el(`<button class="wa-tpl"><span class="wa-tpl-ic">${safeTxt(t.icon)}</span><span class="wa-tpl-lbl">${safeTxt(t.label)}</span></button>`);
+    b.onclick=()=>{ _waSend(a,t.key); close(); render(); };
     grid.appendChild(b);
   });
   const last = _waDiasDesde(a);
@@ -9574,6 +9581,7 @@ function tabbarProf(){
     ['relatorios','Relatórios', icoChart(), false],
     ['videos','Vídeos', icoVideo(), true],   // wide-only
     ['loja','Loja', icoStore(), true],       // wide-only
+    ['yama','Yama', icoYama(), true],        // wide-only (mobile acessa pelo botão no header do Painel)
     ['perfil','Mais', icoMore(), false],
   ];
   const bar = el(`<div class="tabbar"></div>`);
@@ -10090,58 +10098,399 @@ function _statusManualSheet(a, refresh, paint){
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
-// ---- Configurações da academia (professor): PIX + WhatsApp ----
-function abrirConfigAcademia(){
-  // PIX/WhatsApp vêm da nuvem (academies.config); senhaPadrao é local do professor.
+/* ============================================================
+   YAMA — hub de configurações da academia (v375)
+   Aba própria na sidebar do professor (wide-only). No mobile o Painel tem um
+   botão de atalho no cabeçalho, porque a tabbar mobile já está cheia.
+   ============================================================ */
+function profYama(){
+  const v = el(`<div class="view"></div>`);
+  const nome = (DB.academia && DB.academia.nome) || 'Yama Jiu-Jitsu';
+  const cfg = _acadCfg();
+  const wa  = cfg.whatsapp || (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || '';
+  const pix = cfg.pix      || (DB.loja && DB.loja.config && DB.loja.config.pix)      || '';
+  const brCode = cfg.pixBrCode || '';
+  const qr  = cfg.qrToken || '';
+  v.innerHTML = `<div class="topbar"><div class="tb-title">⚙️ Yama · Configurações</div></div>`;
+  const box = el(`<div class="yama-hub"></div>`);
+  box.appendChild(el(`<div class="yama-hero">
+    <div class="yama-nm">${safeTxt(nome)}</div>
+    <div class="yama-sub">Configurações da academia · gestão do professor</div>
+  </div>`));
+  // status resumido — o que já está configurado
+  const status = el(`<div class="yama-status"></div>`);
+  const chip = (lbl, ok)=> `<span class="yama-chip ${ok?'on':'off'}">${ok?'✓':'○'} ${safeTxt(lbl)}</span>`;
+  status.innerHTML = chip('WhatsApp', !!wa) + chip('PIX', !!pix) + chip('QR PIX', !!brCode) + chip('QR presença', !!qr);
+  box.appendChild(status);
+  // grupos
+  const grupos = [
+    ['Academia', [
+      ['🏢 Dados da academia', 'Nome, telefone/WhatsApp, chave PIX', ()=> _dadosAcademiaSheet()],
+      ['🔑 Senha padrão dos alunos', 'Usada nos convites em lote', ()=> _senhaPadraoSheet()],
+    ]],
+    ['QR Codes', [
+      ['📷 QR de presença', qr ? 'Configurado · toque pra ver/renovar' : 'Ainda não configurado — configure antes do próximo treino', ()=> _qrTokenSheet()],
+      ['💸 QR do PIX', brCode ? 'Copia e Cola configurado' : 'Cole o Copia e Cola do seu banco', ()=> _pixQrSheet()],
+    ]],
+    ['Notificações', [
+      ['🔔 Aviso de check-in', 'Quem tem ativo · disparar teste · regras do push', ()=> _avisoCheckinSheet()],
+      ['💬 Mensagens WhatsApp', '8 textos prontos pra usar no botão WhatsApp do aluno', ()=> _waTemplatesSheet()],
+    ]],
+    ['Conta', [
+      ['👤 Meu perfil', 'Seu perfil pessoal (o professor também é aluno)', ()=>{ DB.navProf='perfil'; render(); }],
+    ]],
+  ];
+  grupos.forEach(([titulo, linhas])=>{
+    box.appendChild(el(`<div class="yama-grp-t">${safeTxt(titulo)}</div>`));
+    const grp = el(`<div class="yama-grp"></div>`);
+    linhas.forEach(([lbl, desc, fn])=>{
+      const row = el(`<div class="yama-row" role="button" tabindex="0">
+        <div class="yama-row-t">${safeTxt(lbl)}</div>
+        <div class="yama-row-s">${safeTxt(desc)}</div>
+        <span class="yama-row-go">›</span>
+      </div>`);
+      row.onclick = fn;
+      row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } };
+      grp.appendChild(row);
+    });
+    box.appendChild(grp);
+  });
+  v.appendChild(box);
+  return v;
+}
+
+// Sheet: só nome + telefone + PIX (Copia e Cola vai em sheet próprio, senha em outro).
+function _dadosAcademiaSheet(){
+  const cfg = _acadCfg();
   const local = (DB.loja && DB.loja.config) || {};
-  const cfg = { pix: _acadCfg().pix || local.pix || '',
-                whatsapp: _acadCfg().whatsapp || local.whatsapp || '',
-                senhaPadrao: local.senhaPadrao };
+  const wa  = cfg.whatsapp || local.whatsapp || '';
+  const pix = cfg.pix || local.pix || '';
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">Configurações da academia</div>
-    <div class="sheet-desc">Chave PIX e WhatsApp usados nos pedidos da Loja e no contato com o professor.</div>
-    <label class="flbl">Chave PIX</label>
-    <input class="inp" id="ca-pix" placeholder="CPF, telefone, e-mail ou chave aleatória" value="${safeAttr(cfg.pix||'')}">
-    <label class="flbl" style="margin-top:12px">WhatsApp da academia <span style="color:var(--muted);font-weight:500">(só dígitos, com DDI 55)</span></label>
-    <input class="inp" id="ca-wa" inputmode="numeric" placeholder="5531999999999" value="${safeAttr(cfg.whatsapp||'')}">
-    <label class="flbl" style="margin-top:12px">Senha padrão dos alunos <span style="color:var(--muted);font-weight:500">(letras + números, mín. 8)</span></label>
-    <input class="inp" id="ca-senha" placeholder="Ex: YamaJiuJitsu2026" value="${safeAttr(cfg.senhaPadrao||SENHA_PADRAO_DEFAULT)}">
-    <button class="btn-save" id="ca-save" style="margin-top:14px">Salvar</button>
-    <button class="sheet-cancel" id="ca-close">Cancelar</button>
+    <div class="sheet-title">Dados da academia</div>
+    <div class="sheet-desc">O nome vem do cadastro inicial (não editável por aqui). Telefone/WhatsApp e PIX são usados nos pedidos da Loja e no contato com o professor.</div>
+    <label class="flbl">Nome da academia</label>
+    <input class="inp" readonly value="${safeAttr((DB.academia && DB.academia.nome) || 'Yama Jiu-Jitsu')}">
+    <label class="flbl" style="margin-top:12px">Telefone / WhatsApp <span style="color:var(--muted);font-weight:500">(só dígitos, com DDI 55)</span></label>
+    <input class="inp" id="da-wa" inputmode="numeric" placeholder="5531999999999" value="${safeAttr(wa)}">
+    <label class="flbl" style="margin-top:12px">Chave PIX</label>
+    <input class="inp" id="da-pix" placeholder="CPF, telefone, e-mail ou chave aleatória" value="${safeAttr(pix)}">
+    <button class="btn-save" id="da-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="da-close">Cancelar</button>
   </div></div>`);
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#ca-close').onclick=close;
-  sheet.querySelector('#ca-save').onclick=()=>{
-    const pix = sheet.querySelector('#ca-pix').value.trim();
-    const wa  = sheet.querySelector('#ca-wa').value.replace(/\D/g,'');
-    const senha = sheet.querySelector('#ca-senha').value.trim();
-    if(wa && wa.length<12){ toast('WhatsApp precisa DDI + DDD + número (ex: 5531999999999)'); return; }
-    // Política do Supabase: minúscula + MAIÚSCULA + dígito. Sem isso, senhaPadraoLote falha em massa.
-    if(senha.length<8 || !/[a-z]/.test(senha) || !/[A-Z]/.test(senha) || !/\d/.test(senha)){
-      toast('Senha precisa 8+ caracteres com minúscula, MAIÚSCULA e número');
-      return;
-    }
-    // senhaPadrao fica LOCAL (user_state do professor): academies.config é legível por
-    // qualquer membro da academia, e a senha de quem ainda não acessou não pode ficar
-    // à vista dos alunos. PIX/WhatsApp vão pra nuvem — os alunos precisam deles.
-    DB.loja = DB.loja || {}; DB.loja.config = Object.assign({}, DB.loja.config, { pix, whatsapp: wa, senhaPadrao: senha });
-    if(typeof scheduleSave==='function') scheduleSave();
-    const btn = sheet.querySelector('#ca-save');
-    if(DEMO || typeof sbProf==='undefined' || !sbProf.salvarConfig){
-      toast('Configurações salvas ✔'); close(); return;
-    }
+  sheet.querySelector('#da-close').onclick=close;
+  sheet.querySelector('#da-save').onclick=()=>{
+    const waN = sheet.querySelector('#da-wa').value.replace(/\D/g,'');
+    const pixN = sheet.querySelector('#da-pix').value.trim();
+    if(waN && waN.length<12){ toast('WhatsApp precisa DDI + DDD + número (ex: 5531999999999)'); return; }
+    const btn = sheet.querySelector('#da-save');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    _salvarAcademyConfig({ pix, whatsapp: wa })
-      .then(() => { toast('Configurações salvas ✔'); close(); })
-      .catch(e => {
-        btn.disabled = false; btn.textContent = 'Salvar';
-        toast('Salvo só neste aparelho — falha na nuvem: '+(e.message||e));
-      });
+    _salvarAcademyConfig({ pix: pixN, whatsapp: waN })
+      .then(()=>{ toast('Dados salvos ✔'); close(); render(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
+
+// Sheet só da senha padrão — local (user_state do professor), fora da nuvem por LGPD:
+// academies.config é lido por todo membro; se a senha estivesse lá, aluno veria a senha
+// dos colegas que ainda não trocaram.
+function _senhaPadraoSheet(){
+  const atual = (DB.loja && DB.loja.config && DB.loja.config.senhaPadrao) || SENHA_PADRAO_DEFAULT;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Senha padrão dos alunos</div>
+    <div class="sheet-desc">Usada nos convites em lote. Fica só neste aparelho (não vai pra nuvem) — o professor precisa definir em cada dispositivo que gerencia acesso.</div>
+    <label class="flbl">Nova senha <span style="color:var(--muted);font-weight:500">(letras + números, mín. 8, com MAIÚSCULA)</span></label>
+    <input class="inp" id="sp-val" placeholder="Ex: YamaJiuJitsu2026" value="${safeAttr(atual)}">
+    <button class="btn-save" id="sp-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="sp-close">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#sp-close').onclick=close;
+  sheet.querySelector('#sp-save').onclick=()=>{
+    const senha = sheet.querySelector('#sp-val').value.trim();
+    if(senha.length<8 || !/[a-z]/.test(senha) || !/[A-Z]/.test(senha) || !/\d/.test(senha)){
+      toast('Senha precisa 8+ com minúscula, MAIÚSCULA e número'); return;
+    }
+    DB.loja = DB.loja || {}; DB.loja.config = Object.assign({}, DB.loja.config, { senhaPadrao: senha });
+    if(typeof scheduleSave==='function') scheduleSave();
+    toast('Senha padrão salva ✔'); close(); render();
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Sheet do PIX Copia e Cola (BR Code EMV). Guarda em academies.config.pixBrCode.
+// Gera o QR pra impressão via api.qrserver.com (mesma via do QR de presença).
+function _pixQrSheet(){
+  const cfg = _acadCfg();
+  const atual = cfg.pixBrCode || '';
+  const linkImprimir = t => 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data='+encodeURIComponent(t);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">QR do PIX</div>
+    <div class="sheet-desc">Cole o <b>"PIX Copia e Cola"</b> do seu banco (começa com <code>00020126</code>). É o único jeito de gerar um QR que puxa valor/descrição automaticamente. Se só tiver a chave PIX, o QR "estático" com a chave não vale como cobrança.</div>
+    <label class="flbl">Copia e Cola do PIX</label>
+    <textarea class="inp" id="pq-val" rows="4" placeholder="00020126...">${safeTxt(atual)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn-cad" id="pq-print" ${atual?'':'disabled'}>🖨️ Gerar QR pra imprimir</button>
+    </div>
+    <button class="btn-save" id="pq-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="pq-close">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#pq-close').onclick=close;
+  const ta = sheet.querySelector('#pq-val');
+  sheet.querySelector('#pq-print').onclick=()=>{
+    const v = ta.value.trim();
+    if(!v) return;
+    window.open(linkImprimir(v), '_blank', 'noopener');
+  };
+  sheet.querySelector('#pq-save').onclick=()=>{
+    const v = ta.value.trim();
+    const btn = sheet.querySelector('#pq-save');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    _salvarAcademyConfig({ pixBrCode: v })
+      .then(()=>{ toast('Salvo ✔'); close(); render(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Sheet do aviso de check-in (v376). Três seções:
+//   1) Aparelhos ativos — quem tem push (RPC push_subs_academia, 0028).
+//   2) Push de teste — dispara no aluno escolhido (RPC enviar_push_teste, 0028).
+//   3) Push personalizada — desabilitada (exige mudar a Edge send-push, ver ROADMAP).
+//   4) Regras — read-only (editar exige RPC de escrita em app_config).
+function _avisoCheckinSheet(){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🔔 Aviso de check-in</div>
+
+    <div class="av-sec-t">Aparelhos ativos</div>
+    <div class="av-sub" id="av-subs"><div class="av-loading">Carregando…</div></div>
+
+    <div class="av-sec-t" style="margin-top:16px">Push de teste</div>
+    <div class="av-sub-desc">Dispara agora um push ("Yama · Teste") pro aparelho do aluno escolhido acima.</div>
+    <button class="btn-cad primary" id="av-teste" disabled>🧪 Selecione um aluno da lista</button>
+
+    <div class="av-sec-t" style="margin-top:16px">Push personalizada</div>
+    <div class="av-sub-desc">Enviar texto livre pra um ou vários alunos. Precisa expandir a Edge Function <code>send-push</code> — não está pronto (ver ROADMAP · Notificações).</div>
+    <button class="btn-cad" disabled title="Requer mudança na Edge send-push">✏️ Enviar mensagem personalizada</button>
+
+    <div class="av-sec-t" style="margin-top:16px">Regras do disparo automático</div>
+    <div class="info-list" style="margin-top:8px">
+      <div class="info-row"><div class="ii">📊</div><div class="it"><div class="t">Ocorrências mínimas da sessão</div><div class="s">Quantas vezes a aula já aconteceu antes</div></div><div class="iv">0</div></div>
+      <div class="info-row"><div class="ii">✅</div><div class="it"><div class="t">Presenças mínimas nas últimas 4</div><div class="s">Padrão de comparecimento do aluno nessa sessão</div></div><div class="iv">0</div></div>
+      <div class="info-row"><div class="ii">🕐</div><div class="it"><div class="t">Janela de disparo</div><div class="s">30–120 min após o fim da aula (fixo)</div></div><div class="iv">—</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5">Endurecimento planejado pra <b>01/10/2026</b>: 4 e 3. Editar valores hoje exige SQL no painel Supabase (<code>app_config</code>).</div>
+
+    <button class="sheet-cancel" id="av-close" style="margin-top:14px">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#av-close').onclick=close;
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+
+  const subsEl = sheet.querySelector('#av-subs');
+  const btnTeste = sheet.querySelector('#av-teste');
+  let alvo = null;
+
+  const _uaCurto = ua => {
+    const s = String(ua||''); if(!s) return 'aparelho';
+    if(/iPhone|iPad/i.test(s)) return 'iOS';
+    if(/Android/i.test(s))     return 'Android';
+    if(/Windows/i.test(s))     return 'Windows';
+    if(/Mac OS/i.test(s))      return 'Mac';
+    if(/Linux/i.test(s))       return 'Linux';
+    return 'aparelho';
+  };
+  const _humano = ts => {
+    if(!ts) return '';
+    const d = new Date(ts); const dias = Math.floor((Date.now()-d)/86400000);
+    if(dias===0) return 'hoje'; if(dias===1) return 'ontem'; return 'há '+dias+' dias';
+  };
+
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.getPushSubs){
+    subsEl.innerHTML = '<div class="av-empty">Indisponível no modo demo.</div>';
+    return;
+  }
+
+  sbProf.getPushSubs().then(rows => {
+    if(!rows || !rows.length){
+      subsEl.innerHTML = '<div class="av-empty">Nenhum aluno ativou push ainda. Peça pros alunos abrirem o app, tocarem no sino e permitirem notificações.</div>';
+      return;
+    }
+    // Cruza com o roster carregado pra mostrar nome (evita ida extra à API)
+    const byId = {}; ((_profData && _profData.alunos)||[]).forEach(a=> byId[a.id]=a);
+    subsEl.innerHTML = '';
+    rows.forEach(r=>{
+      const a = byId[r.userId];
+      const nome = a ? _nomeInst(a) : '(fora da lista)';
+      const meta = _uaCurto(r.userAgent) + ' · ' + _humano(r.criadoEm);
+      const row = el(`<div class="av-row" role="button" tabindex="0" data-uid="${safeAttr(r.userId)}">
+        <div class="av-row-nm">${safeTxt(nome)}</div>
+        <div class="av-row-mt">${safeTxt(meta)}</div>
+      </div>`);
+      row.onclick = ()=>{
+        alvo = r.userId;
+        subsEl.querySelectorAll('.av-row').forEach(x=> x.classList.toggle('on', x===row));
+        btnTeste.disabled = false; btnTeste.textContent = '🧪 Enviar push de teste pra '+nome.split(' ')[0];
+      };
+      row.onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); row.click(); } };
+      subsEl.appendChild(row);
+    });
+    subsEl.appendChild(el(`<div class="av-empty" style="font-size:12px;margin-top:8px">Toque num aluno pra habilitar o botão de teste.</div>`));
+  }).catch(e=>{
+    subsEl.innerHTML = '<div class="av-empty">Erro ao listar: '+safeTxt(e.message||String(e))+'</div>';
+  });
+
+  btnTeste.onclick = ()=>{
+    if(!alvo) return;
+    btnTeste.disabled = true; const orig = btnTeste.textContent;
+    btnTeste.textContent = 'Disparando…';
+    sbProf.enviarPushTeste(alvo).then(r=>{
+      if(r && r.ok===false){
+        const msg = r.motivo==='sem_aparelho' ? 'Esse aluno perdeu o aparelho — a lista pode estar desatualizada' :
+                    r.motivo==='push_nao_configurado' ? 'Push não configurado no banco (app_config.push_function_url)' :
+                    'Não foi possível enviar';
+        toast(msg);
+      } else {
+        toast('Push disparado ✔ · deve chegar em segundos');
+      }
+    }).catch(e=> toast('Erro: '+(e.message||e))).finally(()=>{
+      btnTeste.disabled = false; btnTeste.textContent = orig;
+    });
+  };
+}
+
+// v376: editor dos 8 templates de WhatsApp. Persiste em academies.config.waTemplates
+// (JSONB, sem migration — reusa o merge remoto+patch do v359).
+// Placeholder: {nome} → _waNome(a) na hora do envio (_waResolve).
+function _waTemplatesSheet(){
+  const tpls = _waTpls();
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">💬 Mensagens WhatsApp</div>
+    <div class="sheet-desc">8 blocos de mensagens prontas. Toque no botão "WhatsApp" da ficha do aluno pra escolher qual enviar. Use <code>{nome}</code> onde quiser o primeiro nome do aluno (ou do responsável, se menor).</div>
+    <div class="wa-tpls-nav" id="wt-nav"></div>
+    <div class="wa-tpls-edit" id="wt-edit"></div>
+    <button class="btn-save" id="wt-save" style="margin-top:14px">Salvar todos</button>
+    <button class="sheet-cancel" id="wt-close">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#wt-close').onclick=close;
+
+  let sel = 0;
+  const nav = sheet.querySelector('#wt-nav');
+  const edit = sheet.querySelector('#wt-edit');
+  const state = tpls.map(t=>({ ...t }));   // cópia local editável
+
+  const paintNav = ()=>{
+    nav.innerHTML = '';
+    state.forEach((t,i)=>{
+      const b = el(`<button class="wt-tab${i===sel?' on':''}" type="button" title="${safeAttr(t.label)}"><span class="wt-tab-ic">${safeTxt(t.icon)}</span><span class="wt-tab-n">${i+1}</span></button>`);
+      b.onclick = ()=>{ sel = i; paintNav(); paintEdit(); };
+      nav.appendChild(b);
+    });
+  };
+  const paintEdit = ()=>{
+    const t = state[sel];
+    edit.innerHTML = `
+      <label class="flbl">Ícone <span style="color:var(--muted);font-weight:500">(1 emoji)</span></label>
+      <input class="inp" id="wt-ic" maxlength="4" value="${safeAttr(t.icon)}">
+      <label class="flbl" style="margin-top:10px">Rótulo <span style="color:var(--muted);font-weight:500">(texto do botão, curto)</span></label>
+      <input class="inp" id="wt-lb" maxlength="30" value="${safeAttr(t.label)}">
+      <label class="flbl" style="margin-top:10px">Mensagem</label>
+      <textarea class="inp" id="wt-bd" rows="6" placeholder="Oi {nome}, …">${safeTxt(t.body)}</textarea>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">
+        ${t.body ? 'Preview: ' + safeTxt(_waResolve(t.body, {nm:'Fulano',cad:{nomeCompleto:'Fulano da Silva'}})) : 'Vazio = botão não aparece na lista pro aluno (exceto o "Só abrir chat").'}
+      </div>
+    `;
+    const upd = ()=>{
+      state[sel].icon  = edit.querySelector('#wt-ic').value.trim() || '💬';
+      state[sel].label = edit.querySelector('#wt-lb').value.trim() || ('Slot '+(sel+1));
+      state[sel].body  = edit.querySelector('#wt-bd').value;
+      // atualiza preview em tempo real (sem re-render completo pra não perder foco)
+    };
+    ['#wt-ic','#wt-lb','#wt-bd'].forEach(sel2=>{
+      edit.querySelector(sel2).addEventListener('input', upd);
+    });
+  };
+  paintNav(); paintEdit();
+
+  sheet.querySelector('#wt-save').onclick=()=>{
+    // envia o array puro (sem `key` — a ordem é a chave); merge no runtime usa índice.
+    const payload = state.map(t=>({ icon:t.icon, label:t.label, body:t.body }));
+    const btn = sheet.querySelector('#wt-save');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    _salvarAcademyConfig({ waTemplates: payload })
+      .then(()=>{ toast('Mensagens salvas ✔'); close(); render(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar todos'; toast('Erro: '+(e.message||e)); });
+  };
+
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// ---- QR de presença da academia (professor): token estático em academies.config.qrToken.
+// Renovar o token invalida todos os cartazes impressos — todo QR antigo para de funcionar.
+// Payload aceito no scanner: o token puro, ou uma URL terminando em `?qr=TOKEN`/`&qr=TOKEN`.
+function _qrTokenSheet(){
+  const token = _qrToken();
+  const criar = ()=>{
+    // Usa Web Crypto (disponível em https/localhost). Fallback pra crypto.randomUUID.
+    try{ return crypto.randomUUID(); }
+    catch(_){ return 'yama-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10); }
+  };
+  const linkImprimir = t => 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data='+encodeURIComponent(t);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">QR de presença</div>
+    <div class="sheet-desc">Um QR estático da academia. Cole o token num gerador (link abaixo), imprima e espalhe pelo tatame. O aluno só bate presença com esse QR.</div>
+    <label class="flbl" style="margin-top:8px">Token atual</label>
+    <input class="inp" id="qr-tok" readonly value="${safeAttr(token||'')}" placeholder="Nenhum token gerado ainda">
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn-cad" id="qr-copy" ${token?'':'disabled'}>📋 Copiar</button>
+      <button class="btn-cad" id="qr-print" ${token?'':'disabled'}>🖨️ Gerar QR pra imprimir</button>
+    </div>
+    <button class="btn-save" id="qr-new" style="margin-top:14px">${token?'🔄 Renovar QR':'✨ Gerar QR da academia'}</button>
+    ${token ? '<div style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center">Renovar invalida <b>todos</b> os cartazes atuais.</div>' : ''}
+    <button class="sheet-cancel" id="qr-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#qr-close').onclick=close;
+  const inp = sheet.querySelector('#qr-tok');
+  sheet.querySelector('#qr-copy').onclick=()=>{
+    if(!inp.value) return;
+    try{ navigator.clipboard.writeText(inp.value).then(()=>toast('Token copiado ✔')); }
+    catch(_){ inp.select(); document.execCommand('copy'); toast('Token copiado ✔'); }
+  };
+  sheet.querySelector('#qr-print').onclick=()=>{
+    if(!inp.value) return;
+    window.open(linkImprimir(inp.value), '_blank', 'noopener');
+  };
+  sheet.querySelector('#qr-new').onclick=()=>{
+    if(token && !confirm('Renovar o QR invalida todos os cartazes já impressos. Continuar?')) return;
+    const novo = criar();
+    const btn = sheet.querySelector('#qr-new');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    _salvarAcademyConfig({ qrToken: novo })
+      .then(()=>{ toast('QR '+(token?'renovado':'gerado')+' ✔'); close(); _qrTokenSheet(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent = token?'🔄 Renovar QR':'✨ Gerar QR da academia'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// ---- abrirConfigAcademia removida em v375 — substituída pelo hub YAMA (profYama).
+//      Dados/PIX/WhatsApp em _dadosAcademiaSheet, senha padrão em _senhaPadraoSheet,
+//      QR de presença em _qrTokenSheet, QR do PIX em _pixQrSheet.
 
 // ---- Configurações ----
 function abrirConfiguracoes(){
@@ -10476,6 +10825,8 @@ function icoUser(){return `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" 
 function icoUsers(){return `<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="2"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 5.5a3 3 0 010 5.6M17 20c0-2.2-1-3.7-2.5-4.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;}
 function icoCard(){return `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 10h18" stroke="currentColor" stroke-width="2"/></svg>`;}
 function icoMore(){return `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;}
+// 山 (yama = montanha) estilizado — a marca do app vira ícone da aba de gestão.
+function icoYama(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 20l6-11 3 5 3-3 4 9"/></svg>`;}
 function icoPlus(){return `<svg viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>`;}
 // Ícones dos KPIs do professor (stroke currentColor — cor vem da classe .si)
 function icoRoster(){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`;}

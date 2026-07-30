@@ -1,5 +1,5 @@
 # CI — roda a cada push/PR: sintaxe (node --check) + selfTest real (Chrome headless).
-# selfTest = os mesmos 150 asserts do ?test=1 manual (CLAUDE.md · "Como rodar"),
+# selfTest = os mesmos 160 asserts do ?test=1 manual (CLAUDE.md · "Como rodar"),
 # executados no Chrome pré-instalado do runner via .github/ci/selftest.mjs.
 name: CI
 on:

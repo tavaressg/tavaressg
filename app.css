@@ -828,25 +828,11 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
   font-size:14.5px;font-weight:800;cursor:pointer}
 .btn-scan:active{opacity:.9}
 [data-theme="dark"] .btn-scan{background:var(--blue)}
-.qr-hint{font-size:12px;color:var(--muted);font-weight:600;margin-top:11px}
+.qr-title{font-size:15px;font-weight:800;color:var(--ink);margin-top:4px}
+.qr-hint{font-size:12px;color:var(--muted);font-weight:600;margin-top:6px;margin-bottom:16px}
+.qr-foot{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:14px;line-height:1.4}
 
-.or-div{display:flex;align-items:center;gap:12px;margin:22px 2px 20px}
-.or-div::before,.or-div::after{content:"";flex:1;height:1px;background:var(--line)}
-.or-div span{font-size:11.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-
-.otp-row{display:flex;gap:12px;justify-content:center;margin-bottom:24px}
-.otp-box{width:58px;height:66px;border-radius:14px;background:var(--card);border:2px solid var(--line);
-  display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;box-shadow:var(--shadow)}
-.otp-box.active{border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
-.otp-box.filled{border-color:var(--red);background:var(--red-tint);color:var(--red-strong)}
-
-.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:300px;margin:0 auto}
-.key{height:56px;border:none;border-radius:14px;background:var(--card);box-shadow:var(--shadow);
-  font-size:22px;font-weight:700;color:var(--ink);cursor:pointer}
-.key:active{background:var(--hover)}
 .qr-frame svg{color:var(--ink)}
-.otp-row.shake{animation:otpShake .42s cubic-bezier(.36,.07,.19,.97)}
-@keyframes otpShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-8px)}40%,60%{transform:translateX(8px)}}
 
 .geo-hint{text-align:center;font-size:11.5px;color:var(--muted);font-weight:600;margin-top:24px;padding-bottom:8px}
 
@@ -1634,6 +1620,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .btn-cad.primary{background:var(--red)}
 .btn-cad.dark{background:#334155}
 .btn-cad:active{filter:brightness(.94)}
+.btn-cad:disabled{opacity:.45;cursor:not-allowed;filter:none}
 .cred-row{display:flex;align-items:center;gap:10px;background:var(--field);border:1px solid var(--line);
   border-radius:12px;padding:10px 12px;margin-bottom:10px}
 .cred-row .cred-lbl{font-size:11px;font-weight:800;color:var(--muted);white-space:nowrap}
@@ -1838,6 +1825,30 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 @media (max-width:1023px){ .erp-c-wa-btn{display:inline-flex !important; align-items:center; justify-content:center; width:34px; height:34px; padding:0; font-size:16px; border-radius:10px} }
 
 /* ---- Sheet de templates de WhatsApp ---- */
+/* Sheet variant: mais largo (aviso de check-in, editor de templates WA) */
+.sheet-lg{max-width:520px}
+/* Aviso de check-in */
+.av-sec-t{font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 0 6px}
+.av-sub-desc{font-size:12.5px;color:var(--muted);margin-bottom:8px;line-height:1.45}
+.av-sub{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:var(--field);padding:6px}
+.av-row{padding:10px 12px;border-radius:8px;cursor:pointer;transition:background .1s}
+.av-row:hover{background:var(--hover)}
+.av-row.on{background:var(--red-tint);outline:2px solid var(--red)}
+.av-row-nm{font-size:13.5px;font-weight:700;color:var(--ink)}
+.av-row-mt{font-size:11.5px;color:var(--muted);margin-top:2px}
+.av-empty{padding:12px;font-size:12.5px;color:var(--muted);text-align:center;line-height:1.5}
+.av-loading{padding:12px;font-size:12.5px;color:var(--muted);text-align:center}
+/* Editor de 8 templates WA */
+.wa-tpls-nav{display:flex;gap:6px;margin:8px 0 12px;overflow-x:auto;padding-bottom:4px}
+.wt-tab{flex:none;border:1px solid var(--line);background:var(--card);border-radius:10px;
+  width:52px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;padding:0}
+.wt-tab:hover{background:var(--hover)}
+.wt-tab.on{border-color:var(--red);background:var(--red-tint);outline:2px solid var(--red)}
+.wt-tab-ic{font-size:18px}
+.wt-tab-n{font-size:10px;font-weight:800;color:var(--muted)}
+.wt-tab.on .wt-tab-n{color:var(--red-strong,var(--red))}
+.wa-tpls-edit textarea.inp{font-family:inherit;font-size:14px;line-height:1.5;resize:vertical}
+
 .wa-tpl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}
 .wa-tpl{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 10px;
   border:1.5px solid var(--line);background:var(--card);border-radius:14px;cursor:pointer;font-family:inherit;color:var(--ink)}
@@ -2103,8 +2114,29 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
    PAINEL DO PROFESSOR — dashboard ERP (v276). KPIs macro semânticos
    com cor por categoria + tabela de aniversariantes.
    ============================================================ */
-.erp-dash-hd{padding:16px 20px 4px}
+.erp-dash-hd{padding:16px 20px 4px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.erp-dash-hd-l{flex:1;min-width:0}
 .erp-dash-acad{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+.erp-yama-btn{flex:none;border:1px solid var(--line);background:var(--card);border-radius:12px;
+  width:40px;height:40px;font-size:18px;cursor:pointer;box-shadow:var(--shadow);padding:0}
+.erp-yama-btn:hover{background:var(--hover)}
+/* YAMA hub — mesma linguagem visual das outras views do professor */
+.yama-hub{padding:16px 20px 40px;max-width:720px;margin:0 auto}
+.yama-hero{background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:20px;margin-bottom:16px}
+.yama-nm{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.2px}
+.yama-sub{font-size:13px;color:var(--muted);font-weight:600;margin-top:4px}
+.yama-status{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.yama-chip{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;letter-spacing:.02em}
+.yama-chip.on{background:var(--good-tint,#e8f5ec);color:var(--good,#2fa86a)}
+.yama-chip.off{background:var(--field);color:var(--muted);border:1px dashed var(--line)}
+.yama-grp-t{font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 4px 8px}
+.yama-grp{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.yama-row{padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;position:relative;padding-right:32px}
+.yama-row:last-child{border-bottom:none}
+.yama-row:hover{background:var(--hover)}
+.yama-row-t{font-size:14.5px;font-weight:700;color:var(--ink)}
+.yama-row-s{font-size:12.5px;color:var(--muted);font-weight:500;margin-top:2px;line-height:1.4}
+.yama-row-go{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:20px;font-weight:400}
 .erp-dash-greet{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
 /* ============================================================
    ALUNOS v2 — layout ERP compacto (v278). Chips-KPI clicáveis

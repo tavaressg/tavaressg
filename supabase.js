@@ -936,6 +936,20 @@
       if (eS) throw eS;
     }),
 
+    // v376/0028: gestão de push pelo professor.
+    // Lista quem tem push ativo na academia (só metadata — chaves crypto ficam privadas).
+    getPushSubs: wrap(async () => {
+      const { data, error } = await SB.rpc('push_subs_academia');
+      if (error) throw error;
+      return (data || []).map(r => ({ userId: r.o_user_id, criadoEm: r.o_criado_em, userAgent: r.o_user_agent }));
+    }),
+    // Dispara push tipo 'teste' pra um aluno específico. Retorno: {ok, motivo?}
+    enviarPushTeste: wrap(async (userId) => {
+      const { data, error } = await SB.rpc('enviar_push_teste', { p_user_id: userId });
+      if (error) throw error;
+      return data || { ok: true };
+    }),
+
     // ===== Matrícula aluno↔turma (enrollments) — fecha o "passo 2-backend" =====
     // A policy enroll_prof_write (0001) já autoriza professor/dono da academia.
     // matricular = ADITIVO (upsert das turmas passadas); desmatricular = remove uma.
