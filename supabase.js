@@ -1246,6 +1246,7 @@
         ultimo_erro: null,
       }, { onConflict: 'endpoint' });
       if (error) throw error;
+      try { localStorage.setItem('yama.push.ativou', '1'); } catch (_) {}
       return true;
     }),
 
@@ -1257,7 +1258,74 @@
         try { await sub.unsubscribe(); } catch (_) {}
         await SB.from('push_subscriptions').delete().eq('endpoint', ep);
       }
+      try { localStorage.removeItem('yama.push.ativou'); } catch (_) {}
       return true;
+    }),
+
+    // v378: auto-heal do zombie silencioso. Web Push é frágil — subscription pode
+    // ser invalidada pelo provedor (APN/FCM) sem devolver 410 pra Edge, e a linha
+    // no banco vira zumbi (aparelho não recebe mais nada, ninguém sabe). Este
+    // método roda no boot pós-login e cobre 3 estados:
+    //   - navegador tem sub + banco tem tudo ok → no-op.
+    //   - navegador tem sub + banco NÃO conhece o endpoint → grava (pós-wipe).
+    //   - navegador PERDEU a sub + aparelho já tinha ativado antes → re-inscreve.
+    // Silencioso (retorno pra debug, sem toast pro usuário). Guard triplo:
+    // suporte + permissão granted + flag "já ativou aqui" (localStorage), pra
+    // não pedir permissão a quem nunca ligou.
+    healSubscription: wrap(async function () {
+      if (!sbPush.suportado()) return { ok: false, motivo: 'sem_suporte' };
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+        return { ok: false, motivo: 'sem_permissao' };
+      }
+      const { data: u } = await SB.auth.getUser();
+      if (!u?.user) return { ok: false, motivo: 'sem_sessao' };
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return { ok: false, motivo: 'sem_sw' };
+      const ua = (navigator.userAgent || '').slice(0, 200);
+      let sub;
+      try { sub = await reg.pushManager.getSubscription(); } catch (_) { sub = null; }
+
+      if (sub) {
+        // Navegador tem sub. Confirma que o banco a conhece; senão, grava.
+        const { data: existente } = await SB.from('push_subscriptions')
+          .select('id').eq('endpoint', sub.endpoint).maybeSingle();
+        if (existente) return { ok: true, acao: 'ja_ok' };
+        const j = sub.toJSON();
+        const { error } = await SB.from('push_subscriptions').upsert({
+          user_id: u.user.id, endpoint: j.endpoint,
+          p256dh: j.keys.p256dh, auth: j.keys.auth,
+          user_agent: ua, ultimo_erro: null,
+        }, { onConflict: 'endpoint' });
+        if (error) throw error;
+        try { localStorage.setItem('yama.push.ativou', '1'); } catch (_) {}
+        return { ok: true, acao: 'reencontrada' };
+      }
+
+      // Navegador não tem sub. Só re-inscreve se o aparelho JÁ ativou antes —
+      // caso contrário virar aluno "empurrando" push sem consentimento explícito.
+      let jaAtivou = false;
+      try { jaAtivou = localStorage.getItem('yama.push.ativou') === '1'; } catch (_) {}
+      if (!jaAtivou) return { ok: false, motivo: 'nunca_ativou' };
+
+      let nova;
+      try {
+        nova = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: sbPush._b64(sbPush.VAPID_PUBLIC),
+        });
+      } catch (e) {
+        // Provedor recusou (raro). Limpa a flag pra não retentar em loop no boot.
+        try { localStorage.removeItem('yama.push.ativou'); } catch (_) {}
+        return { ok: false, motivo: 'subscribe_falhou', erro: String(e && e.message || e) };
+      }
+      const j = nova.toJSON();
+      const { error } = await SB.from('push_subscriptions').upsert({
+        user_id: u.user.id, endpoint: j.endpoint,
+        p256dh: j.keys.p256dh, auth: j.keys.auth,
+        user_agent: ua, ultimo_erro: null,
+      }, { onConflict: 'endpoint' });
+      if (error) throw error;
+      return { ok: true, acao: 'reinscreveu' };
     }),
 
     // Marca o aviso como lido (alimenta o backoff: 4 sem abrir → pausa 15 dias).

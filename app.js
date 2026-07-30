@@ -3490,6 +3490,12 @@ function _pushBoot(){
   try{
     if(Notification.permission==='granted' && sbPush.configurado()) sbPush.registrarSW();
   }catch(_){}
+  // v378: auto-heal do zombie silencioso. Roda depois do SW registrar (dá 800ms
+  // pro navigator.serviceWorker.ready acordar). Fire-and-forget — se algo dar
+  // errado, cai no catch dentro do adapter, nunca borbulha pro user.
+  try{
+    if(sbPush.healSubscription) setTimeout(()=>{ sbPush.healSubscription().catch(()=>{}); }, 800);
+  }catch(_){}
   try{
     if(new URLSearchParams(location.search).get('checkin')==='1'){
       if(sbPush.marcarAberto) sbPush.marcarAberto().catch(()=>{});
