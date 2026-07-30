@@ -3828,18 +3828,20 @@ async function presencaScan(){
     return;
   }
 
-  // 3. Overlay + loop de detecção
+  // 3. Overlay + loop de detecção.
+  // webkit-playsinline é obrigatório em iOS <10 e ainda respeitado em iOS PWA
+  // atual em modo standalone — sem ele, o vídeo abre em fullscreen nativo e
+  // some do overlay (tela preta no lugar).
   const ov = el(`<div class="scan-overlay">
-    <video autoplay playsinline muted></video>
+    <video autoplay playsinline muted webkit-playsinline></video>
     <div class="scan-frame"></div>
     <div class="scan-hint">Aponte para o QR da academia</div>
     <button class="scan-close">Cancelar</button>
   </div>`);
-  const video = ov.querySelector('video'); video.srcObject = stream;
-  let stop=false, avisou=false;
+  const video = ov.querySelector('video');
+  let stop=false, avisou=false, ticking=false;
   const close=()=>{ stop=true; try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){} ov.remove(); };
   ov.querySelector('.scan-close').onclick=close;
-  document.body.appendChild(ov);
   const tick=async()=>{
     if(stop) return;
     const val = await detect(video);
@@ -3852,7 +3854,23 @@ async function presencaScan(){
     }
     requestAnimationFrame(tick);
   };
-  video.onloadedmetadata=()=>{ video.play().catch(()=>{}); requestAnimationFrame(tick); };
+  // Kick redundante: play() em cada evento que pode pintar, com guard `ticking`
+  // pra não iniciar o loop mais de uma vez. Evita o bug "tela preta" quando
+  // o loadedmetadata dispara antes do handler ser registrado (stream cache).
+  const kick=()=>{
+    if(video.paused) video.play().catch(()=>{});
+    if(!ticking && video.videoWidth){ ticking = true; requestAnimationFrame(tick); }
+  };
+  video.onloadedmetadata = kick;
+  video.oncanplay = kick;
+  video.onplaying = kick;
+  // Ordem defensiva: append ANTES de srcObject pro iOS Safari renderizar cedo.
+  document.body.appendChild(ov);
+  video.srcObject = stream;
+  // Se o stream já estava pronto (cache), nada dispara — força play imediato.
+  video.play().catch(()=>{});
+  // Safety-net: 500 ms depois, se ainda não pintou, chama kick de novo.
+  setTimeout(kick, 500);
 }
 function _renderPhase1(){
   const v = el(`<div class="view"></div>`);
