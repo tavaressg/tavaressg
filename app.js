@@ -5873,11 +5873,17 @@ function profAlunos(){
       const presTx = a.pres ? '✓ '+safeTxt(a.pres) : 'ausente';
       const daysTx = (a.diasSem||0) > 0 ? (a.diasSem+'d') : '—';
       const metaMobile = filtro==='sumidos' ? ((a.diasSem||0)+'d sem treinar') : (a.pres?'✓ '+safeTxt(a.pres):'ausente hoje');
+      // v386: turma na visao mobile/tablet — pega a 1a matricula ativa; se +1,
+      // mostra "TurmaA +N". Se nao tem, o pedaco some (evita "— " poluindo).
+      const _turmasArrLbl = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean);
+      const turmaMobileTx = _turmasArrLbl.length
+        ? (_turmasArrLbl[0] + (_turmasArrLbl.length>1 ? ` +${_turmasArrLbl.length-1}` : ''))
+        : '';
       const row=el(`<div class="st-row dt-row${a._self?' dt-self':''}" style="cursor:pointer">
         ${avatarAluno(a)}
         <div class="st-mid"><div class="nm" title="${safeAttr(nomeTx)}">${safeTxt(nomeTx)}${a.role&&a.role!=='aluno'?` <span class="role-badge ${a.role==='dono'?'dono':'prof'}">${a.role==='dono'?'Dono':'Professor'}</span>`:''}</div>
-          <div class="meta">${_semGrad(a)?'<span class="belt-pill vazio">Sem graduação</span>':beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span></div></div>
-        <div class="erp-c erp-c-belt-cell">${beltPillOuVazio(a)}</div>
+          <div class="meta">${_semGrad(a)?'<span class="belt-pill vazio">Sem graduação</span>':beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span>${turmaMobileTx?` <span class="st-turma-chip" title="${safeAttr(_turmasArrLbl.join(', '))}">${safeTxt(turmaMobileTx)}</span>`:''}</div></div>
+        <div class="erp-c erp-c-belt-cell">${_semGrad(a)?'':beltMini(a.faixa,a.graus)}</div>
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
         <div class="erp-c erp-c-pres-cell">${presTx}</div>
