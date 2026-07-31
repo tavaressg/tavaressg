@@ -4880,7 +4880,14 @@ function profPainel(){
   const alerts=[];
   if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
   if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
-  if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante hoje`, 'Mandar parabéns ›', ()=>{ DB.relTab='retencao'; goProf('relatorios'); }, 'good']);
+  if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante${_anivHj>1?'s':''} hoje`, 'Mandar parabéns ›', ()=>{
+    // v384: leva pra lista de Alunos com filtro pelos aniversariantes DE HOJE
+    // (MM-DD, nao mais so MM), pra o professor ver quem eh e mandar WhatsApp.
+    // Antes ia pra Relatorios/Retencao, tela onde nao ha como contatar aluno.
+    const d = new Date();
+    DB._pendingAlunosAniv = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    goProf('alunos');
+  }, 'good']);
   if(_zerados>0) alerts.push(['📦', `${_zerados} produto${_zerados>1?'s':''} com estoque zerado`, 'Ver loja ›', ()=>goProf('loja'), 'red']);
   if(alerts.length){
     w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">O que fazer hoje</div>`));
@@ -5637,11 +5644,17 @@ function _alunosExportPDF(alunos, turmaMap){
 function profAlunos(){
   const w = el('<div></div>');
   const alunos = (_profData?.alunos)||[];
-  const presentes = alunos.filter(a=>a.pres).length;
-  const ativos = alunos.filter(a=>(a.diasSem ?? 999) <= 14).length;   // mesmo critério do KPI da home
-  const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
-  const vencidosN = alunos.filter(a=>a.pago==='late').length;
-  const aptosN = (typeof _aptosGraduar==='function'?_aptosGraduar().length:0);
+  // v384: TODOS os chips (exceto "Inativos") ignoram alunos inativos. Antes,
+  // "Presentes"/"Ativos (14d)"/"Ausentes 7+d"/"Vencidos" contavam inativos junto,
+  // criando dissonancia entre chip e lista (chip 34 presentes, mas lista mostra 3
+  // porque "Todos" ja excluia inativos desde v382).
+  const _naoInativo = a => _statusAluno(a).valor !== 'inativo';
+  const presentes = alunos.filter(a=> _naoInativo(a) && a.pres).length;
+  const ativos = alunos.filter(a=> _naoInativo(a) && (a.diasSem ?? 999) <= 14).length;
+  const ausentes = alunos.filter(a=> _naoInativo(a) && (a.diasSem||0)>=7).length;
+  const vencidosN = alunos.filter(a=> _naoInativo(a) && a.pago==='late').length;
+  const aptosN = typeof _aptosGraduar==='function'
+    ? _aptosGraduar().filter(_naoInativo).length : 0;
   const inativosN = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
   // v382: "Todos" da lista deixa de contar inativos — usuario ve o total LIQUIDO
   // por padrao. Inativos ainda aparecem via chip "Inativos" (dedicado).
@@ -5778,16 +5791,17 @@ function profAlunos(){
   let _arrFiltrada = [];
   const _aplicarFiltros = ()=>{
     let arr = ((_profData?.alunos)||[]).filter(a=>{
-      // v382: "Todos" = todos MENOS os inativos (o total liquido). Inativos so
-      // aparecem via chip dedicado. Todos os demais chips continuam operando
-      // sobre a base bruta (nao removem inativos de novo).
-      if(filtro==='todos') return _statusAluno(a).valor !== 'inativo';
+      // v384: exceto o chip "Inativos" (dedicado), TODOS os outros excluem
+      // inativos. Antes so "Todos" excluia (v382); agora Presentes/Ativos/
+      // Ausentes/Aptos/Vencidos tambem — casa com a contagem dos chips.
+      if(filtro==='inativos') return _statusAluno(a).valor==='inativo';
+      if(_statusAluno(a).valor==='inativo') return false;
+      if(filtro==='todos') return true;
       if(filtro==='presentes') return !!a.pres;
       if(filtro==='ativos') return !a.diasSem || a.diasSem<14;
       if(filtro==='sumidos') return (a.diasSem||0)>=7;
       if(filtro==='vencidos') return a.pago==='late';
       if(filtro==='aptos') return typeof _aptosGraduar==='function' && _aptosGraduar().some(x=> (x.id||x.nm)===(a.id||a.nm));
-      if(filtro==='inativos') return _statusAluno(a).valor==='inativo';
       return true;
     });
     if(filtroEt==='__sem') arr = arr.filter(a=> _faixaEtariaLbl(a.nascimento)==null);
@@ -5807,7 +5821,16 @@ function profAlunos(){
     else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
     else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
     if(advF.status) arr = arr.filter(a=> _statusAluno(a).valor===advF.status);
-    if(advF.aniversario) arr = arr.filter(a=> (a.nascData||'').slice(5,7) === advF.aniversario);
+    if(advF.aniversario){
+      // v384: aceita MM (mes inteiro) OU MM-DD (dia especifico — vem do alerta
+      // "Mandar parabens" do painel, que passa a data de hoje pra filtrar so
+      // aniversariantes do DIA).
+      const v = advF.aniversario;
+      arr = arr.filter(a=>{
+        const iso = a.nascData || '';
+        return v.length >= 5 ? iso.slice(5,10) === v : iso.slice(5,7) === v;
+      });
+    }
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
     else arr.sort(_cmp);
     return arr;
@@ -5999,13 +6022,20 @@ function profAlunos(){
   advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
   _advBadge();
-  // Preset vindo do painel (KPI/Ver todos aniversariantes): abre o painel avançado com o mês já selecionado.
+  // Preset vindo do painel (KPI/Ver todos aniversariantes/Mandar parabens):
+  // aceita MM (mes) OU MM-DD (dia especifico, do alerta "Mandar parabens").
   if(advF.aniversario){
-    advPanel.querySelector('#advf-aniv').value = advF.aniversario;
+    const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const isDia = advF.aniversario.length >= 5;   // MM-DD
+    const mm = advF.aniversario.slice(0,2);
+    // Dropdown so tem opcoes MM — preenche com MM se for MM-DD (o filtro real
+    // olha advF.aniversario completo, o dropdown fica so pra o professor ver).
+    advPanel.querySelector('#advf-aniv').value = mm;
     advPanel.style.display='block';
     advBar.querySelector('#adv-toggle')?.classList.add('on');
-    const mesLbl = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(advF.aniversario,10)-1] || advF.aniversario;
-    setTimeout(()=>{ toast(`Filtrando aniversariantes de ${mesLbl}`); advPanel.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
+    const mesLbl = MESES[parseInt(mm,10)-1] || mm;
+    const lbl = isDia ? `aniversariantes de hoje (${advF.aniversario.slice(3,5)}/${mm})` : `aniversariantes de ${mesLbl}`;
+    setTimeout(()=>{ toast(`Filtrando ${lbl}`); advPanel.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
   }
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
