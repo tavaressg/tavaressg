@@ -5945,7 +5945,6 @@ function profAlunos(){
     <button class="erp-alunos-tool" id="adv-toggle" type="button">☰ Filtros avançados<span class="adv-count" id="adv-count" hidden></span></button>
     <button class="erp-alunos-tool adv-clear-inline" id="adv-clear-inline" type="button" hidden>✕ Limpar</button>
     <div class="erp-alunos-tool-spacer"></div>
-    <button class="erp-alunos-tool" id="adv-acesso" type="button">🔑 Acesso</button>
     <button class="erp-alunos-tool" id="adv-import" type="button">↑ Importar</button>
     <button class="erp-alunos-tool" id="adv-tpl" type="button">↓ Modelo</button>
     <button class="erp-alunos-tool" id="adv-csv" type="button">↓ Excel</button>
@@ -6019,7 +6018,6 @@ function profAlunos(){
   advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSXSheet(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
   advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
   advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
-  advBar.querySelector('#adv-acesso').onclick = ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); };
   advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
   _advBadge();
   // Preset vindo do painel (KPI/Ver todos aniversariantes/Mandar parabens):
@@ -10286,6 +10284,7 @@ function profYama(){
     ['Academia', [
       ['🏢 Dados da academia', 'Nome, telefone/WhatsApp, chave PIX', ()=> _dadosAcademiaSheet()],
       ['🔑 Senha padrão dos alunos', 'Usada nos convites em lote', ()=> _senhaPadraoSheet()],
+      ['📨 Distribuir acesso', 'Aplicar senha padrão + convite WhatsApp em lote', ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); }],
     ]],
     ['QR Codes', [
       ['📷 QR de presença', qr ? 'Configurado · toque pra ver/renovar' : 'Ainda não configurado — configure antes do próximo treino', ()=> _qrTokenSheet()],
