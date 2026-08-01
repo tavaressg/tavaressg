@@ -9675,27 +9675,62 @@ function _turmaMatricularSheet(t, done){
    academies.config.metaAulas — v0003).
    ============================================================ */
 /* v395: prontidão de graduação — DUAS avaliações independentes num shape só.
-   - grauOk  = aulasNoGrau  >= metaAulas[faixa]     (grau é decisão da academia)
-   - faixaOk = aulasNaFaixa >= 4 × metaAulas[faixa] (troca de faixa CBJJ)
-   Tempo CBJJ e idade mínima entram como AVISO na faixa, não como bloqueador —
-   o professor sempre pode graduar antes se quiser. Infantil: só presenças.
-   Fonte UNICA: _aptosGraduar() reusa isso, sem regra paralela em outro lugar. */
+   Fonte UNICA: _aptosGraduar() reusa isso, sem regra paralela em outro lugar.
+
+   Regras (por caso):
+   - Preta / Coral / Coral-branca: TEMPO ACUMULADO na preta (CBJJ.black_belt_degrees).
+     Sem presença — a CBJJ decide por relógio. Vermelha = faixa máxima.
+     Preta com graus < 6 → grau atual +1 vira "prontos p/ novo grau".
+     Preta 6° / Coral / Coral-branca → próxima faixa alta vira "prontos p/ próxima faixa".
+   - Adulto (branca/azul/roxa/marrom): grau = aulasNoGrau ≥ meta[faixa].
+     Faixa = aulasNaFaixa ≥ 4×meta. Tempo CBJJ e idade → aviso, não bloqueio.
+   - Infantil (cinza/amarela/laranja/verde): só presenças, sem tempo/idade. */
 function _prontidaoGrad(a){
   const idade = idadeCBJJ(a.nascimento);
+  const g = a.graus||0;
+  const maxG = maxGrausDe(a.faixa);
+  const empty = { next:null, meta:0, metaFaixaTotal:0, g, maxG,
+    grau:{ok:false,tem:0,meta:0,txt:''}, faixa:{ok:false,tem:0,meta:0,txt:'',tempo:null,idadeAviso:null} };
+
+  // Preta / faixas altas: regra POR TEMPO acumulado na preta.
+  const idxPreta = ['preta','coral','coral_branca','vermelha'].indexOf(a.faixa);
+  if(idxPreta >= 0){
+    if(a.faixa === 'vermelha') return empty;   // faixa máxima
+    // "Grau na linha da preta": preta.graus / coral=7 / coral_branca=8.
+    const currentDeg = a.faixa === 'preta' ? g : (a.faixa === 'coral' ? 7 : 8);
+    const nextDeg = CBJJ.black_belt_degrees.find(d => d.degree === currentDeg + 1);
+    if(!nextDeg) return empty;
+    const primPreta = (a.graduacoes||[])
+      .filter(x => x && x.tipo==='faixa' && x.faixa==='preta' && x.data)
+      .map(x => x.data).sort()[0];
+    const meses = primPreta ? tempoNaFaixaMeses(primPreta) : null;
+    const anos  = meses!=null ? Math.floor(meses/12) : null;
+    const ok = anos!=null && anos >= nextDeg.cumulative;
+    const nextIsBelt = !!nextDeg.belt;   // 7=coral, 8=coral_branca, 9=vermelha
+    const nextFaixa = nextDeg.belt || 'preta';
+    const txt = anos!=null
+      ? `${anos}/${nextDeg.cumulative} anos de preta`
+      : `sem data da preta · ${nextDeg.cumulative} anos (CBJJ)`;
+    // Eixo unico: grau OU faixa (nunca os dois — na preta os dois se cruzam).
+    return {
+      next: nextIsBelt ? nextFaixa : null, meta:0, metaFaixaTotal:0, g, maxG,
+      grau:  nextIsBelt ? {ok:false,tem:0,meta:0,txt:''}
+                        : { ok, tem:anos||0, meta:nextDeg.cumulative, txt, porTempo:true },
+      faixa: nextIsBelt ? { ok, tem:anos||0, meta:nextDeg.cumulative, txt, tempo:null, idadeAviso:null, porTempo:true }
+                        : {ok:false,tem:0,meta:0,txt:'',tempo:null,idadeAviso:null},
+    };
+  }
+
+  // Adulto / infantil — regra por presença.
   const infoAdulto = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
   const ehInfantil = (idade!=null && idade<=CBJJ.youth_max_age) || _grupoInfantilMinAge(a.faixa)!=null;
   const next = ehInfantil ? proximaFaixaCBJJ(a.faixa, idade) : (infoAdulto ? infoAdulto.next : null);
-  const maxG = maxGrausDe(a.faixa);
-  const g = a.graus||0;
   const meta = _metaAulasFaixa(a.faixa);
   const metaFaixaTotal = meta * maxG;
   const aulasNoGrau  = a.aulasNoGrau  || 0;
   const aulasNaFaixa = a.aulasNaFaixa || 0;
-  // NOVO GRAU: só regra da academia (aulas). Faixa maxima nao ganha grau.
   const grauOk = g < maxG && aulasNoGrau >= meta;
-  // NOVA FAIXA: aulas totais na faixa. Faixa terminal (preta) nao troca.
   const faixaBaseOk = !!next && aulasNaFaixa >= metaFaixaTotal;
-  // Avisos CBJJ (adulto) — tempo mínimo e idade. Nao bloqueiam, só sinalizam.
   let tempoAviso = null, idadeAviso = null;
   if(next && infoAdulto){
     const meses = tempoNaFaixaMeses(a.faixaDesde);
@@ -9737,16 +9772,34 @@ function _gradAptosSection(w){
 
   const _row = (a, s, tipo)=>{
     const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
-    const btnLbl = tipo==='faixa' ? `Graduar → ${safeTxt(nextNome)}` : 'Dar grau';
-    // Chips no rodape: aulas + (na faixa: tempo e idade CBJJ como AVISO — nunca bloqueiam).
+    const eixo = s[tipo];   // s.grau ou s.faixa
+    const porTempo = !!eixo.porTempo;
+    // Preta/altas graduam POR TEMPO — botao muda de "Dar grau" para "Confirmar", sinalizando
+    // que o professor esta apenas registrando o marco temporal (a CBJJ é quem "gradua").
+    const btnLbl = tipo==='faixa'
+      ? `Graduar → ${safeTxt(nextNome)}`
+      : (porTempo ? `Confirmar ${s.g+1}º grau` : 'Dar grau');
+    // Chips no rodape: presença OU tempo + (na faixa por presenca: avisos CBJJ tempo/idade).
     const chipsHtml = tipo==='faixa'
-      ? _semChip({ ok:true, txt:s.faixa.txt }) +
-        (s.faixa.tempo ? _semChip(s.faixa.tempo) : '') +
-        (s.faixa.idadeAviso ? _semChip(s.faixa.idadeAviso) : '')
-      : _semChip({ ok:true, txt:s.grau.txt });
-    const sub = tipo==='faixa'
-      ? `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º grau → <b>${safeTxt(nextNome)}</b>`
-      : `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º → <b>${s.g+1}º grau</b>`;
+      ? _semChip({ ok:true, txt:eixo.txt }) +
+        (eixo.tempo ? _semChip(eixo.tempo) : '') +
+        (eixo.idadeAviso ? _semChip(eixo.idadeAviso) : '')
+      : _semChip({ ok:true, txt:eixo.txt });
+    // Sub-titulo:
+    //  - por presenca grau: "Azul · 1º → 2º grau"
+    //  - por presenca faixa: "Roxa · 3º grau → Marrom"
+    //  - por tempo grau (preta n): "Preta · 2º → 3º grau (CBJJ)"
+    //  - por tempo faixa (preta 6/coral/coral_branca): "Preta · 6º grau → Coral (CBJJ)"
+    let sub;
+    if(porTempo){
+      sub = tipo==='faixa'
+        ? `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º grau → <b>${safeTxt(nextNome)}</b> <span style="color:var(--muted)">(CBJJ)</span>`
+        : `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º → <b>${s.g+1}º grau</b> <span style="color:var(--muted)">(CBJJ)</span>`;
+    } else {
+      sub = tipo==='faixa'
+        ? `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º grau → <b>${safeTxt(nextNome)}</b>`
+        : `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º → <b>${s.g+1}º grau</b>`;
+    }
     const row = el(`<div class="grad-aptos-row">
       <div class="grad-aptos-belt">${beltMini(a.faixa, s.g)}</div>
       <div class="grad-aptos-info">
@@ -9812,10 +9865,10 @@ function profGraduacao(){
   w.appendChild(tabsBar);
   if(tab==='aptos'){ _gradAptosSection(w); return w; }
 
-  // Lista canônica: infantil (grupo cinza→verde) + adulto (branca→preta).
-  // Coral/vermelha não têm meta de aulas — ficam no fim como referência.
-  // porTempo: renderiza como referência (sem meta de aulas, sem editar) — CBJJ usa
-  // tempo acumulado, não presenças. Vale pra preta (6 graus) e faixas altas.
+  // Grupos:
+  // - Infantil / Adulto: meta EDITAVEL (aulas por grau).
+  // - Preta e faixas altas: bloco unificado, so' referencia. CBJJ decide por tempo
+  //   acumulado na preta — nao existe meta editavel de aulas aqui.
   const grupos = [
     { titulo:'Infantil (4–15 anos)', faixas:[
       'cinza_branca','cinza','cinza_preta',
@@ -9824,7 +9877,6 @@ function profGraduacao(){
       'verde_branca','verde','verde_preta',
     ], stripes:0 },
     { titulo:'Adulto (16+)', faixas:['branca','azul','roxa','marrom'], stripes:4 },
-    { titulo:'Preta (adulto — por tempo acumulado)', faixas:['preta'], stripes:6, porTempo:true },
   ];
 
   const defaultMeta = PROF_METAS.META_GRAU;
@@ -9839,17 +9891,6 @@ function profGraduacao(){
     const list = el('<div class="grad-list block"></div>');
     g.faixas.forEach(f=>{
       const info = BELTS[f] || {nome:f, cor:'#888'};
-      // Preta e faixas altas: por tempo acumulado (CBJJ) — sem meta editável de aulas
-      if(g.porTempo){
-        list.appendChild(el(`<div class="grad-row ref">
-          <div class="grad-belt-wrap">${beltMini(f, g.stripes)}</div>
-          <div class="grad-info">
-            <div class="grad-nome">${safeTxt(info.nome)}</div>
-            <div class="grad-sub">${g.stripes} graus · por tempo acumulado (CBJJ)</div>
-          </div>
-        </div>`));
-        return;
-      }
       const meta = _metaAulasFaixa(f);
       const isCustom = metasCfg[f] && parseInt(metasCfg[f])>0 && parseInt(metasCfg[f])!==defaultMeta;
       const row = el(`<div class="grad-row">
@@ -9866,20 +9907,29 @@ function profGraduacao(){
     w.appendChild(list);
   });
 
-  // Referência: faixas altas sem meta de aulas
-  w.appendChild(el(`<div class="sec-title">Faixas altas (referência)</div>`));
-  const ref = el('<div class="grad-list block"></div>');
-  ['coral','coral_branca','vermelha'].forEach(f=>{
+  // Preta + faixas altas UNIFICADAS: um bloco só, so' referencia (CBJJ por tempo).
+  // Sub mostra o marco temporal do proximo grau/faixa direto da CBJJ.black_belt_degrees.
+  w.appendChild(el(`<div class="sec-title">Preta e faixas altas (CBJJ — por tempo)</div>`));
+  const bd = CBJJ.black_belt_degrees;
+  const marcoTempo = {
+    preta:        `graus 1º–6º · ${bd[0].cumulative}–${bd[5].cumulative} anos na preta`,
+    coral:        `7º grau · ${bd.find(d=>d.belt==='coral').cumulative} anos na preta`,
+    coral_branca: `8º grau · ${bd.find(d=>d.belt==='coral_branca').cumulative} anos na preta`,
+    vermelha:     `9º grau · ${bd.find(d=>d.belt==='vermelha').cumulative} anos na preta`,
+  };
+  const stripesPorFaixa = { preta:6, coral:0, coral_branca:0, vermelha:0 };
+  const altas = el('<div class="grad-list block"></div>');
+  ['preta','coral','coral_branca','vermelha'].forEach(f=>{
     const info = BELTS[f] || {nome:f};
-    ref.appendChild(el(`<div class="grad-row ref">
-      <div class="grad-belt-wrap">${beltMini(f, 0)}</div>
+    altas.appendChild(el(`<div class="grad-row ref">
+      <div class="grad-belt-wrap">${beltMini(f, stripesPorFaixa[f])}</div>
       <div class="grad-info">
         <div class="grad-nome">${safeTxt(info.nome)}</div>
-        <div class="grad-sub">por tempo acumulado na preta (CBJJ)</div>
+        <div class="grad-sub">${safeTxt(marcoTempo[f])}</div>
       </div>
     </div>`));
   });
-  w.appendChild(ref);
+  w.appendChild(altas);
   return w;
 }
 
