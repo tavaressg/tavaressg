@@ -1395,9 +1395,23 @@ function aulasStats(){
   if(DEMO){ const atual=me.aulasGrau.atual||0;
     return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:me.aulasGraduacao||0 }; }
   const dias=_treinoDays();
-  const noGrau=base + _countSince(dias, _refDataGrauAtual());        // aulas no grau atual
-  const atual=noGrau;
-  const naFaixa=base + _countSince(dias, _refDataFaixaAtual());      // aulas na faixa atual (estimativa p/ próxima faixa)
+  const refGrau  = _refDataGrauAtual();
+  const refFaixa = _refDataFaixaAtual();
+  // 0029: credito de presencas importado do app antigo. Cada credito mora no
+  // evento-ancora correspondente (grau atual / faixa atual). O `base` local
+  // legado continua respeitado como fallback pra nao perder dado antigo.
+  // Reproduz a mesma logica do adapter (supabase.js:getAlunos ancora do grau).
+  const gs = DB.graduacoes || [];
+  const evGrau = me.graus > 0
+    ? gs.find(g=> g.tipo==='grau' && g.faixa===me.faixa && g.graus===me.graus && g.data===refGrau)
+    : gs.find(g=> g.tipo==='faixa' && g.faixa===me.faixa && g.data===refGrau);
+  const creditoGrau = (evGrau && +evGrau.aulas_credito_grau) || 0;
+  // Ancora da faixa: casa pela data + faixa. Cobre faixa | inicio | grau (o fallback do _faixaDesde).
+  const evFaixa = refFaixa ? gs.find(g=> g.data===refFaixa && g.faixa===me.faixa) : null;
+  const creditoFaixa = (evFaixa && +evFaixa.aulas_credito_faixa) || 0;
+  const noGrau  = creditoGrau  + base + _countSince(dias, refGrau);   // aulas no grau atual
+  const atual   = noGrau;
+  const naFaixa = creditoFaixa + base + _countSince(dias, refFaixa);  // aulas na faixa atual (estimativa p/ próxima faixa)
   const restantes=Math.max(0, (me.aulasGraduacao||160) - naFaixa);
   return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
 }

@@ -288,7 +288,14 @@
           });
         } catch (_) { d.academia = Object.assign({}, d.academia, { turma: null }); }
       }
-      if (grads.data) d.graduacoes = grads.data.map(g => ({ faixa: g.faixa, graus: g.graus, tipo: g.tipo, data: g.data, por: g.por || '—' }));
+      if (grads.data) d.graduacoes = grads.data.map(g => ({
+        faixa: g.faixa, graus: g.graus, tipo: g.tipo, data: g.data, por: g.por || '—',
+        // 0029: credito de presencas importado do app antigo. aulasStats() no lado
+        // do aluno le desses campos pra mostrar "40/48" — sem isso o aluno vira o
+        // proprio app depois do import e continua vendo 0/48.
+        aulas_credito_grau: g.aulas_credito_grau || 0,
+        aulas_credito_faixa: g.aulas_credito_faixa || 0,
+      }));
       if (lesoes.data) d.lesoes = lesoes.data.map(l => ({ id: l.id, parte: l.parte, status: l.status, nota: l.nota, data: l.data }));
       // progresso objetivo aplica nas técnicas locais (sem sobrescrever a anotação privada local)
       if (prog.data && Array.isArray(d.tecnicas)) {
