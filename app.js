@@ -9753,38 +9753,51 @@ function _prontidaoGrad(a){
   };
 }
 function _gradAptosSection(w){
+  const PROXIMOS_PCT = 0.8;   // >= 80% da meta = "quase la" (v397). Ajustavel aqui.
   const cand = _profAlunosArr().map(a=>({a, s:_prontidaoGrad(a)}));
-  // Duas listas independentes — um aluno pode aparecer nas duas (tem 4 graus E aulasNaFaixa passou).
-  const aptosGrau  = cand.filter(x=> x.s.grau.ok).sort((x,y)=> (y.s.grau.tem-y.s.grau.meta)  - (x.s.grau.tem-x.s.grau.meta));
+  const _pct = e => e.meta > 0 ? e.tem / e.meta : 0;
+  // Aptos (>=100%) e Próximos (80-99%) — mutex por eixo, mas um aluno pode estar em
+  // "apto grau" E "proximo faixa" (ou vice-versa). Ordena por proximidade decrescente.
+  const aptosGrau  = cand.filter(x=> x.s.grau.ok).sort((x,y)=> (y.s.grau.tem-y.s.grau.meta) - (x.s.grau.tem-x.s.grau.meta));
   const aptosFaixa = cand.filter(x=> x.s.faixa.ok).sort((x,y)=> (y.s.faixa.tem-y.s.faixa.meta) - (x.s.faixa.tem-x.s.faixa.meta));
+  const proxGrau   = cand.filter(x=> !x.s.grau.ok  && x.s.grau.meta>0  && _pct(x.s.grau)  >= PROXIMOS_PCT).sort((x,y)=> _pct(y.s.grau)  - _pct(x.s.grau));
+  const proxFaixa  = cand.filter(x=> !x.s.faixa.ok && x.s.faixa.meta>0 && _pct(x.s.faixa) >= PROXIMOS_PCT).sort((x,y)=> _pct(y.s.faixa) - _pct(x.s.faixa));
 
-  // KPIs clicáveis (scroll pra cada seção)
+  // KPIs clicáveis (scroll pra cada seção). Quatro cards agora.
   const kpi = el(`<div class="stat-grid block">
     <div class="stat-card kpi-click" data-goto="grau"  tabindex="0" role="button"><div class="si ${aptosGrau.length?'green':'gray'}">${icoPulse()}</div><div class="sv">${aptosGrau.length}</div><div class="sl">Prontos p/ novo grau</div></div>
     <div class="stat-card kpi-click" data-goto="faixa" tabindex="0" role="button"><div class="si ${aptosFaixa.length?'purple':'gray'}">${icoBelt()}</div><div class="sv">${aptosFaixa.length}</div><div class="sl">Prontos p/ próxima faixa</div></div>
+    <div class="stat-card kpi-click" data-goto="prox-grau"  tabindex="0" role="button"><div class="si ${proxGrau.length?'gold':'gray'}">${icoAlert()}</div><div class="sv">${proxGrau.length}</div><div class="sl">Próx. p/ novo grau (${Math.round(PROXIMOS_PCT*100)}%+)</div></div>
+    <div class="stat-card kpi-click" data-goto="prox-faixa" tabindex="0" role="button"><div class="si ${proxFaixa.length?'gold':'gray'}">${icoAlert()}</div><div class="sv">${proxFaixa.length}</div><div class="sl">Próx. p/ próxima faixa (${Math.round(PROXIMOS_PCT*100)}%+)</div></div>
   </div>`);
   kpi.querySelectorAll('.kpi-click').forEach(c=>{
-    const scroll = ()=>{ const id = c.dataset.goto==='grau'?'grad-sec-grau':'grad-sec-faixa'; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
+    const scroll = ()=>{ const id = 'grad-sec-'+c.dataset.goto; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
     c.onclick = scroll;
     c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); scroll(); } };
   });
   w.appendChild(kpi);
 
-  const _row = (a, s, tipo)=>{
+  const _row = (a, s, tipo, modo)=>{
+    // modo: 'apto' (default) | 'proximo'. Proximos nao tem botao "Dar grau" — vai
+    // pra ficha; e o chip do eixo vai amarelo em vez de verde.
     const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
-    const eixo = s[tipo];   // s.grau ou s.faixa
+    const eixo = s[tipo];
     const porTempo = !!eixo.porTempo;
-    // Preta/altas graduam POR TEMPO — botao muda de "Dar grau" para "Confirmar", sinalizando
-    // que o professor esta apenas registrando o marco temporal (a CBJJ é quem "gradua").
-    const btnLbl = tipo==='faixa'
-      ? `Graduar → ${safeTxt(nextNome)}`
-      : (porTempo ? `Confirmar ${s.g+1}º grau` : 'Dar grau');
-    // Chips no rodape: presença OU tempo + (na faixa por presenca: avisos CBJJ tempo/idade).
+    const ehProximo = modo === 'proximo';
+    const pct = eixo.meta > 0 ? Math.round(eixo.tem/eixo.meta*100) : 0;
+    // Preta/altas graduam POR TEMPO — botao muda de "Dar grau" para "Confirmar".
+    const btnLbl = ehProximo
+      ? 'Ver ficha'
+      : (tipo==='faixa'
+          ? `Graduar → ${safeTxt(nextNome)}`
+          : (porTempo ? `Confirmar ${s.g+1}º grau` : 'Dar grau'));
+    // Chip do eixo: verde se apto, amarelo se proximo. Texto original + "· NN%".
+    const chipEixo = { ok: ehProximo ? 'warn' : true, txt: eixo.txt + (ehProximo ? ` · ${pct}%` : '') };
     const chipsHtml = tipo==='faixa'
-      ? _semChip({ ok:true, txt:eixo.txt }) +
+      ? _semChip(chipEixo) +
         (eixo.tempo ? _semChip(eixo.tempo) : '') +
         (eixo.idadeAviso ? _semChip(eixo.idadeAviso) : '')
-      : _semChip({ ok:true, txt:eixo.txt });
+      : _semChip(chipEixo);
     // Sub-titulo:
     //  - por presenca grau: "Azul · 1º → 2º grau"
     //  - por presenca faixa: "Roxa · 3º grau → Marrom"
@@ -9838,14 +9851,35 @@ function _gradAptosSection(w){
     w.appendChild(list);
   }
 
+  // Seção 3 — Próximos a NOVO GRAU (>= 80% da meta)
+  w.appendChild(el(`<div class="sec-title" id="grad-sec-prox-grau">Próximos ao novo grau (${Math.round(PROXIMOS_PCT*100)}%+)</div>`));
+  if(!proxGrau.length){
+    w.appendChild(el(`<div class="empty-line block" style="padding:20px 16px">Ninguém acima de ${Math.round(PROXIMOS_PCT*100)}% da meta do grau atual.</div>`));
+  } else {
+    const list = el('<div class="grad-aptos-list block"></div>');
+    proxGrau.forEach(({a,s})=> list.appendChild(_row(a, s, 'grau', 'proximo')));
+    w.appendChild(list);
+  }
+
+  // Seção 4 — Próximos a PRÓXIMA FAIXA (>= 80% da meta)
+  w.appendChild(el(`<div class="sec-title" id="grad-sec-prox-faixa">Próximos à próxima faixa (${Math.round(PROXIMOS_PCT*100)}%+)</div>`));
+  if(!proxFaixa.length){
+    w.appendChild(el(`<div class="empty-line block" style="padding:20px 16px">Ninguém acima de ${Math.round(PROXIMOS_PCT*100)}% da meta total da faixa.</div>`));
+  } else {
+    const list = el('<div class="grad-aptos-list block"></div>');
+    proxFaixa.forEach(({a,s})=> list.appendChild(_row(a, s, 'faixa', 'proximo')));
+    w.appendChild(list);
+  }
+
   // Legenda
   w.appendChild(el(`<div class="grad-legenda block">
     <b>Como funciona:</b>
     <div style="margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6">
       <b>Novo grau</b> = presenças no grau atual ≥ meta da faixa (aba <i>Metas por faixa</i>).<br>
       <b>Nova faixa</b> = presenças acumuladas na faixa ≥ meta × ${maxGrausDe('branca')} (todos os graus da faixa).<br>
-      <b>Tempo CBJJ</b> e <b>idade mínima</b> aparecem como AVISO na próxima faixa —
-      não bloqueiam. A decisão final é sempre do professor.
+      <b>Próximos</b> = alunos entre <b>${Math.round(PROXIMOS_PCT*100)}%</b> e 100% da meta — dá visibilidade de quem tá no radar.<br>
+      <b>Tempo CBJJ</b> e <b>idade mínima</b> aparecem como AVISO na próxima faixa — não bloqueiam.
+      A decisão final é sempre do professor.
     </div>
   </div>`));
 }
