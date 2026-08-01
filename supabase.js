@@ -558,7 +558,7 @@
         SB.from('checkins').select('user_id,hora').eq('academy_id', acad).eq('data', hojeISO),               // M6: índice (academy_id,data)
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
         SB.from('checkins').select('user_id,data').eq('academy_id', acad).gte('data', d120),                 // M6
-        SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),               // M6
+        SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa').eq('academy_id', acad),               // M6 + v391 (credito 0029)
         // Matrículas ativas — popula a.turmas em cada aluno (a UI de Turmas usa isso)
         SB.from('enrollments').select('user_id,turma_id').eq('status', 'ativo'),
       ]);
@@ -589,8 +589,15 @@
           ? gs.filter(g => g.tipo === 'grau' && g.faixa === p.faixa && g.graus === p.graus)
           : gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa)
         ).map(g => g.data).sort().pop() || gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa).map(g => g.data).sort().pop();
-        const aulasNoGrau = a ? (ref ? [...a.dias].filter(d => d >= ref).length : a.dias.size) : 0;
+        // Credito de presencas importado do app antigo (0029): soma o aulas_credito_grau
+        // do evento-ancora (mesma data usada acima como ref) as aulas reais.
+        // Sem evento-ancora ou sem credito, comportamento e' o de sempre (soma 0).
+        const evAncora = ref ? gs.find(g => g.data === ref && g.faixa === p.faixa &&
+          (p.graus > 0 ? (g.tipo === 'grau' && g.graus === p.graus) : g.tipo === 'faixa')) : null;
+        const creditoGrau = evAncora ? (evAncora.aulas_credito_grau || 0) : 0;
+        const aulasNoGrau = creditoGrau + (a ? (ref ? [...a.dias].filter(d => d >= ref).length : a.dias.size) : 0);
         base.aulasNoGrau = aulasNoGrau;   // exposto p/ o semáforo de graduação (relatórios)
+        base.creditoGrau = creditoGrau;   // exposto p/ a UI mostrar "40/48 · 40 importadas" (transparencia)
         // Data do evento mais recente (grau atual, ou faixa se grau=0) — é a mesma âncora
         // usada acima pra contar aulasNoGrau. Exposta pro export "Base completa" (Alunos):
         // é a data que ancora o crédito de presença na importação do app antigo.
@@ -609,6 +616,15 @@
             const gr = arr.filter(g => g.tipo === 'grau').map(g => g.data).sort();
             base.faixaDesde = gr[0] || null;
           }
+          // Credito de presencas na FAIXA (0029): ancora e' o evento que definiu
+          // faixaDesde acima. Contador contínuo atravessando a migracao — na proxima
+          // troca de faixa nasce evento novo com credito 0 e naFaixa reinicia.
+          const evFaixaAncora = base.faixaDesde ? arr.find(g => g.data === base.faixaDesde &&
+            ((fx.length && (g.tipo === 'faixa' || g.tipo === 'inicio')) || (!fx.length && g.tipo === 'grau'))) : null;
+          const creditoFaixa = evFaixaAncora ? (evFaixaAncora.aulas_credito_faixa || 0) : 0;
+          const aulasNaFaixaCk = a && base.faixaDesde ? [...a.dias].filter(d => d >= base.faixaDesde).length : 0;
+          base.aulasNaFaixa = creditoFaixa + aulasNaFaixaCk;
+          base.creditoFaixa = creditoFaixa;
         }
         // Tendência de queda (risco v2): dias treinados nas últimas 4 semanas vs a média
         // por 4 semanas do trimestre anterior (semanas 5–16). Queda ≥50% = sinal de churn.
@@ -925,6 +941,49 @@
     removerGraduacao: wrap(async (id) => {
       const { error } = await SB.from('graduations').delete().eq('id', id);
       if (error) throw error;
+    }),
+    // 0029: aplica credito de presencas legadas em lote. Recebe rows normalizadas
+    // (email, dataAncora ISO, creditoGrau, creditoFaixa). Estrategia: pra cada
+    // aluno acha o profile pelo email, acha a graduação MAIS RECENTE (ancora), e
+    // faz UPDATE das colunas de credito. Se nao achar o aluno ou nao houver evento,
+    // reporta skip — nunca cria linha nova (nao arriscamos mexer na linha do tempo).
+    // Retorna { ok, skip:[msg], erro:[msg] } pra tela mostrar preview do resultado.
+    importarCreditosPresencas: wrap(async (rows, origem) => {
+      const acad = await myAcademyId(); if (!acad) throw new Error('sem academia');
+      const stats = { ok: 0, skip: [], erro: [] };
+      const origemTxt = origem || `import ${new Date().toISOString().slice(0, 10)}`;
+      for (const row of rows || []) {
+        const email = String(row.email || '').trim().toLowerCase();
+        if (!email) { stats.skip.push(`(linha sem e-mail)`); continue; }
+        try {
+          const { data: profs, error: ep } = await SB.from('profiles')
+            .select('id').eq('academy_id', acad).ilike('email', email).limit(2);
+          if (ep) throw ep;
+          if (!profs || !profs.length) { stats.skip.push(`${email}: aluno não encontrado`); continue; }
+          if (profs.length > 1) { stats.skip.push(`${email}: e-mail duplicado`); continue; }
+          const userId = profs[0].id;
+          // Acha o evento MAIS RECENTE do aluno (a ancora usada pelo getAlunos)
+          const { data: evts, error: eg } = await SB.from('graduations')
+            .select('id,data,tipo,faixa,graus')
+            .eq('user_id', userId)
+            .order('data', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(1);
+          if (eg) throw eg;
+          if (!evts || !evts.length) { stats.skip.push(`${email}: sem evento de graduação`); continue; }
+          const { error: eu } = await SB.from('graduations').update({
+            aulas_credito_grau: Math.max(0, row.creditoGrau | 0),
+            aulas_credito_faixa: Math.max(0, row.creditoFaixa | 0),
+            credito_origem: origemTxt,
+          }).eq('id', evts[0].id);
+          if (eu) throw eu;
+          stats.ok++;
+        } catch (e) {
+          stats.erro.push(`${email}: ${e.message || e}`);
+        }
+      }
+      _alunosMemo = { t: 0, data: null };   // invalida cache — proximo getAlunos ve os creditos
+      return stats;
     }),
     deletarTurma: wrap(async (id) => {
       // Soft-delete: preserva histórico de presenças/matrículas ligadas à turma.

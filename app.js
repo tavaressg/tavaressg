@@ -5062,6 +5062,13 @@ function _alunosImportOpen(){
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
         if(!rows.length){ toast('Planilha vazia'); return; }
+        // 0029: se o cabecalho tem "Pr. Grau" + "Pr. Nivel", e' o import de
+        // presencas legadas — flow separado do cadastro em lote. Mesmo botao,
+        // planilha se auto-identifica pelas colunas.
+        const headers = Object.keys(rows[0]||{}).map(k => String(k).toLowerCase());
+        const ehPresencas = headers.some(h=>h.includes('pr. grau')||h.includes('pr grau')) &&
+                            headers.some(h=>h.includes('pr. n')||h.includes('pr n'));
+        if(ehPresencas){ _abrirImportPresencasPreview(rows, f.name); return; }
         DB.importAlunosOpen = { rows: _alunosImportValidate(rows), filename: f.name };
         render(); window.scrollTo(0,0);
       } catch(e){ toast('Erro ao ler arquivo: '+(e.message||e)); }
@@ -5069,6 +5076,76 @@ function _alunosImportOpen(){
     reader.readAsArrayBuffer(f);
   };
   inp.click();
+}
+// 0029: preview + apply do import de presencas legadas. Sheet simples com
+// contagem, lista de skips (email nao casou, sem evento) e botao Aplicar.
+function _abrirImportPresencasPreview(rawRows, filename){
+  if(typeof sbProf==='undefined' || !sbProf.importarCreditosPresencas){
+    toast('Backend não disponível pra importar presenças');
+    return;
+  }
+  // Normaliza cabecalhos aceitando as duas variacoes ("Pr. Grau"/"Pr Grau", com/sem acento)
+  const norm = (o)=>{
+    const out={};
+    for(const k in o){
+      const kl = String(k).trim().toLowerCase()
+        .replace(/[àáâã]/g,'a').replace(/[éê]/g,'e').replace(/í/g,'i').replace(/[óô]/g,'o').replace(/ú/g,'u');
+      if(kl.includes('e-mail')||kl==='email') out.email = String(o[k]||'').trim().toLowerCase();
+      else if(kl.includes('pr. grau')||kl==='pr grau'||kl==='pr.grau') out.creditoGrau = parseInt(String(o[k]).replace(/\D/g,''))||0;
+      else if(kl.includes('pr. n')||kl==='pr nivel'||kl==='pr.nivel'||kl==='pr nível') out.creditoFaixa = parseInt(String(o[k]).replace(/\D/g,''))||0;
+    }
+    return out;
+  };
+  const norm2 = rawRows.map(norm).filter(r=>r.email);
+  // Split em validas (com pelo menos um credito > 0) e vazias
+  const validas = norm2.filter(r=> (r.creditoGrau||0)>0 || (r.creditoFaixa||0)>0);
+  const vazias = norm2.length - validas.length;
+  const sh = el(`<div class="sheet-overlay" role="dialog" aria-label="Importar presenças legadas">
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <div class="sheet-hd">
+        <div class="sheet-t">🗂️ Importar presenças legadas</div>
+        <div class="sheet-sub">${safeTxt(filename||'arquivo')} · ${rawRows.length} linha${rawRows.length!==1?'s':''}</div>
+      </div>
+      <div style="padding:6px 4px 12px;font-size:13px;color:var(--ink);line-height:1.5">
+        <div><b>${validas.length}</b> aluno${validas.length!==1?'s':''} com créditos preenchidos</div>
+        ${vazias>0?`<div style="color:var(--muted)">${vazias} linha${vazias>1?'s':''} sem Pr. Grau nem Pr. Nível (serão ignoradas)</div>`:''}
+        <div style="margin-top:10px;font-size:12px;color:var(--muted)">
+          O crédito vai pro <b>evento de graduação mais recente</b> de cada aluno.
+          Se o e-mail não casar ou o aluno não tiver graduação, a linha é pulada e reportada.
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:0 4px">
+        <button class="btn-cad primary" id="ip-go" type="button" ${validas.length?'':'disabled'} style="padding:14px">Aplicar (${validas.length} aluno${validas.length!==1?'s':''})</button>
+        <button class="btn-cad ghost" id="ip-cancel" type="button">Cancelar</button>
+      </div>
+      <div id="ip-result" style="margin-top:12px;font-size:12.5px;color:var(--ink);white-space:pre-wrap;max-height:200px;overflow-y:auto"></div>
+    </div>
+  </div>`);
+  const close=()=>{ sh.classList.remove('open'); setTimeout(()=>sh.remove(),260); };
+  sh.querySelector('#ip-cancel').onclick=close;
+  sh.onclick=(e)=>{ if(e.target===sh) close(); };
+  sh.querySelector('#ip-go').onclick=async ()=>{
+    const btn=sh.querySelector('#ip-go');
+    btn.disabled=true; btn.textContent='Aplicando…';
+    try{
+      const origem = `import ${(filename||'arquivo').replace(/\.[^.]+$/,'')} · ${new Date().toISOString().slice(0,10)}`;
+      const r = await sbProf.importarCreditosPresencas(validas, origem);
+      const out = sh.querySelector('#ip-result');
+      const linhas = [`✓ ${r.ok} atualizado${r.ok!==1?'s':''}`];
+      if(r.skip.length) linhas.push(`\nPulado${r.skip.length!==1?'s':''} (${r.skip.length}):\n` + r.skip.slice(0,20).join('\n') + (r.skip.length>20?`\n… (+${r.skip.length-20})`:''));
+      if(r.erro.length) linhas.push(`\nErro${r.erro.length!==1?'s':''} (${r.erro.length}):\n` + r.erro.slice(0,10).join('\n') + (r.erro.length>10?`\n… (+${r.erro.length-10})`:''));
+      out.textContent = linhas.join('\n');
+      btn.textContent='Concluído ✓'; btn.disabled=true;
+      // Recarrega dados pro semaforo atualizar sozinho
+      if(typeof _loadProfData==='function'){ _profData=null; _profTs=0; _loadProfData(); }
+      toast(`Import concluído: ${r.ok} aluno${r.ok!==1?'s':''}`);
+    }catch(e){
+      btn.disabled=false; btn.textContent='Tentar de novo';
+      sh.querySelector('#ip-result').textContent = 'Falha: '+(e.message||e);
+    }
+  };
+  document.body.appendChild(sh); requestAnimationFrame(()=>sh.classList.add('open'));
 }
 function _norm(s){ return String(s||'').trim(); }
 function _normEmail(s){ return _norm(s).toLowerCase(); }
