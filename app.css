@@ -2111,12 +2111,24 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-kpi-l{font-size:10.5px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.3px;margin-top:2px}
 .erp-kpi.warn .erp-kpi-v{color:var(--red-strong)}
 .erp-main{min-width:0}
-.erp-card{background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px}
+/* container-type: inline-size deixa .erp-fld reagir a LARGURA DO CARD (via @container abaixo),
+   nao do viewport. Fecha o caso "professor em desktop com sidebar deixando o painel estreito". */
+.erp-card{background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px;container-type:inline-size}
 .erp-card-h{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
-.erp-fld{display:grid;grid-template-columns:140px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.erp-fld{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;padding:10px 0;border-bottom:1px solid var(--line);align-items:baseline}
 .erp-fld:last-child{border-bottom:none}
 .erp-fld label{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
-.erp-fld-v{font-size:13px;color:var(--ink);font-weight:600;text-align:left;word-break:break-word;line-height:1.4}
+/* overflow-wrap:break-word (nao "anywhere"): so' quebra dentro de palavra quando a palavra
+   inteira nao cabe. Emails/URLs longos ainda podem quebrar em char por serem 1 palavra so',
+   mas pt-BR normal (endereco, obs) fica intacto. min-width:0 e' obrigatorio p/ o value shrinkar. */
+.erp-fld-v{font-size:13px;color:var(--ink);font-weight:600;text-align:left;overflow-wrap:break-word;word-break:normal;line-height:1.4;min-width:0}
+/* Card estreito: empilha label acima do valor. Ganha o espaco dos 140px da label sem
+   perder informacao — a label vira caption e o valor ocupa a linha inteira. */
+@container (max-width:420px){
+  .erp-fld{grid-template-columns:1fr;gap:2px;padding:8px 0}
+  .erp-fld label{font-size:10.5px}
+  .erp-fld-v{font-size:14px}
+}
 .erp-fld-v i{color:var(--muted);font-style:normal}
 /* modo edit */
 .erp-fld-edit{align-items:center}
