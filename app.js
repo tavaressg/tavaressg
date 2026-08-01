@@ -11828,6 +11828,22 @@ if (DEMO || TESTMODE) {
       // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
       if(event==='PASSWORD_RECOVERY'){ DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render(); }
     });
+    // v393: refresh silencioso quando o app volta ao foco. Cobre "professor
+    // graduou / importou credito, aluno abre depois — vê imediato". Sem isso,
+    // dado fresco so' chega no F5 (raro em PWA — usuario tem sessao persistida
+    // e o app so' recarrega em cold start).
+    // Throttle 30s pra nao bombardear o backend em quem toca a tela toda hora.
+    let _lastPullFocus = 0;
+    const _refreshOnFocus = ()=>{
+      if(document.visibilityState !== 'visible') return;
+      if(!DB.sbUser || !_cloudReady) return;
+      const agora = Date.now();
+      if(agora - _lastPullFocus < 30000) return;
+      _lastPullFocus = agora;
+      sbSync.pullAll(DB.sbUser.id).then(()=>{ try{ render(); }catch(_){} }).catch(()=>{});
+    };
+    document.addEventListener('visibilitychange', _refreshOnFocus);
+    window.addEventListener('focus', _refreshOnFocus);
     if (session) {
       await _cloudLogin(session.user);
     } else {
