@@ -55,6 +55,7 @@ const _CLICK_ACTIONS = {
   fecharShare:  ()=>fecharShare(),
   closeFlow:    ()=>closeFlow(),
   closeLoja:    ()=>closeLoja(),
+  closeMeusPedidos: ()=>closeMeusPedidos(),
   abrirCarrinho:()=>abrirCarrinho(),
   salvar:       ()=>salvar(),
 };
@@ -807,48 +808,70 @@ function _pixCrc16(str){
   }
   return crc.toString(16).toUpperCase().padStart(4,'0');
 }
+// Parser/builder TLV genérico (EMV usa o mesmo formato ID(2)+LEN(2)+VALUE aninhado
+// em campo 26 = chave PIX e campo 62 = dados adicionais/txid). null se malformado.
+function _pixTlvParse(str){
+  const out=[]; let i=0;
+  while(i < str.length){
+    const id = str.substr(i,2);
+    const len = parseInt(str.substr(i+2,2),10);
+    if(!id || isNaN(len)) return null;
+    out.push([id, str.substr(i+4,len)]);
+    i += 4+len;
+  }
+  return out;
+}
+function _pixTlvBuild(fields){
+  return fields.map(([id,v])=> id + String(v.length).padStart(2,'0') + v).join('');
+}
 /* Extrai dados do recebedor do BR Code EMV pra a tela de confirmação:
    chave PIX (26.01), nome fantasia (59), cidade (60), valor (54, se estático).
    Retorna null se o BR Code não parsear. */
 function _pixParseBrCode(brCode){
   if(!brCode) return null;
   const body = String(brCode).trim().replace(/6304[0-9A-Fa-f]{4}$/, '');
-  const parse = (str)=>{
-    const out={}; let i=0;
-    while(i < str.length){
-      const id = str.substr(i,2);
-      const len = parseInt(str.substr(i+2,2),10);
-      if(!id || isNaN(len)) return null;
-      out[id] = str.substr(i+4,len);
-      i += 4+len;
-    }
-    return out;
-  };
-  const f = parse(body); if(!f) return null;
-  const m = parse(f['26']||'') || {};
+  const fields = _pixTlvParse(body); if(!fields) return null;
+  const f = Object.fromEntries(fields);
+  const mFields = _pixTlvParse(f['26']||''); const m = mFields ? Object.fromEntries(mFields) : {};
   return { chave:m['01']||'', nome:f['59']||'', cidade:f['60']||'', valor:f['54']||'' };
+}
+// Insere/substitui um campo top-level mantendo ordem crescente de ID (convenção EMV).
+function _pixTlvSet(fields, id, valor){
+  const kept = fields.filter(([fid])=> fid!==id);
+  const at = kept.findIndex(([fid])=> parseInt(fid,10) > parseInt(id,10));
+  const novo=[id, valor];
+  if(at===-1) kept.push(novo); else kept.splice(at,0,novo);
+  return kept;
+}
+function _pixRebuildComCrc(fields){
+  const semCrc = _pixTlvBuild(fields) + '6304';
+  return semCrc + _pixCrc16(semCrc);
 }
 function _pixBrCodeComValor(brCode, valor){
   if(!brCode || !(valor>0)) return brCode || '';
   // Só tira espaços das pontas — internos (nome do lojista em 59) contam no TLV.
-  const s = String(brCode).trim();
-  const body = s.replace(/6304[0-9A-Fa-f]{4}$/, '');
-  const fields=[]; let i=0;
-  while(i < body.length){
-    const id = body.substr(i,2);
-    const len = parseInt(body.substr(i+2,2),10);
-    if(!id || isNaN(len)) return brCode;
-    fields.push([id, body.substr(i+4,len)]);
-    i += 4 + len;
+  const body = String(brCode).trim().replace(/6304[0-9A-Fa-f]{4}$/, '');
+  const fields = _pixTlvParse(body); if(!fields) return brCode;
+  return _pixRebuildComCrc(_pixTlvSet(fields, '54', Number(valor).toFixed(2)));
+}
+// Mesma coisa + injeta txid no subcampo 62.05 (Reference Label — até 25 alfanuméricos,
+// convenção pra conciliar pagamento com pedido no extrato do banco).
+function _pixBrCodeComValorTxid(brCode, valor, txid){
+  if(!brCode) return '';
+  const body = String(brCode).trim().replace(/6304[0-9A-Fa-f]{4}$/, '');
+  let fields = _pixTlvParse(body); if(!fields) return brCode;
+  if(valor>0) fields = _pixTlvSet(fields, '54', Number(valor).toFixed(2));
+  if(txid){
+    const f62raw = (fields.find(([id])=>id==='62')||[])[1] || '';
+    const sub62 = _pixTlvParse(f62raw) || [];
+    const novo62 = _pixTlvSet(sub62, '05', String(txid).replace(/[^A-Za-z0-9]/g,'').slice(0,25) || '***');
+    fields = _pixTlvSet(fields, '62', _pixTlvBuild(novo62));
   }
-  const kept = fields.filter(([id])=> id!=='54');
-  const amt = Number(valor).toFixed(2);
-  const at = kept.findIndex(([id])=> parseInt(id,10) > 54);
-  const novo=['54', amt];
-  if(at===-1) kept.push(novo); else kept.splice(at,0,novo);
-  const rebuilt = kept.map(([id,v])=> id + String(v.length).padStart(2,'0') + v).join('');
-  const semCrc = rebuilt + '6304';
-  return semCrc + _pixCrc16(semCrc);
+  return _pixRebuildComCrc(fields);
+}
+// Gera um txid curto e único (client-side, sem round-trip): 25 alfanuméricos maiúsculos.
+function _pixGerarTxid(){
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random()).replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,25);
 }
 // Código de presença do totem (fixo — ver CLAUDE.md). Com backend vira o código rotativo da aula.
 // v374: QR obrigatório com token estático da academia (academies.config.qr_token).
@@ -1315,6 +1338,7 @@ function _viewKey(){
   if (DB.onboardingOpen) return 'onb';
   if (DB.retroOpen) return 'retro';
   if (DB.lojaOpen) return 'loja';
+  if (DB.meusPedidosOpen) return 'meuspedidos';
   if (DB.shareOpen) return 'share';
   if (DB.treinoAberto) return 'treino';
   if (DB.produtoFormOpen) return 'produtoForm';
@@ -1327,7 +1351,7 @@ function _viewKey(){
 // que leitores de tela avisem a navegação (a SPA troca #root sem mudar de página).
 const _ROUTE_NOMES = {
   'al:inicio':'Início','al:tatame':'Tatame','al:jornada':'Jornada','al:perfil':'Perfil',
-  'loja':'Loja','share':'Compartilhar treino','treino':'Detalhe do treino','retro':'Retrospectiva',
+  'loja':'Loja','meuspedidos':'Meus pedidos','share':'Compartilhar treino','treino':'Detalhe do treino','retro':'Retrospectiva',
   'onb':'Boas-vindas','trocarSenha':'Trocar senha','bootstrap':'Primeiro acesso',
   'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
   'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
@@ -1375,6 +1399,7 @@ function render(){
   if (DB.retroOpen){ root.appendChild(renderRetro()); return; }
   // renderPresenca removido do roteador — presença agora é parte do flow unificado
   if (DB.lojaOpen){ root.appendChild(renderLoja()); return; }
+  if (DB.meusPedidosOpen){ root.appendChild(renderMeusPedidos()); return; }
   // Páginas cheias do professor: mantém a sidebar (tabbarProf vira sidebar no desktop via MQ).
   if (DB.produtoFormOpen){ root.appendChild(renderProdutoForm()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
   if (DB.cadastroAlunoOpen){ root.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
@@ -3443,10 +3468,16 @@ function alunoPerfil(){
   const _prodsAtivos = (DB.loja?.produtos||[]).filter(p=> p.ativo!==false);
   if(_prodsAtivos.length){
     const lojaWrap = el(`<div class="loja-destaque">
-      <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span><a class="ld-link">ver tudo ›</a></div>
+      <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span>
+        <span style="display:flex;gap:12px">
+          <a class="ld-pedidos-link" style="font-size:12.5px;font-weight:700;color:var(--muted)">meus pedidos</a>
+          <a class="ld-link">ver tudo ›</a>
+        </span>
+      </div>
       <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
     lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
+    lojaWrap.querySelector('.ld-pedidos-link').onclick = ()=> openMeusPedidos();
     const track = lojaWrap.querySelector('.ld-track');
     // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.
     // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
@@ -4049,6 +4080,44 @@ function _renderPhase2(){
    ============================================================ */
 function openLoja(){ DB.lojaOpen=true; render(); window.scrollTo(0,0); }
 function closeLoja(){ DB.lojaOpen=false; render(); }
+
+/* ============================================================
+   MEUS PEDIDOS (aluno) — histórico das próprias compras (v403).
+   Backend: sbSync.getMeusPedidos (RLS pedidos_self_rw já restringe ao dono).
+   Reusa .ped-card/.status-chip (CSS já existe pra fila do professor).
+   ============================================================ */
+let _meusPedidosData = null, _meusPedidosTs = 0;
+function openMeusPedidos(){ DB.meusPedidosOpen=true; _meusPedidosTs=0; render(); window.scrollTo(0,0); }
+function closeMeusPedidos(){ DB.meusPedidosOpen=false; render(); }
+function _loadMeusPedidos(force){
+  if(DEMO || typeof sbSync==='undefined' || !sbSync.getMeusPedidos){ _meusPedidosData=[]; return; }
+  if(!force && Date.now()-_meusPedidosTs < 15000) return;
+  _meusPedidosTs = Date.now();
+  sbSync.getMeusPedidos().then(ps=>{ _meusPedidosData=ps; render(); }).catch(()=>{ _meusPedidosTs=0; });
+}
+function renderMeusPedidos(){
+  _loadMeusPedidos();
+  const v = el(`<div class="view"></div>`);
+  v.innerHTML = `<div class="flow-head">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeMeusPedidos">‹</div>
+    <div class="ft"><div class="t">Meus pedidos</div><div class="s">Loja Yama</div></div>
+  </div>`;
+  const body = el('<div class="list" style="padding:16px 20px"></div>');
+  if(_meusPedidosData===null){ body.appendChild(el('<div class="loading-center">Carregando…</div>')); }
+  else if(!_meusPedidosData.length){ body.appendChild(el('<div class="empty-line">Você ainda não fez nenhum pedido na loja.</div>')); }
+  else _meusPedidosData.forEach(p=>{
+    const [lbl,,cls] = _PED_STATUS[p.status]||['—','',''];
+    const resumo = (p.itens||[]).map(it=>`${safeTxt(it.nome)} ${safeTxt(it.tam||'')} ×${it.qtd}`).join(' · ');
+    const dt = (p.criadoEm||'').slice(0,10).split('-').reverse().join('/');
+    body.appendChild(el(`<div class="ped-card">
+      <div class="ped-top"><div class="ped-cli">${dt}</div><span class="status-chip ${cls}">${lbl}</span></div>
+      <div class="ped-itens">${resumo||'—'}</div>
+      <div class="ped-foot"><span class="ped-dt">${p.canal?safeTxt(p.canal):''}${p.txid?' · ref. '+safeTxt(p.txid):''}</span><b class="ped-total">${moneyBR(p.total)}</b></div>
+    </div>`));
+  });
+  v.appendChild(body);
+  return v;
+}
 function setLojaCat(c){ DB.loja.cat=c; render(); }
 // B6: o badge só conta itens de produtos ainda disponíveis (ativos)
 function carrinhoQtd(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return (p && p.ativo!==false) ? s+i.qtd : s; },0); }
@@ -4342,7 +4411,7 @@ function abrirCarrinho(){
   if(pixBtn) pixBtn.onclick = async ()=>{
     // Recomputa com o total ATUAL (usuário pode ter mexido em +/− antes de copiar).
     const raw = _lojaPixBrCode();
-    const k = raw ? _pixBrCodeComValor(raw, carrinhoTotal()) : _lojaPix();
+    const k = raw ? _pixBrCodeComValorTxid(raw, carrinhoTotal(), _txidAtual()) : _lojaPix();
     const msg = raw ? 'Copia e Cola do PIX com valor ✓' : 'Chave PIX copiada ✓';
     try{ await navigator.clipboard.writeText(k); toast(msg); }catch(e){ toast('Copie: '+k); }
   };
@@ -4356,16 +4425,21 @@ function finalizarCompra(){
   if (!_wa){ toast('⚠️ Loja sem WhatsApp configurado'); return; }
   _abrirConfirmPix();
 }
+// txid de conciliação (0030): 1 por tentativa de checkout, reaproveitado entre o
+// botão rápido da sacola e a sheet de confirmação — trocar o txid a cada clique
+// quebraria a rastreabilidade do mesmo pedido no extrato do banco.
+function _txidAtual(){ if(!DB._checkoutTxid) DB._checkoutTxid = _pixGerarTxid(); return DB._checkoutTxid; }
 function _enviarPedidoWhatsapp(pagou){
   const _wa=_lojaWa(), _pix=_lojaPix();
+  const txid = _txidAtual();
   const linhas = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
     return `• ${p.nome} (${i.tam}) x${i.qtd} — ${moneyBR(p.preco*i.qtd)}`; }).join('\n');
   const _brRaw = _lojaPixBrCode();
-  const _brCom = _brRaw ? _pixBrCodeComValor(_brRaw, carrinhoTotal()) : '';
+  const _brCom = _brRaw ? _pixBrCodeComValorTxid(_brRaw, carrinhoTotal(), txid) : '';
   const pix = _brCom
     ? `\nPIX Copia e Cola (com valor):\n${_brCom}`
     : (_pix ? `\nPagamento via PIX: ${_pix}` : '\nPagamento via PIX.');
-  const marker = pagou ? '\n✅ PIX pago — confirme no seu extrato.' : '';
+  const marker = pagou ? `\n✅ PIX pago — confirme no seu extrato (ref. ${txid}).` : '';
   const msg = `Olá! Quero comprar na Loja Yama:\n${linhas}\n\nTotal: ${moneyBR(carrinhoTotal())}${pix}${marker}\nVou retirar na recepção.`;
   let win=null;
   try{ win = window.open(`https://wa.me/${_wa}?text=${encodeURIComponent(msg)}`, '_blank'); }catch(e){ win = null; }
@@ -4373,9 +4447,14 @@ function _enviarPedidoWhatsapp(pagou){
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined' && sbSync.registrarPedido){
     const itens = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
       return { produto_id:i.id, nome:p?p.nome:'', tam:i.tam, qtd:i.qtd, preco:p?p.preco:0 }; });
-    try{ sbSync.registrarPedido(itens, carrinhoTotal()); }catch(e){}
+    sbSync.registrarPedido(itens, carrinhoTotal(), txid).then(pedidoId=>{
+      // "Já paguei": avisa o professor por push. Best-effort — não bloqueia o aluno
+      // se o push não estiver configurado ou a Edge Function ainda não foi implantada.
+      if(pagou && pedidoId && sbSync.notificarPedidoPago) sbSync.notificarPedidoPago(pedidoId).catch(()=>{});
+    }).catch(()=>{});
   }
   DB.loja.carrinho = [];
+  DB._checkoutTxid = null;
   if (DB.lojaOpen) render();
   scheduleSave();
   toast(pagou ? 'Pedido enviado com aviso de pagamento ✔' : 'Pedido aberto no WhatsApp ✔');
@@ -4389,7 +4468,7 @@ function _enviarPedidoWhatsapp(pagou){
 function _abrirConfirmPix(){
   const total = carrinhoTotal();
   const brRaw = _lojaPixBrCode();
-  const brCom = brRaw ? _pixBrCodeComValor(brRaw, total) : '';
+  const brCom = brRaw ? _pixBrCodeComValorTxid(brRaw, total, _txidAtual()) : '';
   const dados = brRaw ? _pixParseBrCode(brRaw) : null;
   // Sem BR Code cadastrado: cai pro fluxo antigo (WhatsApp direto com chave PIX pura).
   if(!brCom){ _enviarPedidoWhatsapp(false); return; }
@@ -11433,6 +11512,15 @@ function selfTest(){
       const r=_pixBrCodeComValor(base, 150.5);
       return /5406150\.50/.test(r) && /6304[0-9A-F]{4}$/.test(r);
     })());
+    ok('pixBrCodeComValorTxid injeta 54 e 62.05', (()=>{
+      const base='00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865802BR5911FULANO YAMA6008BRASILIA62070503***6304ABCD';
+      const r=_pixBrCodeComValorTxid(base, 42, 'abc-123');
+      const d=_pixParseBrCode(r);
+      const f62raw = _pixTlvParse(r.replace(/6304[0-9A-F]{4}$/,'')).find(([id])=>id==='62')[1];
+      const txid = Object.fromEntries(_pixTlvParse(f62raw))['05'];
+      return d.valor==='42.00' && txid==='abc123' && /6304[0-9A-F]{4}$/.test(r);
+    })());
+    ok('pixGerarTxid formato', /^[A-Z0-9]{1,25}$/.test(_pixGerarTxid()));
     ok('pixParseBrCode extrai nome/chave/cidade', (()=>{
       // BR Code mínimo: campo 26 tem 14-char pix key ("+5511999999999") pra len bater.
       const base='00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865802BR5911FULANO YAMA6008BRASILIA62070503***6304ABCD';

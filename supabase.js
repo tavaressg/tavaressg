@@ -426,14 +426,34 @@
 
     // Aluno registra o pedido (pendente) ao finalizar no WhatsApp. A baixa de estoque
     // só acontece quando o PROFESSOR confirma (RPC confirmar_pedido). itens: [{produto_id,nome,tam,qtd,preco}].
-    registrarPedido: wrap(async (itens, total) => {
+    // txid (0030): identificador curto p/ conciliar com o extrato do banco — mesmo
+    // valor injetado no campo 62.05 do BR Code mostrado ao aluno.
+    registrarPedido: wrap(async (itens, total, txid) => {
       const u = (await SB.auth.getUser()).data.user; if (!u) return null;
       const acad = await myAcademyId();
       const { data, error } = await SB.from('pedidos')
-        .insert({ user_id: u.id, academy_id: acad, itens, total, status: 'pendente', canal: 'whatsapp' })
+        .insert({ user_id: u.id, academy_id: acad, itens, total, status: 'pendente', canal: 'whatsapp', txid: txid || null })
         .select('id').single();
       if (error) throw error;
       return data && data.id;
+    }),
+    // Histórico de compras do PRÓPRIO aluno (RLS pedidos_self_rw já restringe).
+    getMeusPedidos: wrap(async () => {
+      const u = (await SB.auth.getUser()).data.user; if (!u) return [];
+      const { data, error } = await SB.from('pedidos')
+        .select('id,itens,total,status,canal,txid,criado_em')
+        .eq('user_id', u.id).order('criado_em', { ascending: false }).limit(50);
+      if (error) throw error;
+      return (data || []).map(p => ({
+        id: p.id, itens: Array.isArray(p.itens) ? p.itens : [], total: Number(p.total),
+        status: (p.status === 'aberto' ? 'pendente' : p.status), canal: p.canal, txid: p.txid, criadoEm: p.criado_em,
+      }));
+    }),
+    // Avisa o(s) professor(es)/dono da academia por push que o PIX foi pago (0030).
+    // Best-effort: se falhar (push não configurado etc.), não deve travar o fluxo do aluno.
+    notificarPedidoPago: wrap(async (pedidoId) => {
+      const { error } = await SB.rpc('notificar_pedido_pago', { p_id: pedidoId });
+      if (error) throw error;
     }),
 
     // Conveniência: dispara os pushes objetivos juntos.
