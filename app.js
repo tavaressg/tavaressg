@@ -5521,6 +5521,25 @@ function _alunosBuildRowsCompleta(alunos, turmaMap){
     };
   });
 }
+// Planilha ENXUTA pro import de presencas do app antigo (Kanri etc). Cabecalho
+// pensado pro professor abrir no Excel, preencher SO Pr. Grau e Pr. Nivel, e
+// devolver. As demais colunas sao referencia pra ele conferir que casou o aluno
+// certo — nao viram valor no import.
+function _alunosBuildRowsPresencasLegadas(alunos){
+  return alunos.map(a=>{
+    const c = a.cad || {};
+    const nivel = BELTS[a.faixa]?.nome || a.faixa || '';
+    return {
+      'E-mail': c.email || a.email || '',
+      'Nome': _nomeInst(a),
+      'Nível': nivel,
+      'Graus': a.graus||0,
+      'Data último grau': _fmtDataBR(a.grauDesde || a.faixaDesde),
+      'Pr. Grau': '',
+      'Pr. Nível': '',
+    };
+  });
+}
 function _alunosFiltrosAtivos(){
   // No protótipo, sem estado de filtros persistido — retorna vazio.
   // Depois: ler filtro/busca/faixa e montar string legível "Status: Ativo · Grupo: X · Faixa: Y".
@@ -5530,16 +5549,28 @@ function _alunosExportXLSX(alunos, turmaMap, modo){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
   const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
   const completa = modo==='completa';
-  const rows = completa ? _alunosBuildRowsCompleta(alunos, turmaMap) : _alunosBuildRows(alunos, turmaMap);
-  const header = completa
-    ? Object.keys(rows[0]||{})
-    : ['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Últ. presença','Dias sem','Status','Pagamento'];
+  const presencas = modo==='presencas';
+  let rows, header, cols, suf;
+  if(presencas){
+    rows = _alunosBuildRowsPresencasLegadas(alunos);
+    header = ['E-mail','Nome','Nível','Graus','Data último grau','Pr. Grau','Pr. Nível'];
+    cols = [{wch:32},{wch:28},{wch:10},{wch:6},{wch:14},{wch:9},{wch:9}];
+    suf = '-import-presencas-legadas';
+  } else if(completa){
+    rows = _alunosBuildRowsCompleta(alunos, turmaMap);
+    header = Object.keys(rows[0]||{});
+    cols = header.map(()=>({wch:16}));
+    suf = '-completa';
+  } else {
+    rows = _alunosBuildRows(alunos, turmaMap);
+    header = ['Mat.','Nome','E-mail','Idade','Foto','Dt. Nasc.','Dt. Início','Nível','Graus','Grupos','Telefone','Últ. presença','Dias sem','Status','Pagamento'];
+    cols = [{wch:7},{wch:28},{wch:30},{wch:5},{wch:5},{wch:11},{wch:11},{wch:18},{wch:5},{wch:24},{wch:16},{wch:12},{wch:8},{wch:9},{wch:10}];
+    suf = '';
+  }
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows, { header });
-  if(!completa) ws['!cols'] = [{wch:7},{wch:28},{wch:30},{wch:5},{wch:5},{wch:11},{wch:11},{wch:18},{wch:5},{wch:24},{wch:16},{wch:12},{wch:8},{wch:9},{wch:10}];
-  else ws['!cols'] = header.map(()=>({wch:16}));
+  ws['!cols'] = cols;
   XLSX.utils.book_append_sheet(wb, ws, 'Alunos');
-  const suf = completa ? '-completa' : '';
   const nome = `${acadNm.replace(/\s+/g,'-')}-alunos${suf}-${new Date().toISOString().slice(0,10)}.xlsx`;
   XLSX.writeFile(wb, nome);
 }
@@ -5558,6 +5589,10 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
           <div style="font-weight:800;font-size:14px">📊 Base completa</div>
           <div style="font-size:12px;color:rgba(255,255,255,.85);font-weight:600;margin-top:3px">31 colunas — inclui endereço, responsável, LGPD, aulas no grau, frequência</div>
         </button>
+        <button class="btn-cad" type="button" data-a="presencas" style="text-align:left;padding:14px 16px">
+          <div style="font-weight:800;font-size:14px">🗂️ Import de presenças legadas</div>
+          <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:3px">7 colunas — data do último grau ja pré-preenchida; você adiciona Pr. Grau e Pr. Nível e devolve pra importar</div>
+        </button>
         <button class="btn-cad ghost" type="button" data-a="cancel">Cancelar</button>
       </div>
     </div></div>`);
@@ -5565,6 +5600,7 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
   overlay.querySelector('[data-a="cancel"]').onclick = close;
   overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'resumida'); close(); };
   overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'completa'); close(); };
+  overlay.querySelector('[data-a="presencas"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'presencas'); close(); };
   overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
   document.body.appendChild(overlay);
   requestAnimationFrame(()=>overlay.classList.add('open'));
