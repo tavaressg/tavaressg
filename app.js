@@ -794,6 +794,62 @@ function _salvarAcademyConfig(patch){
 }
 function _lojaPix(){ return _acadCfg().pix || (DB.loja && DB.loja.config && DB.loja.config.pix) || LOJA_PIX; }
 function _lojaWa(){ return _acadCfg().whatsapp || (DB.loja && DB.loja.config && DB.loja.config.whatsapp) || LOJA_WHATSAPP; }
+function _lojaPixBrCode(){ return (_acadCfg().pixBrCode) || (DB.loja && DB.loja.config && DB.loja.config.pixBrCode) || ''; }
+/* EMV BR Code (Pix Copia-e-Cola) com valor injetado. Parseia TLV do código pasteado
+   pelo professor, remove/insere campo 54 (amount, "NN.NN") na ordem correta e
+   recomputa o CRC16-CCITT-FALSE (poly 0x1021, init 0xFFFF) do payload+"6304".
+   Retorna '' se o BR Code não parsear. */
+function _pixCrc16(str){
+  let crc=0xFFFF;
+  for(let i=0;i<str.length;i++){
+    crc ^= str.charCodeAt(i)<<8;
+    for(let j=0;j<8;j++) crc = (crc & 0x8000) ? (((crc<<1) ^ 0x1021) & 0xFFFF) : ((crc<<1) & 0xFFFF);
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+/* Extrai dados do recebedor do BR Code EMV pra a tela de confirmação:
+   chave PIX (26.01), nome fantasia (59), cidade (60), valor (54, se estático).
+   Retorna null se o BR Code não parsear. */
+function _pixParseBrCode(brCode){
+  if(!brCode) return null;
+  const body = String(brCode).trim().replace(/6304[0-9A-Fa-f]{4}$/, '');
+  const parse = (str)=>{
+    const out={}; let i=0;
+    while(i < str.length){
+      const id = str.substr(i,2);
+      const len = parseInt(str.substr(i+2,2),10);
+      if(!id || isNaN(len)) return null;
+      out[id] = str.substr(i+4,len);
+      i += 4+len;
+    }
+    return out;
+  };
+  const f = parse(body); if(!f) return null;
+  const m = parse(f['26']||'') || {};
+  return { chave:m['01']||'', nome:f['59']||'', cidade:f['60']||'', valor:f['54']||'' };
+}
+function _pixBrCodeComValor(brCode, valor){
+  if(!brCode || !(valor>0)) return brCode || '';
+  // Só tira espaços das pontas — internos (nome do lojista em 59) contam no TLV.
+  const s = String(brCode).trim();
+  const body = s.replace(/6304[0-9A-Fa-f]{4}$/, '');
+  const fields=[]; let i=0;
+  while(i < body.length){
+    const id = body.substr(i,2);
+    const len = parseInt(body.substr(i+2,2),10);
+    if(!id || isNaN(len)) return brCode;
+    fields.push([id, body.substr(i+4,len)]);
+    i += 4 + len;
+  }
+  const kept = fields.filter(([id])=> id!=='54');
+  const amt = Number(valor).toFixed(2);
+  const at = kept.findIndex(([id])=> parseInt(id,10) > 54);
+  const novo=['54', amt];
+  if(at===-1) kept.push(novo); else kept.splice(at,0,novo);
+  const rebuilt = kept.map(([id,v])=> id + String(v.length).padStart(2,'0') + v).join('');
+  const semCrc = rebuilt + '6304';
+  return semCrc + _pixCrc16(semCrc);
+}
 // Código de presença do totem (fixo — ver CLAUDE.md). Com backend vira o código rotativo da aula.
 // v374: QR obrigatório com token estático da academia (academies.config.qr_token).
 // O professor gera/renova em Alunos → 🔑 Acesso → ⚙️ Configurações da academia.
@@ -3814,11 +3870,10 @@ function renderFlow(){
    professor em Alunos → 🔑 Acesso → ⚙️ Configurações da academia → 📷 QR de presença).
    ============================================================ */
 function icoQRbig(){
-  // QR estilizado (3 marcadores de posição + módulos) — só visual.
-  const m = (x,y)=>`<rect x="${x}" y="${y}" width="22" height="22" rx="3" fill="currentColor"/><rect x="${x+5}" y="${y+5}" width="12" height="12" rx="1.5" fill="var(--card)"/><rect x="${x+8}" y="${y+8}" width="6" height="6" fill="currentColor"/>`;
-  const d=[[40,4],[52,4],[4,40],[16,52],[40,40],[52,52],[64,40],[40,52],[52,64],[64,64],[4,64]];
-  const dots=d.map(([x,y])=>`<rect x="${x}" y="${y}" width="8" height="8" rx="1.5" fill="currentColor"/>`).join('');
-  return `<svg viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${m(2,2)}${m(62,2)}${m(2,62)}${dots}</svg>`;
+  // Viewfinder de QR: 3 marcadores de posição + cantos-guia. Sem dots random —
+  // o ruído fazia o ícone parecer bugado (v399→v400).
+  const m = (x,y)=>`<rect x="${x}" y="${y}" width="24" height="24" rx="4" fill="currentColor"/><rect x="${x+5}" y="${y+5}" width="14" height="14" rx="2" fill="var(--card)"/><rect x="${x+9}" y="${y+9}" width="6" height="6" rx="1" fill="currentColor"/>`;
+  return `<svg viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${m(2,2)}${m(60,2)}${m(2,60)}</svg>`;
 }
 // Câmera / QR não disponíveis: fecha o flow com toast honesto. Batch do professor
 // resolve o edge case (aluno sem câmera bate presença via "Adicionar frequência").
@@ -3966,6 +4021,9 @@ function _renderPhase1(){
   body.appendChild(qr);
   body.appendChild(el(`<div style="height:24px"></div>`));
   v.appendChild(body);
+  // Abre a câmera direto — 1 toque em vez de 2. Card fica como fallback se o
+  // usuário cancelar ou a câmera falhar (_presencaSemCamera repinta por cima).
+  setTimeout(presencaScan, 0);
   return v;
 }
 
@@ -4117,6 +4175,16 @@ function renderLoja(){
   } else {
     _prods.forEach(p=>{
       const allSold = (p.tam||[]).length>0 && p.tam.every(t=> p.estoque && (p.estoque[t] ?? 1) <= 0);
+      // Tamanhos com estoque no card (v403): aluno filtra antes de abrir.
+      // Sem `p.estoque[t]` = tratado como disponível (produto sem controle).
+      const tamsHTML = (p.tam && p.tam.length) ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">' + p.tam.map(t=>{
+        const est = p.estoque ? p.estoque[t] : null;
+        const sold = est != null && est <= 0;
+        const st = sold
+          ? 'background:var(--field);color:var(--muted);text-decoration:line-through;opacity:.55'
+          : 'background:var(--field);color:var(--ink)';
+        return `<span style="${st};border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:700" title="${sold?'Esgotado':'Disponível'}">${safeTxt(t)}</span>`;
+      }).join('') + '</div>' : '';
       const c = el(`<div class="prod-card${allSold?' sold-out':''}" data-nm="${safeAttr((p.nome||'').toLowerCase())}">
         <div class="prod-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}
           ${allSold?'<span class="prod-sold-badge">Esgotado</span>':''}
@@ -4124,6 +4192,7 @@ function renderLoja(){
         <div class="prod-info">
           <div class="prod-name">${safeTxt(p.nome)}</div>
           <div class="prod-price">${moneyBR(p.preco)}</div>
+          ${tamsHTML}
         </div></div>`);
       c.onclick = ()=> abrirProduto(p.id);
       grid.appendChild(c);
@@ -4213,9 +4282,16 @@ function abrirCarrinho(){
   if (DB.loja.carrinho.length < antes){ toast('Itens indisponíveis foram removidos da sacola'); if(DB.lojaOpen) render(); }
   if (!DB.loja.carrinho.length){ toast('Sua sacola está vazia'); return; }
   const _pix = _lojaPix();
-  const pixRow = _pix ? `<div style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">
-    <span style="font-size:11px;font-weight:800;color:var(--muted)">PIX</span>
-    <code style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(_pix)}</code>
+  const _brRaw = _lojaPixBrCode();
+  const _total = carrinhoTotal();
+  const _brCom = _brRaw ? _pixBrCodeComValor(_brRaw, _total) : '';
+  // Preferência: Copia-e-Cola com valor injetado (aluno cola no banco e paga
+  // exato). Fallback: chave PIX pura (aluno digita o valor à mão).
+  const pixLabel = _brCom ? 'PIX Copia e Cola' : 'PIX';
+  const pixShow  = _brCom || _pix;
+  const pixRow = pixShow ? `<div style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">
+    <span style="font-size:11px;font-weight:800;color:var(--muted);white-space:nowrap">${pixLabel}</span>
+    <code style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(pixShow)}</code>
     <button id="cart-pix-copy" style="border:none;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer">Copiar</button>
   </div>` : '';
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
@@ -4263,25 +4339,37 @@ function abrirCarrinho(){
   };
   renderItems();
   const pixBtn = sheet.querySelector('#cart-pix-copy');
-  if(pixBtn) pixBtn.onclick = async ()=>{ const k=_lojaPix(); try{ await navigator.clipboard.writeText(k); toast('Chave PIX copiada ✓'); }catch(e){ toast('Copie a chave: '+k); } };
+  if(pixBtn) pixBtn.onclick = async ()=>{
+    // Recomputa com o total ATUAL (usuário pode ter mexido em +/− antes de copiar).
+    const raw = _lojaPixBrCode();
+    const k = raw ? _pixBrCodeComValor(raw, carrinhoTotal()) : _lojaPix();
+    const msg = raw ? 'Copia e Cola do PIX com valor ✓' : 'Chave PIX copiada ✓';
+    try{ await navigator.clipboard.writeText(k); toast(msg); }catch(e){ toast('Copie: '+k); }
+  };
   sheet.querySelector('.btn-save').onclick = ()=>{ close(); finalizarCompra(); };
 }
 
-// Monta o pedido e abre o WhatsApp da academia (sem backend; pagamento via PIX).
+// v403: fluxo bifásico. Antes disparava WhatsApp direto; agora abre sheet de
+// confirmação (nome do recebedor, chave, cidade, valor) com Web Share + "Já paguei".
 function finalizarCompra(){
-  const _wa=_lojaWa(), _pix=_lojaPix();
+  const _wa=_lojaWa();
   if (!_wa){ toast('⚠️ Loja sem WhatsApp configurado'); return; }
+  _abrirConfirmPix();
+}
+function _enviarPedidoWhatsapp(pagou){
+  const _wa=_lojaWa(), _pix=_lojaPix();
   const linhas = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
     return `• ${p.nome} (${i.tam}) x${i.qtd} — ${moneyBR(p.preco*i.qtd)}`; }).join('\n');
-  const pix = _pix ? `\nPagamento via PIX: ${_pix}` : '\nPagamento via PIX.';
-  const msg = `Olá! Quero comprar na Loja Yama:\n${linhas}\n\nTotal: ${moneyBR(carrinhoTotal())}${pix}\nVou retirar na recepção.`;
-  // A3 (auditoria): popup bloqueado retorna null SEM lançar exceção — só limpamos
-  // a sacola quando a janela do WhatsApp realmente abriu, senão o pedido se perdia.
-  let win = null;
+  const _brRaw = _lojaPixBrCode();
+  const _brCom = _brRaw ? _pixBrCodeComValor(_brRaw, carrinhoTotal()) : '';
+  const pix = _brCom
+    ? `\nPIX Copia e Cola (com valor):\n${_brCom}`
+    : (_pix ? `\nPagamento via PIX: ${_pix}` : '\nPagamento via PIX.');
+  const marker = pagou ? '\n✅ PIX pago — confirme no seu extrato.' : '';
+  const msg = `Olá! Quero comprar na Loja Yama:\n${linhas}\n\nTotal: ${moneyBR(carrinhoTotal())}${pix}${marker}\nVou retirar na recepção.`;
+  let win=null;
   try{ win = window.open(`https://wa.me/${_wa}?text=${encodeURIComponent(msg)}`, '_blank'); }catch(e){ win = null; }
-  if(!win){ toast('⚠️ Não consegui abrir o WhatsApp — permita pop-ups e tente de novo. Sua sacola foi mantida.'); return; }
-  // Registra o pedido (pendente) no backend p/ o professor confirmar depois → baixa de estoque.
-  // Guardado: só com backend real (offline/demo não registra). Não bloqueia o fluxo se falhar.
+  if(!win){ toast('⚠️ Não consegui abrir o WhatsApp — permita pop-ups e tente de novo. Sua sacola foi mantida.'); return false; }
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined' && sbSync.registrarPedido){
     const itens = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
       return { produto_id:i.id, nome:p?p.nome:'', tam:i.tam, qtd:i.qtd, preco:p?p.preco:0 }; });
@@ -4290,7 +4378,58 @@ function finalizarCompra(){
   DB.loja.carrinho = [];
   if (DB.lojaOpen) render();
   scheduleSave();
-  toast('Pedido aberto no WhatsApp ✔');
+  toast(pagou ? 'Pedido enviado com aviso de pagamento ✔' : 'Pedido aberto no WhatsApp ✔');
+  return true;
+}
+/* Sheet de confirmação PIX (v403). Mostra dados do recebedor extraídos do próprio
+   BR Code (nome, chave, cidade) + valor da sacola. Ações:
+   - 🏦 Pagar no meu banco → Web Share do Copia-e-Cola (fallback: copy)
+   - 📋 Copiar código → clipboard
+   - ✅ Já paguei → dispara WhatsApp com marker "PIX pago" e limpa sacola */
+function _abrirConfirmPix(){
+  const total = carrinhoTotal();
+  const brRaw = _lojaPixBrCode();
+  const brCom = brRaw ? _pixBrCodeComValor(brRaw, total) : '';
+  const dados = brRaw ? _pixParseBrCode(brRaw) : null;
+  // Sem BR Code cadastrado: cai pro fluxo antigo (WhatsApp direto com chave PIX pura).
+  if(!brCom){ _enviarPedidoWhatsapp(false); return; }
+  const linha = (lbl, val)=> `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px">
+    <span style="color:var(--muted);font-weight:600">${lbl}</span>
+    <b style="color:var(--ink);text-align:right;word-break:break-all">${safeTxt(val)}</b></div>`;
+  const podeShare = !!(navigator.share && navigator.canShare);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Confirme o PIX</div>
+    <div class="sheet-desc">Confira o recebedor antes de pagar. Golpe de PIX começa aqui — se algo não bate, cancele.</div>
+    <div style="background:var(--field);border:1px solid var(--line);border-radius:12px;padding:4px 14px;margin:12px 0">
+      ${linha('Recebedor', dados && dados.nome || '—')}
+      ${linha('Chave PIX', dados && dados.chave || '—')}
+      ${linha('Cidade', dados && dados.cidade || '—')}
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;font-size:15px">
+        <span style="color:var(--muted);font-weight:700">Valor</span>
+        <b style="color:var(--red-strong);font-size:17px">${moneyBR(total)}</b></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${podeShare ? '<button id="cp-share" class="btn-save">🏦 Pagar no meu banco</button>' : ''}
+      <button id="cp-copy" class="btn-save" style="background:var(--ink);color:#fff">📋 Copiar código PIX</button>
+      <button id="cp-paid" class="btn-save" style="background:var(--good);color:#fff">✅ Já paguei — enviar pedido</button>
+      <button class="sheet-cancel">Cancelar</button>
+    </div>
+  </div></div>`);
+  const close = openSheet(sheet, '.sheet-cancel');
+  const share = sheet.querySelector('#cp-share');
+  if(share) share.onclick = async ()=>{
+    // Web Share API abre a folha nativa (bancos aparecem se instalados).
+    try{ await navigator.share({ title:'PIX Yama', text: brCom }); }
+    catch(e){ if(e && e.name!=='AbortError') toast('Não deu pra compartilhar — copie o código'); }
+  };
+  sheet.querySelector('#cp-copy').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(brCom); toast('Copia e Cola do PIX copiado ✓'); }
+    catch(e){ toast('Copie: '+brCom.substr(0,40)+'…'); }
+  };
+  sheet.querySelector('#cp-paid').onclick = ()=>{
+    if(_enviarPedidoWhatsapp(true)) close();
+  };
 }
 
 /* ============================================================
@@ -11287,6 +11426,24 @@ function selfTest(){
     ok('safeTxt escapa HTML', safeTxt('<b>x</b>')==='&lt;b&gt;x&lt;/b&gt;');
     ok('safeAttr escapa aspas', safeAttr('a" onload="x')==='a&quot; onload=&quot;x');
     ok('safeAttr escapa <>&', safeAttr('<a&b>')==='&lt;a&amp;b&gt;');
+    // PIX BR Code com valor injetado: EMV TLV + CRC16-CCITT.
+    ok('pixCrc16 formato', /^[0-9A-F]{4}$/.test(_pixCrc16('123456')));
+    ok('pixBrCodeComValor injeta 54', (()=>{
+      const base='00020126360014BR.GOV.BCB.PIX0114+5561999999995204000053039865802BR5909Fulano T.6008BRASILIA62070503***6304ABCD';
+      const r=_pixBrCodeComValor(base, 150.5);
+      return /5406150\.50/.test(r) && /6304[0-9A-F]{4}$/.test(r);
+    })());
+    ok('pixParseBrCode extrai nome/chave/cidade', (()=>{
+      // BR Code mínimo: campo 26 tem 14-char pix key ("+5511999999999") pra len bater.
+      const base='00020126360014BR.GOV.BCB.PIX0114+55119999999995204000053039865802BR5911FULANO YAMA6008BRASILIA62070503***6304ABCD';
+      const d = _pixParseBrCode(base);
+      return d && d.nome==='FULANO YAMA' && d.cidade==='BRASILIA' && d.chave==='+5511999999999';
+    })());
+    ok('pixBrCodeComValor substitui 54', (()=>{
+      const base='00020126360014BR.GOV.BCB.PIX0114+5561999999995204000053039865406010.005802BR5909Fulano T.6008BRASILIA62070503***6304ABCD';
+      const r=_pixBrCodeComValor(base, 42);
+      return /5405/.test(r.replace(/6304[0-9A-F]{4}$/,'')) && r.indexOf('540542.00')>0;
+    })());
     ok('nivelDe aprendendo (3)', nivelDe({treinos:3})==='aprendendo');
     ok('nivelDe treinando (5)', nivelDe({treinos:5})==='treinando');
     try{
