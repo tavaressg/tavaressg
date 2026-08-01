@@ -3051,13 +3051,14 @@ function evoluirGraduacao(){
                  : `${g.graus}º grau · ${x.nome}`;
     const [y,m,d] = g.data.split('-');
     const dataFmt = `${d}/${m}/${y}`;
-    const porTxt = (g.por && g.por!=='—') ? ` · por ${safeTxt(g.por)}` : '';
+    // v398: nome do instrutor removido da visao do ALUNO (só data no rodape).
+    // Professor continua vendo "por Fulano" na propria ficha (app.js:6285, 7044).
     tl.appendChild(el(`<div class="tl-item">
       <div class="tl-rail"><span class="tl-dot" style="background:${x.cor}"></span><span class="tl-conn"></span></div>
       <div class="tl-tx">
         <div class="tl-belt">${beltMini(g.faixa, g.tipo==='grau'?g.graus:0)}</div>
         <div class="t">${titulo}</div>
-        <div class="dt">${dataFmt}${porTxt}</div></div></div>`));
+        <div class="dt">${dataFmt}</div></div></div>`));
   });
   w.appendChild(tl);
   return w;
