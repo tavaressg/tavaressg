@@ -2317,23 +2317,41 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .stat-card .si.purple{background:#efe6ff;color:#7e4ddb}
 .stat-card .si.pink{background:#ffe6ef;color:#e91e63}
 
-/* Tabela aniversariantes */
-.erp-dash-birth{margin:0 20px;padding:0}
-.erp-dash-birth-hd,.erp-dash-birth-row{display:grid;grid-template-columns:1fr 130px 60px 70px;gap:8px;align-items:center;padding:10px 14px}
+/* Tabela aniversariantes.
+   container-type: inline-size faz o @container abaixo disparar pela largura DESTE
+   bloco, nao do viewport — resolve o caso "professor em desktop com sidebar
+   deixando a coluna de conteudo com 400px, viewport ainda 1200px", em que
+   @media (max-width) nao dispararia. */
+.erp-dash-birth{margin:0 20px;padding:0;container-type:inline-size}
+.erp-dash-birth-hd,.erp-dash-birth-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:10px 14px}
 .erp-dash-birth-hd{background:var(--field);border-radius:10px 10px 0 0;font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
 .erp-dash-birth-row{border-bottom:1px solid var(--line);background:var(--card)}
 .erp-dash-birth-row:last-child{border-bottom:none;border-radius:0 0 10px 10px}
-.erp-dash-birth-nm{font-size:13px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
-.erp-dash-birth-belt{font-size:11.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+/* Nome trunca com "..." em vez de quebrar por caractere (overflow-wrap:anywhere
+   era o culpado do "Edu\nardo\nEliel\ndos\nSant\nos"). min-width:0 e' obrigatorio
+   dentro de grid pra o ellipsis funcionar. */
+.erp-dash-birth-nm{font-size:13px;font-weight:700;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.erp-dash-birth-belt{font-size:11.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .erp-dash-birth-belt i{width:8px;height:8px;border-radius:50%;flex:none}
-.erp-dash-birth-dt{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.erp-dash-birth-dt{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .erp-dash-birth-acts{display:flex;gap:6px;justify-content:flex-end}
-/* Mobile: header some, row vira 2 linhas verticais (nome+dia em cima, faixa+acts embaixo) */
+/* Container narrow: header some, row vira 2 linhas (nome+dia em cima, faixa+acts embaixo).
+   Dispara quando a COLUNA DE CONTEUDO tem <500px, seja no celular seja no professor-desktop
+   com painel estreito. Fallback pra viewports antigas (Safari <16) via @media abaixo. */
+@container (max-width:500px){
+  .erp-dash-birth-hd{display:none}
+  .erp-dash-birth-row{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:6px 10px;padding:12px 14px;border-radius:10px;margin-bottom:1px}
+  .erp-dash-birth-row:first-child{border-radius:10px 10px 0 0}
+  .erp-dash-birth-nm{grid-column:1;grid-row:1;font-size:14.5px;line-height:1.25;white-space:normal;overflow-wrap:break-word}
+  .erp-dash-birth-dt{grid-column:2;grid-row:1;text-align:right;font-size:14px}
+  .erp-dash-birth-belt{grid-column:1;grid-row:2}
+  .erp-dash-birth-acts{grid-column:2;grid-row:2;justify-content:flex-end}
+}
 @media (max-width:560px){
   .erp-dash-birth-hd{display:none}
-  .erp-dash-birth-row{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:6px 10px;padding:12px 14px;border-radius:10px;margin-bottom:1px}
+  .erp-dash-birth-row{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:6px 10px;padding:12px 14px;border-radius:10px;margin-bottom:1px}
   .erp-dash-birth-row:first-child{border-radius:10px 10px 0 0}
-  .erp-dash-birth-nm{grid-column:1;grid-row:1;font-size:14.5px;line-height:1.25}
+  .erp-dash-birth-nm{grid-column:1;grid-row:1;font-size:14.5px;line-height:1.25;white-space:normal;overflow-wrap:break-word}
   .erp-dash-birth-dt{grid-column:2;grid-row:1;text-align:right;font-size:14px}
   .erp-dash-birth-belt{grid-column:1;grid-row:2}
   .erp-dash-birth-acts{grid-column:2;grid-row:2;justify-content:flex-end}
