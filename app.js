@@ -958,8 +958,23 @@ function track(e, props){
     try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError(msg, ctx?JSON.stringify(ctx):null); }catch(_){}
   };
   try{
-    window.addEventListener('error', (ev)=>{ report(String((ev&&(ev.message||ev.error))||''), { src:String((ev&&ev.filename)||'').split('/').pop(), ln:ev&&ev.lineno }); });
-    window.addEventListener('unhandledrejection', (ev)=>{ report('promise: '+String((ev&&ev.reason&&ev.reason.message)||(ev&&ev.reason)||''), null); });
+    // Captura tudo que o browser deixa passar. Pra "Script error." (browser
+    // sanitiza msg por CORS/SRI) — src/ln/col ainda vem, entao pelo menos
+    // consegue localizar. Stack quando disponivel ajuda muito no cross-origin.
+    window.addEventListener('error', (ev)=>{
+      const stack = ev && ev.error && ev.error.stack ? String(ev.error.stack).slice(0,600) : null;
+      report(String((ev&&(ev.message||ev.error))||''), {
+        src:String((ev&&ev.filename)||'').split('/').pop(),
+        ln:ev&&ev.lineno,
+        col:ev&&ev.colno,
+        stack
+      });
+    });
+    window.addEventListener('unhandledrejection', (ev)=>{
+      const r = ev && ev.reason;
+      const stack = r && r.stack ? String(r.stack).slice(0,600) : null;
+      report('promise: '+String((r&&r.message)||r||''), stack ? { stack } : null);
+    });
   }catch(_){}
 })();
 // KPIs do beta derivados dos eventos + treinos (ativação · funil · retenção · engajamento · churn)
@@ -4994,9 +5009,19 @@ function _profErrosSheet(){
     list.innerHTML = rows.map(r=>{
       const q = new Date(r.criado_em);
       const quando = `${String(q.getDate()).padStart(2,'0')} ${meses[q.getMonth()]} · ${String(q.getHours()).padStart(2,'0')}:${String(q.getMinutes()).padStart(2,'0')}`;
-      return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;gap:2px">
-        <b style="font-size:12.5px;word-break:break-word">${safeTxt(r.msg||'—')}</b>
-        <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · v'+safeTxt(r.app_version):''}</span></div>`;
+      // ctx pode vir como JSON string ou objeto (formatos legados). Extrai src/ln/col/stack
+      // pra mostrar file:linha — resolve o caso "Script error." em que a msg vem sanitizada
+      // por CORS/SRI mas o browser ainda expoe onde estourou.
+      let ctx = r.contexto;
+      if(typeof ctx === 'string'){ try{ ctx = JSON.parse(ctx); }catch(_){ ctx = null; } }
+      const loc = ctx && (ctx.src || ctx.ln) ? `${safeTxt(ctx.src||'')}${ctx.ln?':'+ctx.ln:''}${ctx.col?':'+ctx.col:''}` : '';
+      const stack = ctx && ctx.stack ? safeTxt(String(ctx.stack).slice(0,400)) : '';
+      return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;gap:3px">
+        <b style="font-size:12.5px;overflow-wrap:break-word">${safeTxt(r.msg||'—')}</b>
+        ${loc?`<span style="font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace">${loc}</span>`:''}
+        <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · v'+safeTxt(r.app_version):''}</span>
+        ${stack?`<details style="width:100%"><summary style="font-size:11px;color:var(--muted);cursor:pointer">stack</summary><pre style="font-size:10.5px;white-space:pre-wrap;overflow-wrap:break-word;margin:4px 0 0;color:var(--muted)">${stack}</pre></details>`:''}
+      </div>`;
     }).join('');
   }).catch(()=>{ list.innerHTML='<div class="empty-line">Falha ao carregar os erros.</div>'; });
 }
