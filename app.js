@@ -1296,6 +1296,15 @@ function render(){
   if (!sameView) _closeAllSheets();
   // memoriza scrollY da view atual antes de trocar
   if (root.dataset.view && root.dataset.view !== curView && typeof _scrollMem !== 'undefined') _scrollMem[root.dataset.view] = window.scrollY;
+  // v394: render() na MESMA view preserva o scroll — sem isso, um refetch em
+  // background (v393), uma sync do adapter, ou qualquer render() acidental
+  // durante uma rolagem jogava o usuario pro topo. So' vale pra mesma view;
+  // trocar de tela ainda leva pro topo (comportamento esperado do SPA).
+  // rAF: restaura DEPOIS do proximo paint, quando root.innerHTML=... ja voltou.
+  if(sameView){
+    const _scY = window.scrollY || 0;
+    if(_scY > 0) requestAnimationFrame(()=>{ try{ window.scrollTo(0, _scY); }catch(_){} });
+  }
   root.dataset.view = curView;
   if (!sameView) _announceRoute(curView);   // a11y: leitor de tela anuncia a troca de tela (SPA)
   document.body.setAttribute('data-role', DB.role||'aluno'); // hook do shell responsivo do professor (§7)
@@ -11833,14 +11842,31 @@ if (DEMO || TESTMODE) {
     // dado fresco so' chega no F5 (raro em PWA — usuario tem sessao persistida
     // e o app so' recarrega em cold start).
     // Throttle 30s pra nao bombardear o backend em quem toca a tela toda hora.
+    // v394: NÃO chama render() se nada relevante mudou — evita reset de scroll
+    // toda vez que o usuario troca de aba/volta pro app (o UX era "rolava a lista,
+    // voltava, começava do topo"). Comparamos um hash do estado dependente da
+    // nuvem (graduacoes + perfil + checkin) — se igual ao anterior, silencio.
     let _lastPullFocus = 0;
+    const _hashSyncState = ()=>{
+      try{
+        return JSON.stringify([
+          (DB.graduacoes||[]).map(g=>[g.data,g.tipo,g.faixa,g.graus,g.aulas_credito_grau||0,g.aulas_credito_faixa||0]),
+          DB.eu && [DB.eu.faixa, DB.eu.graus, DB.eu.role],
+          DB.checkinHoje,
+        ]);
+      }catch(_){ return ''; }
+    };
     const _refreshOnFocus = ()=>{
       if(document.visibilityState !== 'visible') return;
       if(!DB.sbUser || !_cloudReady) return;
       const agora = Date.now();
       if(agora - _lastPullFocus < 30000) return;
       _lastPullFocus = agora;
-      sbSync.pullAll(DB.sbUser.id).then(()=>{ try{ render(); }catch(_){} }).catch(()=>{});
+      const antes = _hashSyncState();
+      sbSync.pullAll(DB.sbUser.id).then(()=>{
+        if(_hashSyncState() === antes) return;   // nada mudou → não mexe na tela
+        try{ render(); }catch(_){}
+      }).catch(()=>{});
     };
     document.addEventListener('visibilitychange', _refreshOnFocus);
     window.addEventListener('focus', _refreshOnFocus);
