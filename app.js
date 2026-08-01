@@ -5604,7 +5604,7 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
     <div class="sheet">
       <div class="sheet-grip"></div>
       <div class="sheet-hd"><div class="sheet-t">Exportar Excel</div>
-        <div class="sheet-sub">${alunos.length} aluno${alunos.length!==1?'s':''} na seleção atual</div></div>
+        <div class="sheet-sub">${((_profData?.alunos)||[]).length} aluno${((_profData?.alunos)||[]).length!==1?'s':''} · base completa (ignora filtro)</div></div>
       <div style="display:flex;flex-direction:column;gap:10px;padding:0 4px 8px">
         <button class="btn-cad" type="button" data-a="resumida" style="text-align:left;padding:14px 16px">
           <div style="font-weight:800;font-size:14px">📄 Base resumida</div>
@@ -5623,13 +5623,13 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
     </div></div>`);
   const close = ()=>{ overlay.classList.remove('open'); setTimeout(()=>overlay.remove(),260); };
   overlay.querySelector('[data-a="cancel"]').onclick = close;
-  overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'resumida'); close(); };
-  overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'completa'); close(); };
-  // Import de presencas legadas IGNORA o filtro atual e usa toda a base: os
-  // "inativos" (status_manual=inativo ou diasSem>=90) tambem tem historico do app
-  // antigo, entao precisam entrar na planilha. _profData.alunos ja e' filtrado por
-  // profiles.ativo=true no adapter (conta desativada mesmo fica de fora — v389).
-  overlay.querySelector('[data-a="presencas"]').onclick = ()=>{ _alunosExportXLSX((_profData?.alunos)||[], turmaMap, 'presencas'); close(); };
+  // Os 3 exports usam a base completa (_profData.alunos) — filtro da tela e' pra
+  // trabalhar, export vem inteiro pro Excel decidir. profiles.ativo=false (conta
+  // desativada pelo dono) fica de fora pelo adapter — o certo. v390.
+  const _todos = ()=> (_profData?.alunos)||[];
+  overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(_todos(), turmaMap, 'resumida'); close(); };
+  overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(_todos(), turmaMap, 'completa'); close(); };
+  overlay.querySelector('[data-a="presencas"]').onclick = ()=>{ _alunosExportXLSX(_todos(), turmaMap, 'presencas'); close(); };
   overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
   document.body.appendChild(overlay);
   requestAnimationFrame(()=>overlay.classList.add('open'));
