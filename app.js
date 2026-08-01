@@ -7686,12 +7686,15 @@ function _metaAulasFaixa(faixa){
   return (v>0) ? v : PROF_METAS.META_GRAU;
 }
 
-/* Apto = eixo AULAS verde E eixo TEMPO não-vermelho (sem dado não bloqueia — informativo).
-   Antes era só nº de aulas; agora a regra CBJJ de tempo/idade entra no critério. */
+/* v395: FONTE UNICA da lista de aptos — usa a mesma _prontidaoGrad da tela
+   de Graduação. Aluno "apto" = pronto pra novo grau OU pra proxima faixa. Isso
+   fecha a contradicao antiga "cabecalho diz 1, card diz 15" (duas regras).
+   Tempo/idade CBJJ nao bloqueiam mais (decisao de produto v395) — o professor
+   sempre pode graduar. */
 function _aptosGraduar(){
   return _profAlunosArr().filter(a=>{
-    const s=_semaforoGrad(a);
-    return !!s.next && !!s.aulas && s.aulas.ok===true && (!s.tempo || s.tempo.ok!==false);
+    const s = _prontidaoGrad(a);
+    return s.grau.ok || s.faixa.ok;
   });
 }
 
@@ -9671,125 +9674,134 @@ function _turmaMatricularSheet(t, done){
    OU default global). Editar meta ali mesmo (persistente em
    academies.config.metaAulas — v0003).
    ============================================================ */
-/* Aba "Aptos a graduar" no menu Graduação (v302).
-   Critério simplificado: só TEMPO na faixa (regra CBJJ). O eixo GRAUS é
-   informativo — mostra grau atual/máximo e sinaliza se pode ir pra nova
-   faixa (CBJJ permite pular do 3º grau direto). Sem aulas, sem técnicas. */
-function _gradEixosSimples(a){
-  const info = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
-  const next = info ? info.next : null;
+/* v395: prontidão de graduação — DUAS avaliações independentes num shape só.
+   - grauOk  = aulasNoGrau  >= metaAulas[faixa]     (grau é decisão da academia)
+   - faixaOk = aulasNaFaixa >= 4 × metaAulas[faixa] (troca de faixa CBJJ)
+   Tempo CBJJ e idade mínima entram como AVISO na faixa, não como bloqueador —
+   o professor sempre pode graduar antes se quiser. Infantil: só presenças.
+   Fonte UNICA: _aptosGraduar() reusa isso, sem regra paralela em outro lugar. */
+function _prontidaoGrad(a){
+  const idade = idadeCBJJ(a.nascimento);
+  const infoAdulto = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
+  const ehInfantil = (idade!=null && idade<=CBJJ.youth_max_age) || _grupoInfantilMinAge(a.faixa)!=null;
+  const next = ehInfantil ? proximaFaixaCBJJ(a.faixa, idade) : (infoAdulto ? infoAdulto.next : null);
   const maxG = maxGrausDe(a.faixa);
-  const meses = tempoNaFaixaMeses(a.faixaDesde);
-  const minMeses = info ? info.min_months : null;
-  // Tempo: verde se cumpriu; cinza se sem data; vermelho se falta
-  let tempo;
-  if(!minMeses) tempo = { ok:true, txt:'sem tempo mínimo' };
-  else if(meses==null) tempo = { ok:null, txt:'sem data da faixa' };
-  else tempo = { ok: meses>=minMeses, txt: `${meses}/${minMeses} meses` };
-  // Graus: semáforo real — verde no máx, amarelo em 3 (pode pular faixa CBJJ), neutro < 3.
   const g = a.graus||0;
-  let grausOk;
-  if(g>=maxG) grausOk = true;             // completo → ok (verde)
-  else if(g>=3) grausOk = 'warn';         // 3+ → amarelo (pode pular)
-  else grausOk = null;                    // 0-2 → neutro
-  const graus = { ok: grausOk, txt: `${g}/${maxG} graus` };
-  return { next, tempo, graus };
+  const meta = _metaAulasFaixa(a.faixa);
+  const metaFaixaTotal = meta * maxG;
+  const aulasNoGrau  = a.aulasNoGrau  || 0;
+  const aulasNaFaixa = a.aulasNaFaixa || 0;
+  // NOVO GRAU: só regra da academia (aulas). Faixa maxima nao ganha grau.
+  const grauOk = g < maxG && aulasNoGrau >= meta;
+  // NOVA FAIXA: aulas totais na faixa. Faixa terminal (preta) nao troca.
+  const faixaBaseOk = !!next && aulasNaFaixa >= metaFaixaTotal;
+  // Avisos CBJJ (adulto) — tempo mínimo e idade. Nao bloqueiam, só sinalizam.
+  let tempoAviso = null, idadeAviso = null;
+  if(next && infoAdulto){
+    const meses = tempoNaFaixaMeses(a.faixaDesde);
+    const minMeses = infoAdulto.min_months;
+    if(minMeses){
+      if(meses==null) tempoAviso = { ok:null, txt:'sem data da faixa' };
+      else if(meses < minMeses) tempoAviso = { ok:false, txt:`${meses}/${minMeses} meses (CBJJ)` };
+      else tempoAviso = { ok:true, txt:`${meses}/${minMeses} meses ✓` };
+    }
+    const nextInfo = CBJJ.adult_belts.find(b=>b.belt===next);
+    if(nextInfo && nextInfo.min_age!=null && idade!=null && idade < nextInfo.min_age){
+      idadeAviso = { ok:false, txt:`${idade}/${nextInfo.min_age} anos (CBJJ)` };
+    }
+  }
+  return {
+    next, meta, metaFaixaTotal, g, maxG,
+    grau:  { ok: grauOk,      tem: aulasNoGrau,  meta,             txt: `${aulasNoGrau}/${meta} aulas` },
+    faixa: { ok: faixaBaseOk, tem: aulasNaFaixa, meta: metaFaixaTotal, txt: `${aulasNaFaixa}/${metaFaixaTotal} aulas`,
+             tempo: tempoAviso, idadeAviso },
+  };
 }
 function _gradAptosSection(w){
-  const cand = _profAlunosArr().map(a=>({a, s:_gradEixosSimples(a)})).filter(x=> x.s.next);
-  const aptos = cand.filter(x=> x.s.tempo.ok===true);
-  const proximos = cand.filter(x=> x.s.tempo.ok===false || x.s.tempo.ok===null).sort((x,y)=>{
-    const pctX = _pctTempo(x.a), pctY = _pctTempo(y.a);
-    return pctY - pctX;
-  });
-  // KPIs clicáveis (scroll pras seções)
-  const aptosCor = aptos.length ? 'green' : 'gray';
+  const cand = _profAlunosArr().map(a=>({a, s:_prontidaoGrad(a)}));
+  // Duas listas independentes — um aluno pode aparecer nas duas (tem 4 graus E aulasNaFaixa passou).
+  const aptosGrau  = cand.filter(x=> x.s.grau.ok).sort((x,y)=> (y.s.grau.tem-y.s.grau.meta)  - (x.s.grau.tem-x.s.grau.meta));
+  const aptosFaixa = cand.filter(x=> x.s.faixa.ok).sort((x,y)=> (y.s.faixa.tem-y.s.faixa.meta) - (x.s.faixa.tem-x.s.faixa.meta));
+
+  // KPIs clicáveis (scroll pra cada seção)
   const kpi = el(`<div class="stat-grid block">
-    <div class="stat-card kpi-click" data-goto="aptos" tabindex="0" role="button"><div class="si ${aptosCor}">${icoPulse()}</div><div class="sv">${aptos.length}</div><div class="sl">Aptos agora</div></div>
-    <div class="stat-card kpi-click" data-goto="prox"  tabindex="0" role="button"><div class="si gold">${icoAlert()}</div><div class="sv">${proximos.length}</div><div class="sl">Próximos (falta tempo)</div></div>
+    <div class="stat-card kpi-click" data-goto="grau"  tabindex="0" role="button"><div class="si ${aptosGrau.length?'green':'gray'}">${icoPulse()}</div><div class="sv">${aptosGrau.length}</div><div class="sl">Prontos p/ novo grau</div></div>
+    <div class="stat-card kpi-click" data-goto="faixa" tabindex="0" role="button"><div class="si ${aptosFaixa.length?'purple':'gray'}">${icoBelt()}</div><div class="sv">${aptosFaixa.length}</div><div class="sl">Prontos p/ próxima faixa</div></div>
   </div>`);
   kpi.querySelectorAll('.kpi-click').forEach(c=>{
-    const scroll = ()=>{ const id = c.dataset.goto==='aptos'?'grad-sec-aptos':'grad-sec-prox'; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
+    const scroll = ()=>{ const id = c.dataset.goto==='grau'?'grad-sec-grau':'grad-sec-faixa'; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
     c.onclick = scroll;
     c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); scroll(); } };
   });
   w.appendChild(kpi);
-  // Aptos
-  w.appendChild(el(`<div class="sec-title" id="grad-sec-aptos">Aptos a graduar</div>`));
-  if(!aptos.length){
-    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno cumpriu o tempo mínimo da faixa ainda.</div>'));
+
+  const _row = (a, s, tipo)=>{
+    const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
+    const btnLbl = tipo==='faixa' ? `Graduar → ${safeTxt(nextNome)}` : 'Dar grau';
+    // Chips no rodape: aulas + (na faixa: tempo e idade CBJJ como AVISO — nunca bloqueiam).
+    const chipsHtml = tipo==='faixa'
+      ? _semChip({ ok:true, txt:s.faixa.txt }) +
+        (s.faixa.tempo ? _semChip(s.faixa.tempo) : '') +
+        (s.faixa.idadeAviso ? _semChip(s.faixa.idadeAviso) : '')
+      : _semChip({ ok:true, txt:s.grau.txt });
+    const sub = tipo==='faixa'
+      ? `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º grau → <b>${safeTxt(nextNome)}</b>`
+      : `${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${s.g}º → <b>${s.g+1}º grau</b>`;
+    const row = el(`<div class="grad-aptos-row">
+      <div class="grad-aptos-belt">${beltMini(a.faixa, s.g)}</div>
+      <div class="grad-aptos-info">
+        <div class="grad-aptos-nm">${safeTxt(_nomeInst(a))}</div>
+        <div class="grad-aptos-sub">${sub}</div>
+        <div class="sem-chips" style="margin-top:6px">${chipsHtml}</div>
+      </div>
+      <button class="grad-aptos-go" type="button">${btnLbl}</button>
+    </div>`);
+    row.querySelector('.grad-aptos-go').onclick = ()=>{
+      DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
+    };
+    row.onclick = (e)=>{ if(e.target.classList.contains('grad-aptos-go')) return;
+      DB.alunoAberto = a; render(); window.scrollTo(0,0);
+    };
+    return row;
+  };
+
+  // Seção 1 — Prontos para novo GRAU
+  w.appendChild(el(`<div class="sec-title" id="grad-sec-grau">Prontos para novo grau</div>`));
+  if(!aptosGrau.length){
+    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno bateu a meta de aulas do grau atual ainda.</div>'));
   } else {
     const list = el('<div class="grad-aptos-list block"></div>');
-    aptos.forEach(({a,s})=>{
-      const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
-      const maxG = maxGrausDe(a.faixa);
-      const podeFaixa = (a.graus||0) >= 3;   // CBJJ: com 3+ graus, pode pular pra nova faixa
-      const hint = podeFaixa ? `Pode ir pra <b>${safeTxt(nextNome)}</b> ou ganhar próximo grau` : `Próximo grau (${(a.graus||0)+1}/${maxG}) ou <b>${safeTxt(nextNome)}</b>`;
-      const row = el(`<div class="grad-aptos-row">
-        <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
-        <div class="grad-aptos-info">
-          <div class="grad-aptos-nm">${safeTxt(_nomeInst(a))}</div>
-          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º grau → ${hint}</div>
-          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
-        </div>
-        <button class="grad-aptos-go" type="button">Graduar</button>
-      </div>`);
-      row.querySelector('.grad-aptos-go').onclick = ()=>{
-        DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
-      };
-      row.onclick = (e)=>{ if(e.target.classList.contains('grad-aptos-go')) return;
-        DB.alunoAberto = a; render(); window.scrollTo(0,0);
-      };
-      list.appendChild(row);
-    });
+    aptosGrau.forEach(({a,s})=> list.appendChild(_row(a, s, 'grau')));
     w.appendChild(list);
   }
-  // Próximos (falta tempo — sinaliza quanto falta)
-  if(proximos.length){
-    w.appendChild(el(`<div class="sec-title" id="grad-sec-prox">Alunos</div>`));
+
+  // Seção 2 — Prontos para nova FAIXA
+  w.appendChild(el(`<div class="sec-title" id="grad-sec-faixa">Prontos para próxima faixa</div>`));
+  if(!aptosFaixa.length){
+    w.appendChild(el('<div class="empty-line block" style="padding:20px 16px">Nenhum aluno bateu a meta total de aulas da faixa atual ainda.</div>'));
+  } else {
     const list = el('<div class="grad-aptos-list block"></div>');
-    proximos.forEach(({a,s})=>{
-      const nextNome = s.next && BELTS[s.next] ? BELTS[s.next].nome : '—';
-      const row = el(`<div class="grad-aptos-row muted">
-        <div class="grad-aptos-belt">${beltMini(a.faixa, a.graus||0)}</div>
-        <div class="grad-aptos-info">
-          <div class="grad-aptos-nm">${safeTxt(_nomeInst(a))}</div>
-          <div class="grad-aptos-sub">${safeTxt(BELTS[a.faixa]?.nome||a.faixa)} · ${a.graus||0}º → ${safeTxt(nextNome)}</div>
-          <div class="sem-chips" style="margin-top:6px">${_semChip(s.tempo)}${_semChip(s.graus)}</div>
-        </div>
-        ${s.tempo.ok===null?'<button class="grad-aptos-go" type="button">Definir data</button>':''}
-      </div>`);
-      const bt = row.querySelector('.grad-aptos-go');
-      if(bt) bt.onclick = (e)=>{ e.stopPropagation(); DB.alunoAberto=a; DB._alunoTab='grad'; render(); window.scrollTo(0,0); };
-      row.onclick = ()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
-      list.appendChild(row);
-    });
+    aptosFaixa.forEach(({a,s})=> list.appendChild(_row(a, s, 'faixa')));
     w.appendChild(list);
   }
-  // Legenda enxuta
+
+  // Legenda
   w.appendChild(el(`<div class="grad-legenda block">
     <b>Como funciona:</b>
     <div style="margin-top:6px;color:var(--muted);font-size:12px;line-height:1.6">
-      <b>Tempo</b> = meses na faixa atual vs. mínimo CBJJ (Azul 24m · Roxa 18m · Marrom 12m).
-      <b>Graus</b> = quantos graus o aluno tem na faixa atual (0-4 na adulto, 0-6 na preta).
-      A partir de <b>3 graus</b>, o professor pode pular pra nova faixa (regra CBJJ).
-      A decisão final é sempre do professor.
+      <b>Novo grau</b> = presenças no grau atual ≥ meta da faixa (aba <i>Metas por faixa</i>).<br>
+      <b>Nova faixa</b> = presenças acumuladas na faixa ≥ meta × ${maxGrausDe('branca')} (todos os graus da faixa).<br>
+      <b>Tempo CBJJ</b> e <b>idade mínima</b> aparecem como AVISO na próxima faixa —
+      não bloqueiam. A decisão final é sempre do professor.
     </div>
   </div>`));
-}
-function _pctTempo(a){
-  const info = CBJJ.adult_belts.find(b=>b.belt===a.faixa);
-  if(!info || !info.min_months) return 100;
-  const meses = tempoNaFaixaMeses(a.faixaDesde);
-  if(meses==null) return 0;
-  return Math.min(100, Math.round(meses*100/info.min_months));
 }
 
 function profGraduacao(){
   const w = el('<div></div>');
   const aptos = (typeof _aptosGraduar==='function' ? _aptosGraduar() : []);
   w.innerHTML = `<div class="hello"><div class="date">Graduação</div>
-    <div class="greet">${aptos.length} apto${aptos.length!==1?'s':''} · regras CBJJ ${CBJJ.version}</div></div>`;
+    <div class="greet">${aptos.length} pronto${aptos.length!==1?'s':''} p/ graduar · presença + CBJJ ${CBJJ.version}</div></div>`;
   // Abas: Aptos (default) + Metas por faixa
   const tab = DB._gradTab || 'aptos';
   const tabsBar = el(`<div class="turmas-tabs">
