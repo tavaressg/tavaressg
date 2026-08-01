@@ -5616,7 +5616,7 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
         </button>
         <button class="btn-cad" type="button" data-a="presencas" style="text-align:left;padding:14px 16px">
           <div style="font-weight:800;font-size:14px">🗂️ Import de presenças legadas</div>
-          <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:3px">7 colunas — data do último grau ja pré-preenchida; você adiciona Pr. Grau e Pr. Nível e devolve pra importar</div>
+          <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:3px">7 colunas — inclui inativos, ignora o filtro atual. Data do último grau já pré-preenchida; você adiciona Pr. Grau e Pr. Nível e devolve pra importar</div>
         </button>
         <button class="btn-cad ghost" type="button" data-a="cancel">Cancelar</button>
       </div>
@@ -5625,7 +5625,11 @@ function _alunosExportXLSXSheet(alunos, turmaMap){
   overlay.querySelector('[data-a="cancel"]').onclick = close;
   overlay.querySelector('[data-a="resumida"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'resumida'); close(); };
   overlay.querySelector('[data-a="completa"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'completa'); close(); };
-  overlay.querySelector('[data-a="presencas"]').onclick = ()=>{ _alunosExportXLSX(alunos, turmaMap, 'presencas'); close(); };
+  // Import de presencas legadas IGNORA o filtro atual e usa toda a base: os
+  // "inativos" (status_manual=inativo ou diasSem>=90) tambem tem historico do app
+  // antigo, entao precisam entrar na planilha. _profData.alunos ja e' filtrado por
+  // profiles.ativo=true no adapter (conta desativada mesmo fica de fora — v389).
+  overlay.querySelector('[data-a="presencas"]').onclick = ()=>{ _alunosExportXLSX((_profData?.alunos)||[], turmaMap, 'presencas'); close(); };
   overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
   document.body.appendChild(overlay);
   requestAnimationFrame(()=>overlay.classList.add('open'));
