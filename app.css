@@ -1395,6 +1395,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* ===== Biblioteca: catálogo em accordion por categoria ===== */
 .cat-acc{display:flex;align-items:center;gap:11px;margin:8px 20px;padding:13px 15px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);cursor:pointer}
 .cat-acc.open{border-color:var(--red-tint);background:var(--hover)}
+.cat-acc.sub-acc{margin:6px 0 6px;padding:10px 13px;box-shadow:none;background:var(--field)}   /* v415: sub-accordion Nage-waza (Te/Koshi/Ashi/Sutemi) — mais discreto que a família-mãe */
 .cat-acc .cat-emoji{width:36px;height:36px}
 .cat-acc-n{font-size:13px;font-weight:800;color:var(--muted);flex:none}
 .cat-caret{font-size:16px;color:var(--muted);flex:none;width:14px;text-align:center}
@@ -1732,13 +1733,19 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
    A coluna FAIXA nunca desce de 138px: abaixo disso "Marrom · 3º" corta o "º"
    (bug já corrigido no v288 — não reintroduzir). */
 @media (min-width:1024px){
+  /* v417: colunas escondidas por padrão — vão aparecendo nos breakpoints maiores */
   body[data-role="professor"] .erp-c-etaria,
   body[data-role="professor"] .erp-c-etaria-cell,
   body[data-role="professor"] .erp-c-turmas,
-  body[data-role="professor"] .erp-c-turmas-cell{display:none !important}
+  body[data-role="professor"] .erp-c-turmas-cell,
+  body[data-role="professor"] .erp-c-faixapres,
+  body[data-role="professor"] .erp-c-faixapres-cell,
+  body[data-role="professor"] .erp-c-aniv,
+  body[data-role="professor"] .erp-c-aniv-cell{display:none !important}
   body[data-role="professor"] .erp-head{
     display:grid;
-    grid-template-columns: 40px minmax(140px,1.6fr) 172px 88px 56px 74px 44px;
+    /* v417: +Grau (52px) entre Dias sem e Pgto — presenças desde o último grau */
+    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 56px 52px 74px 44px;
     gap:8px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
@@ -1757,7 +1764,8 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
     display:grid;
     /* v386: coluna Faixa 172->72px (so mini, sem rotulo) libera espaco pro nome */
-    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 56px 74px 44px;
+    /* v417: +Grau (52px) — bate com header */
+    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 56px 52px 74px 44px;
     gap:8px;align-items:center;
     border-radius:12px;padding:10px 12px;
   }
@@ -1774,6 +1782,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-pres-cell{color:var(--muted)}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{color:var(--muted)}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell{color:var(--muted);font-weight:700;font-size:11.5px}
+  /* v417: novas colunas — tabular pra alinhar números */
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-grau-cell,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-faixapres-cell,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-aniv-cell{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:700;font-size:11.5px}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-grau-cell.apto{color:var(--good);font-weight:800}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .st-right{justify-self:end}
   body[data-role="professor"] .erp-tbl .st-row.dt-row .avatar{width:36px;height:36px;font-size:13px}
 
@@ -1783,22 +1796,26 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"][data-erp-density="compact"] .erp-head{padding:4px 12px}
   body[data-role="professor"][data-erp-density="compact"] .erp-tbl{gap:4px}
 }
-/* 1200px+: volta a coluna Turmas (9) */
+/* 1200px+: +Turmas +Aniversário (v417) */
 @media (min-width:1200px){
-  body[data-role="professor"] .erp-c-turmas{display:block !important}
-  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell{display:block !important}
+  body[data-role="professor"] .erp-c-turmas,
+  body[data-role="professor"] .erp-c-aniv{display:block !important}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-turmas-cell,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-aniv-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 40px minmax(160px,1.8fr) 72px minmax(120px,1fr) 96px 60px 76px 44px;
+    grid-template-columns: 40px minmax(150px,1.6fr) 72px minmax(110px,.9fr) 92px 56px 52px 52px 74px 44px;
   }
 }
-/* 1320px+: cabe a 10ª coluna (Faixa etária) */
+/* 1320px+: +Faixa etária +Faixa(presenças na) (v417) */
 @media (min-width:1320px){
-  body[data-role="professor"] .erp-c-etaria{display:block !important}
-  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell{display:block !important}
+  body[data-role="professor"] .erp-c-etaria,
+  body[data-role="professor"] .erp-c-faixapres{display:block !important}
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-etaria-cell,
+  body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-faixapres-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 40px minmax(180px,2fr) 76px 108px minmax(140px,1.2fr) 100px 64px 80px 44px;
+    grid-template-columns: 40px minmax(170px,1.8fr) 74px 92px minmax(130px,1.1fr) 92px 56px 52px 52px 52px 74px 44px;
   }
 }
 

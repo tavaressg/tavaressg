@@ -424,6 +424,42 @@
       if (Array.isArray(prods)) d.loja.produtos = prods;
     }),
 
+    // v416 (migration 0031): catálogo de técnicas vem do banco. RLS entrega globais
+    // (academy_id null status ativa) + da própria academia + as próprias pendentes.
+    // PRESERVA `usr-*` que já estão em DB.tecnicas (vindas do dump — técnicas
+    // customizadas do aluno vivem em tecnicasCustom via buildDump/applyDump).
+    // Se o pull falhar (rede/backend), o array atual (seed hardcoded como fallback)
+    // continua valendo — o app não fica sem catálogo.
+    pullTecnicas: wrap(async () => {
+      const d = DB(); if (!d) return;
+      const { data, error } = await SB.from('techniques')
+        .select('id,tradicao,familia,subfamilia,jp,pt,oficial,status,academy_id')
+        .order('familia');
+      if (error) throw error;
+      const arr = (data || []).map(t => ({
+        id: t.id, jp: t.jp, pt: t.pt || '', cat: t.familia,
+        sub: t.subfamilia || undefined, oficial: !!t.oficial,
+        _status: t.status, _acad: t.academy_id,
+      }));
+      // Preserva customizadas (usr-*) vindas do dump — o pull traz só as do banco.
+      const custom = (d.tecnicas || []).filter(t => t.id && t.id.indexOf('usr-') === 0);
+      d.tecnicas = arr.concat(custom);
+    }),
+    // Aluno propõe técnica nova → status='pendente' na própria academia. Só o
+    // professor edita/aprova (RLS techniques_update_prof). Hook pra o item 3 do
+    // plano (fluxo de validação); UI vai vir depois.
+    proporTecnica: wrap(async ({ jp, cat, sub, pt }) => {
+      const u = (await SB.auth.getUser()).data.user; if (!u) return null;
+      const acad = await myAcademyId();
+      const trad = ['nage','osaekomi','shime','kansetsu'].includes(cat) ? 'kodokan' : 'jiu-jitsu';
+      const id = 'usr-' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'').slice(0, 12) : String(Date.now()));
+      const { data, error } = await SB.from('techniques')
+        .insert({ id, academy_id: acad, tradicao: trad, familia: cat, subfamilia: sub || null, jp, pt: pt || null, status: 'pendente', created_by: u.id })
+        .select('id').single();
+      if (error) throw error;
+      return data && data.id;
+    }),
+
     // Aluno registra o pedido (pendente) ao finalizar no WhatsApp. A baixa de estoque
     // só acontece quando o PROFESSOR confirma (RPC confirmar_pedido). itens: [{produto_id,nome,tam,qtd,preco}].
     // txid (0030): identificador curto p/ conciliar com o extrato do banco — mesmo

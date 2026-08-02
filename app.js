@@ -577,55 +577,116 @@ const DB = {
   // biblioteca pessoal de técnicas — id estável (chave de persistência), jp=display, pt=tradução
   // Para "outros" (BJJ moderno) o jp aceita nome em PT/EN consagrado (sem japonês inventado).
   tecnicas: [
-    // v410: catálogo puro — sem placeholder de estado do aluno (nivel/treinos/ultima/ultimaRev/nota).
-    // Cada aluno começa zerado; anotação e progresso vêm do uso real do app.
-    // Tachi-waza · Nage-waza (quedas / projeções) — oficiais do Kodokan
-    { id:'nag-osoto', jp:'O-soto-gari', pt:'Grande ceifada externa', cat:'nage', oficial:true },
-    { id:'nag-ouchi', jp:'O-uchi-gari', pt:'Grande ceifada interna', cat:'nage', oficial:true },
-    { id:'nag-seoi', jp:'Seoi-nage', pt:'Projeção por sobre o ombro', cat:'nage', oficial:true },
-    { id:'nag-uchimata', jp:'Uchi-mata', pt:'Projeção por dentro da coxa', cat:'nage', oficial:true },
-    { id:'nag-tomoe', jp:'Tomoe-nage', pt:'Projeção em círculo (sacrifício)', cat:'nage', oficial:true },
-    { id:'nag-kanibasami', jp:'Kani-basami', pt:'Tesoura voadora', cat:'nage', oficial:true },
-    { id:'nag-obitori', jp:'Obi-tori-gaeshi', pt:'Inversão pegando a faixa', cat:'nage', oficial:true },
-    { id:'nag-tawara', jp:'Tawara-gaeshi', pt:'Inversão "fardo de arroz"', cat:'nage', oficial:true },
-    // Ne-waza · Osaekomi-waza (imobilizações / controle) — oficiais do Kodokan
-    { id:'osa-kesa', jp:'Kesa-gatame', pt:'Imobilização em echarpe', cat:'osaekomi', oficial:true },
-    { id:'osa-kuzure-kesa', jp:'Kuzure-kesa-gatame', pt:'Echarpe modificada', cat:'osaekomi', oficial:true },
-    { id:'osa-kata', jp:'Kata-gatame', pt:'Imobilização pelo ombro', cat:'osaekomi', oficial:true },
-    { id:'osa-kami', jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)', cat:'osaekomi', oficial:true },
-    { id:'osa-yoko', jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)', cat:'osaekomi', oficial:true },
-    { id:'osa-tate', jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)', cat:'osaekomi', oficial:true },
-    // Ne-waza · Shime-waza (estrangulamentos)
-    { id:'shi-hadaka', jp:'Hadaka-jime', pt:'Mata-leão', cat:'shime', oficial:true },
-    { id:'shi-okurieri', jp:'Okuri-eri-jime', pt:'Estrangulamento pela gola deslizante', cat:'shime', oficial:true },
-    { id:'shi-sankaku', jp:'Sankaku-jime', pt:'Triângulo', cat:'shime', oficial:true },
-    // Ne-waza · Kansetsu-waza (chaves articulares)
-    { id:'kan-juji', jp:'Juji-gatame', pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true },
-    { id:'kan-udegarami', jp:'Ude-garami', pt:'Chave de braço dobrada (kimura/americana)', cat:'kansetsu', oficial:true },
-    { id:'kan-waki', jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true },
-    // Kosen · ne-waza — guarda e jogo por baixo (Kodokan ou jargão documentado)
-    { id:'kos-hikikomi', jp:'Hikikomi', pt:'Puxada para a guarda', cat:'kosen', oficial:false },
-    { id:'kos-hikikomi-gaeshi', jp:'Hikikomi-gaeshi', pt:'Puxada com rolamento (raspagem)', cat:'kosen', oficial:false },
-    { id:'kos-dojime', jp:'Dō-jime', pt:'Tesoura de tronco', cat:'kosen', oficial:false },
-    { id:'kos-ashigarami', jp:'Ashi-garami', pt:'Entrelaçamento de pernas (chave de perna)', cat:'kosen', oficial:false },
-    { id:'kos-tate-sankaku', jp:'Tate-sankaku', pt:'Triângulo montado', cat:'kosen', oficial:false },
-    // Outros · BJJ moderno (nomes em PT consagrados, ou EN quando universal)
-    { id:'out-guarda-fechada', jp:'Guarda fechada', pt:'Closed guard', cat:'outros', oficial:false },
-    { id:'out-guarda-aberta', jp:'Guarda aberta', pt:'Open guard', cat:'outros', oficial:false },
-    { id:'out-meia-guarda', jp:'Meia-guarda', pt:'Half guard', cat:'outros', oficial:false },
-    { id:'out-tartaruga', jp:'Tartaruga', pt:'Turtle', cat:'outros', oficial:false },
-    { id:'out-guarda-borboleta', jp:'Guarda borboleta', pt:'Butterfly guard', cat:'outros', oficial:false },
-    { id:'out-guarda-aranha', jp:'Guarda aranha', pt:'Spider guard', cat:'outros', oficial:false },
-    { id:'out-delariva', jp:'De La Riva', pt:'Guarda De La Riva', cat:'outros', oficial:false },
-    { id:'out-zguard', jp:'Z-guard', pt:'Z-guard (knee shield)', cat:'outros', oficial:false },
-    { id:'out-rasp-pendulo', jp:'Raspagem do pêndulo', pt:'Pendulum sweep', cat:'outros', oficial:false },
-    { id:'out-rasp-tesoura', jp:'Raspagem de tesoura', pt:'Scissor sweep', cat:'outros', oficial:false },
-    { id:'out-rasp-borboleta', jp:'Raspagem da borboleta', pt:'Butterfly sweep', cat:'outros', oficial:false },
-    { id:'out-rasp-aranha', jp:'Raspagem da aranha', pt:'Spider sweep', cat:'outros', oficial:false },
-    { id:'out-rasp-delariva', jp:'Raspagem De La Riva', pt:'DLR sweep', cat:'outros', oficial:false },
-    { id:'out-berimbolo', jp:'Berimbolo', pt:'Berimbolo (inversão para as costas)', cat:'outros', oficial:false },
-    { id:'out-rasp-xguard', jp:'Raspagem X-guard', pt:'X-guard sweep', cat:'outros', oficial:false },
-    { id:'out-rasp-balao', jp:'Raspagem balão', pt:'Balloon sweep', cat:'outros', oficial:false },
+    // v413: taxonomia 2 tradições (Kodokan + Jiu-Jitsu). Kosen desativado — suas
+    // técnicas migraram pras categorias corretas. IDs mantidos estáveis (chave em
+    // technique_progress) — id nunca muda depois de criado; só o campo `cat` muda.
+    // v410: sem placeholder de estado (nivel/treinos/ultima/nota). Aluno começa zerado.
+
+    // ============ KODOKAN · Nage-waza (projeções) ============
+    // v415: sub-grupo Kodokan oficial (Te/Koshi/Ashi/Sutemi-waza). Sub só existe
+    // pra Nage-waza — as outras 3 famílias Kodokan não têm subdivisão comparável.
+    // Te-waza · mão/braço
+    { id:'nag-seoi',        jp:'Seoi-nage',         pt:'Projeção pelo ombro',           cat:'nage', sub:'te',    oficial:true },
+    { id:'nag-ipponseoi',   jp:'Ippon-seoi-nage',   pt:'Projeção pelo ombro (1 braço)', cat:'nage', sub:'te',    oficial:true },
+    { id:'nag-taiotoshi',   jp:'Tai-otoshi',        pt:'Derrubada do corpo',            cat:'nage', sub:'te',    oficial:true },
+    // Koshi-waza · quadril
+    { id:'nag-ogoshi',      jp:'O-goshi',           pt:'Grande jogada de quadril',      cat:'nage', sub:'koshi', oficial:true },
+    { id:'nag-ukigoshi',    jp:'Uki-goshi',         pt:'Quadril flutuante',             cat:'nage', sub:'koshi', oficial:true },
+    { id:'nag-haraigoshi',  jp:'Harai-goshi',       pt:'Varrida de quadril',            cat:'nage', sub:'koshi', oficial:true },
+    { id:'nag-hanegoshi',   jp:'Hane-goshi',        pt:'Salto de quadril',              cat:'nage', sub:'koshi', oficial:true },
+    // Ashi-waza · perna
+    { id:'nag-osoto',       jp:'O-soto-gari',       pt:'Grande ceifada externa',        cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-ouchi',       jp:'O-uchi-gari',       pt:'Grande ceifada interna',        cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-kosoto',      jp:'Ko-soto-gari',      pt:'Pequena ceifada externa',       cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-kouchi',      jp:'Ko-uchi-gari',      pt:'Pequena ceifada interna',       cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-deashi',      jp:'De-ashi-barai',     pt:'Varrida do pé avançado',        cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-sasae',       jp:'Sasae-tsurikomi-ashi', pt:'Bloqueio de tornozelo',      cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-hizaguruma',  jp:'Hiza-guruma',       pt:'Roda de joelho',                cat:'nage', sub:'ashi',  oficial:true },
+    { id:'nag-uchimata',    jp:'Uchi-mata',         pt:'Projeção pela coxa interna',    cat:'nage', sub:'ashi',  oficial:true },
+    // Sutemi-waza · sacrifício (Ma + Yoko unidos — o gesto do "cair pra derrubar")
+    { id:'nag-tomoe',       jp:'Tomoe-nage',        pt:'Projeção em círculo',           cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-sumigaeshi',  jp:'Sumi-gaeshi',       pt:'Inversão de canto',             cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-uranage',     jp:'Ura-nage',          pt:'Projeção invertida',            cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-tawara',      jp:'Tawara-gaeshi',     pt:'Inversão fardo de arroz',       cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-yokootoshi',  jp:'Yoko-otoshi',       pt:'Derrubada lateral',             cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-taniotoshi',  jp:'Tani-otoshi',       pt:'Derrubada no vale',             cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-kanibasami',  jp:'Kani-basami',       pt:'Tesoura de caranguejo',         cat:'nage', sub:'sutemi', oficial:true },
+    { id:'nag-obitori',     jp:'Obi-tori-gaeshi',   pt:'Inversão pegando a faixa',      cat:'nage', sub:'sutemi', oficial:true },
+
+    // ============ KODOKAN · Osaekomi-waza (imobilizações) ============
+    { id:'osa-kesa',        jp:'Kesa-gatame',       pt:'Imobilização em echarpe',       cat:'osaekomi', oficial:true },
+    { id:'osa-kuzure-kesa', jp:'Kuzure-kesa-gatame',pt:'Echarpe modificada',            cat:'osaekomi', oficial:true },
+    { id:'osa-ushiro-kesa', jp:'Ushiro-kesa-gatame',pt:'Echarpe reversa',               cat:'osaekomi', oficial:true },
+    { id:'osa-kata',        jp:'Kata-gatame',       pt:'Imobilização pelo ombro',       cat:'osaekomi', oficial:true },
+    { id:'osa-kami',        jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)',        cat:'osaekomi', oficial:true },
+    { id:'osa-kuzure-kami', jp:'Kuzure-kami-shiho-gatame', pt:'Norte-sul modificado',   cat:'osaekomi', oficial:true },
+    { id:'osa-yoko',        jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)',  cat:'osaekomi', oficial:true },
+    { id:'osa-tate',        jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)',  cat:'osaekomi', oficial:true },
+    { id:'osa-ura',         jp:'Ura-gatame',        pt:'Imobilização invertida',        cat:'osaekomi', oficial:true },
+
+    // ============ KODOKAN · Shime-waza (estrangulamentos) ============
+    { id:'shi-hadaka',      jp:'Hadaka-jime',       pt:'Mata-leão',                     cat:'shime', oficial:true },
+    { id:'shi-okurieri',    jp:'Okuri-eri-jime',    pt:'Estrangulamento pela gola',     cat:'shime', oficial:true },
+    { id:'shi-kataha',      jp:'Kata-ha-jime',      pt:'Estrangulamento de uma asa',    cat:'shime', oficial:true },
+    { id:'shi-sankaku',     jp:'Sankaku-jime',      pt:'Triângulo',                     cat:'shime', oficial:true },
+    { id:'shi-namijuji',    jp:'Nami-juji-jime',    pt:'Cruzado normal (colar)',        cat:'shime', oficial:true },
+    { id:'shi-gyakujuji',   jp:'Gyaku-juji-jime',   pt:'Cruzado invertido',             cat:'shime', oficial:true },
+    { id:'shi-dojime',      jp:'Dō-jime',           pt:'Tesoura de tronco',             cat:'shime', oficial:true },   // era Kosen (v413)
+
+    // ============ KODOKAN · Kansetsu-waza (luxações) ============
+    { id:'kan-juji',        jp:'Juji-gatame',       pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true },
+    { id:'kan-udegarami',   jp:'Ude-garami',        pt:'Chave dobrada (kimura/americana)', cat:'kansetsu', oficial:true },
+    { id:'kan-waki',        jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true },
+    { id:'kan-hiza',        jp:'Ude-hishigi-hiza-gatame', pt:'Chave de joelho no braço',   cat:'kansetsu', oficial:true },
+    { id:'kan-ude',         jp:'Ude-hishigi-ude-gatame',  pt:'Chave estendendo o braço',   cat:'kansetsu', oficial:true },
+    { id:'kan-ashigarami',  jp:'Ashi-garami',       pt:'Chave de perna (entrelace)',    cat:'kansetsu', oficial:true },   // era Kosen (v413)
+
+    // ============ JIU-JITSU · Guardas ============
+    { id:'gua-fechada',     jp:'Guarda fechada',    pt:'Closed guard',                  cat:'guarda', oficial:false },
+    { id:'gua-aberta',      jp:'Guarda aberta',     pt:'Open guard',                    cat:'guarda', oficial:false },
+    { id:'gua-meia',        jp:'Meia-guarda',       pt:'Half guard',                    cat:'guarda', oficial:false },
+    { id:'gua-borboleta',   jp:'Guarda borboleta',  pt:'Butterfly guard',               cat:'guarda', oficial:false },
+    { id:'gua-aranha',      jp:'Guarda aranha',     pt:'Spider guard',                  cat:'guarda', oficial:false },
+    { id:'gua-delariva',    jp:'De La Riva',        pt:'Guarda De La Riva',             cat:'guarda', oficial:false },
+    { id:'gua-zguard',      jp:'Z-guard',           pt:'Z-guard (knee shield)',         cat:'guarda', oficial:false },
+    { id:'gua-xguard',      jp:'X-guard',           pt:'X-guard (Marcelo Garcia)',      cat:'guarda', oficial:false },
+    { id:'gua-tartaruga',   jp:'Tartaruga',         pt:'Turtle',                        cat:'guarda', oficial:false },
+    { id:'gua-hikikomi',    jp:'Hikikomi',          pt:'Puxada para a guarda',          cat:'guarda', oficial:false },   // era Kosen (v413)
+    { id:'gua-tate-sankaku',jp:'Tate-sankaku',      pt:'Triângulo montado',             cat:'guarda', oficial:false },   // era Kosen (v413)
+
+    // ============ JIU-JITSU · Raspagens ============
+    { id:'rasp-pendulo',    jp:'Raspagem do pêndulo', pt:'Pendulum sweep',              cat:'raspagem', oficial:false },
+    { id:'rasp-tesoura',    jp:'Raspagem de tesoura', pt:'Scissor sweep',               cat:'raspagem', oficial:false },
+    { id:'rasp-borboleta',  jp:'Raspagem da borboleta', pt:'Butterfly sweep',           cat:'raspagem', oficial:false },
+    { id:'rasp-aranha',     jp:'Raspagem da aranha', pt:'Spider sweep',                 cat:'raspagem', oficial:false },
+    { id:'rasp-delariva',   jp:'Raspagem De La Riva', pt:'DLR sweep',                   cat:'raspagem', oficial:false },
+    { id:'rasp-xguard',     jp:'Raspagem X-guard',  pt:'X-guard sweep',                 cat:'raspagem', oficial:false },
+    { id:'rasp-balao',      jp:'Raspagem balão',    pt:'Balloon sweep',                 cat:'raspagem', oficial:false },
+    { id:'rasp-berimbolo',  jp:'Berimbolo',         pt:'Inversão para as costas',       cat:'raspagem', oficial:false },
+    { id:'rasp-hikikomi',   jp:'Hikikomi-gaeshi',   pt:'Puxada com rolamento',          cat:'raspagem', oficial:false },   // era Kosen (v413)
+
+    // ============ JIU-JITSU · Passagens de guarda ============
+    { id:'pas-toureiro',    jp:'Passagem toureiro', pt:'Bullfighter pass',              cat:'passagem', oficial:false },
+    { id:'pas-joelho',      jp:'Passagem no joelho', pt:'Knee slice pass',              cat:'passagem', oficial:false },
+    { id:'pas-apertada',    jp:'Passagem apertada', pt:'Over-under pass',               cat:'passagem', oficial:false },
+    { id:'pas-em-pe',       jp:'Passagem em pé',    pt:'Standing pass',                 cat:'passagem', oficial:false },   // v414
+    { id:'pas-leg-drag',    jp:'Leg drag',          pt:'Passagem arrastando a perna',   cat:'passagem', oficial:false },   // v414
+
+    // ============ JIU-JITSU · Básicas (fundamentos de faixa branca) ============
+    // v414: categoria "Escapes" absorvida aqui — fuga é fundamento de faixa branca.
+    { id:'bas-postura',     jp:'Postura na guarda', pt:'Postura em pé na guarda fechada', cat:'basico', oficial:false },
+    { id:'bas-quebrar',     jp:'Quebrar postura',   pt:'Puxar a cabeça pra baixo',      cat:'basico', oficial:false },
+    { id:'bas-pegada',      jp:'Pegada colar-manga', pt:'Cross collar + sleeve grip',    cat:'basico', oficial:false },
+    { id:'bas-ponte',       jp:'Ponte (upa)',       pt:'Bridge — movimento base',       cat:'basico', oficial:false },
+    { id:'bas-quadril',     jp:'Fuga de quadril',   pt:'Shrimp — hip escape',           cat:'basico', oficial:false },
+    { id:'bas-tecnica-up',  jp:'Levantada técnica', pt:'Technical stand-up',            cat:'basico', oficial:false },
+    // IDs 'esc-*' preservados: v413→v414 mudou só cat=escape → cat=basico. Progresso
+    // dos alunos (technique_progress.tecnica_id) continua ligado nas mesmas técnicas.
+    { id:'esc-mount',       jp:'Fuga do mount',     pt:'Upa + ponte',                   cat:'basico', oficial:false },
+    { id:'esc-side',        jp:'Fuga de 100kg',     pt:'Escape de side control',        cat:'basico', oficial:false },
+    { id:'esc-costas',      jp:'Fuga das costas',   pt:'Back escape',                   cat:'basico', oficial:false },
+    { id:'esc-triangulo',   jp:'Defesa do triângulo', pt:'Postura + postura',           cat:'basico', oficial:false },
+    { id:'esc-armlock',     jp:'Defesa do armlock', pt:'Esconder o cotovelo',           cat:'basico', oficial:false },
   ],
 
   // Sistemas de jogo — técnicas conectadas no seu jogo (do controle à finalização)
@@ -1171,7 +1232,7 @@ function rtLimpar(jp){ const t=tecByKey(jp); if(t){ t.hojeA=0; t.hojeT=0; } _upd
 function tecnicaFocoCard(t){
   const errou=(t.hojeT||0)-(t.hojeA||0);
   const card=el(`<div class="rs-pcard" data-jp="${safeAttr(t.jp)}">
-    <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${safeTxt(t.jp)}</span><div class="rs-sub">${safeTxt(t.pt||'')}</div></div>
+    <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${safeTxt(t.jp)}</span></div>
       <div class="rs-acts">${(t.hojeT||0)>0?`<button class="rs-reset" data-act="limpar">limpar</button>`:''}</div></div>
     <div class="rs-row ok"><span>Deu certo!</span>
       <div class="rs-stepper"><button data-act="a-">−</button><b>${t.hojeA||0}</b><button class="plus" data-act="a+">＋</button></div></div>
@@ -1320,7 +1381,7 @@ function rsAddFoco(){
   </div></div>`);
   const list = sheet.querySelector('#rs-picklist');
   cands.forEach(({t})=>{
-    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')} · ${plural(t.treinos||0,'treino','treinos')}</div></div><span class="rs-pk-go">＋</span></div>`);
+    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${plural(t.treinos||0,'treino','treinos')}</div></div><span class="rs-pk-go">＋</span></div>`);
     row.onclick=()=>{ if(t.estado==='foco') return; t.estado='foco'; track('foco_add',{jp:t.jp}); scheduleSave(); _syncEstado(); sheet.remove(); render(); toast('No foco — bora praticar'); };
     list.appendChild(row);
   });
@@ -2619,12 +2680,23 @@ function evoluirAnalise(){
   const ativas = DB.tecnicas.filter(t=>t.estado==='foco'||t.estado==='arma');
   const meta = metaLinha();
 
-  // ===== Acerto geral no tempo (agregado foco + arsenal) — topo =====
+  // Agregado 30d (foco + arsenal). Se tudo zero → estado vazio.
   const agg = [];
   for(let i=0;i<30;i++){ let a=0,tt=0,dia='';
     ativas.forEach(t=>{ const d=(t.dias||[])[i]; if(d){ a+=d.a; tt+=d.t; dia=d.dia; } });
     agg.push({a,t:tt,dia}); }
   const aggTot = agg.reduce((s,d)=>({a:s.a+d.a,t:s.t+d.t}),{a:0,t:0});
+
+  // v412: aluno sem dados vê UMA tela minimalista. Antes eram 4 seções zeradas.
+  if(aggTot.t===0){
+    w.appendChild(el(`<div class="prog-empty" style="margin-top:40px;text-align:center;padding:40px 30px">
+      <div style="font-size:38px;margin-bottom:10px">🥋</div>
+      <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:6px">Sua análise aparece aqui</div>
+      <div style="color:var(--muted);font-size:13px;line-height:1.5">Pratique algumas técnicas no Renshū (aba <b>Registrar</b>) — depois de uns treinos, este espaço mostra seu acerto, arsenal e domínio por categoria.</div>
+    </div>`));
+    return w;
+  }
+
   const aggP = _pctAT(aggTot.a, aggTot.t);
   w.appendChild(el(`<div class="sec-title" style="margin-top:6px">Acerto geral no tempo</div>`));
   const aggCard = el(`<div class="sc-card" style="margin:0 20px 16px"></div>`);
@@ -2632,22 +2704,15 @@ function evoluirAnalise(){
   aggCard.appendChild(dayChartNode(agg));
   w.appendChild(aggCard);
 
-  // ===== KPIs focados em técnica =====
+  // v412: KPI reduzido a 1 tile útil ("No arsenal"). "Técnicas" e "Acerto médio"
+  // saíram — duplicavam a Biblioteca e o card de acerto acima.
   const arsenalArr = ativas.map(t=>({t,...totaisTec(t)})).filter(x=>x.T>0 && x.p>=meta).sort((a,b)=>b.p-a.p);
-  const acertoMedio = Math.round(_media(ativas.map(t=>totaisTec(t).p)));
-  w.appendChild(el(`<div class="kpis block">
-    <div class="kpi"><div class="v blue">${DB.tecnicas.length}</div><div class="l">Técnicas</div></div>
-    <div class="kpi"><div class="v red">${arsenalArr.length}</div><div class="l">No arsenal</div></div>
-    <div class="kpi"><div class="v green">${acertoMedio}%</div><div class="l">Acerto médio</div></div>
-  </div>`));
-
-  // ===== Arsenal confiável (técnicas acima da média — vindo do Seu Jogo) =====
-  w.appendChild(el(`<div class="sec-title" style="margin-top:14px">Arsenal confiável</div>`));
+  w.appendChild(el(`<div class="sec-title" style="margin-top:14px">Arsenal confiável · ${arsenalArr.length}</div>`));
   if (arsenalArr.length){
     const al = el(`<div class="arsenal-list"></div>`);
     arsenalArr.forEach(({t,p})=>{
       const row = el(`<div class="ars-row">
-        <div class="ars-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')}</div></div>
+        <div class="ars-tx"><div class="tn">${safeTxt(t.jp)}</div></div>
         <div class="ars-bar"><span style="width:${p}%"></span></div>
         <span class="ars-pct">${p}%</span></div>`);
       const i = DB.tecnicas.findIndex(x=>x.jp===t.jp);
@@ -2659,15 +2724,19 @@ function evoluirAnalise(){
     w.appendChild(el(`<div class="prog-empty">Nenhuma técnica acima da média ainda — siga praticando no Renshū.</div>`));
   }
 
-  // domínio por categoria (o que já aprendi)
+  // v412: domínio esconde categorias com 0 progresso (só técnicas 'novo' viram
+  // 3 barras vazias — ruído). Categoria entra se tem alguma aprendendo+.
   w.appendChild(el(`<div class="sec-title" style="margin-top:16px">Domínio por categoria</div>`));
   const dom = el(`<div class="dom-list"></div>`);
+  let dcount = 0;
   CAT_ORDER.forEach(cat=>{
     const itens = DB.tecnicas.filter(t=>t.cat===cat);
     if (!itens.length) return;
     const d = itens.filter(t=>nivelDe(t)==='dominada').length;
     const tr = itens.filter(t=>nivelDe(t)==='treinando').length;
     const ap = itens.filter(t=>nivelDe(t)==='aprendendo').length;
+    if(d+tr+ap===0) return;   // categoria sem progresso não vira barra
+    dcount++;
     const tot = itens.length;
     const row = el(`<div class="dom-row">
       <div class="dom-top"><span class="dom-nm">${CATS[cat].emoji} ${CATS[cat].nome}</span><span class="dom-ct">${tot}</span></div>
@@ -2680,6 +2749,7 @@ function evoluirAnalise(){
     </div>`);
     dom.appendChild(row);
   });
+  if(!dcount) dom.appendChild(el(`<div class="prog-empty">Nenhuma categoria com progresso ainda.</div>`));
   w.appendChild(dom);
   w.appendChild(el(`<div style="height:18px"></div>`));
   return w;
@@ -2703,7 +2773,7 @@ function dayChartNode(dias){
   });
   const defCap = `hoje (${last.dia}) · <b>${_pctAT(last.a,last.t)}%</b>`;
   const node = el(`<div class="dchart">
-    <div class="dchart-leg"><span class="dl-key"><i class="dl-sw dl-above"></i> acima da média</span><span class="dl-key"><i class="dl-sw dl-below"></i> abaixo</span><span class="dl-key dl-meta"><i class="dl-dash"></i> média · ${meta}%</span></div>
+    <div class="dchart-leg" style="font-size:11px;color:var(--muted);font-weight:600">acima / abaixo da média · linha = ${meta}%</div>
     <div class="dplot"><div class="bmeta" style="bottom:${meta}%"></div>${bars}</div>
     <div class="dlabs">${labs}</div>
     <div class="wk-cap">${defCap}</div>
@@ -2788,7 +2858,7 @@ function bibConnectSub(de){
   </div></div>`);
   const list = sheet.querySelector('#bc-list');
   cands.forEach(t=>{
-    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div><div class="ts">${safeTxt(t.pt||'')}</div></div><span class="rs-pk-go">＋</span></div>`);
+    const row = el(`<div class="rs-pick"><div class="rs-pk-tx"><div class="tn">${safeTxt(t.jp)}</div></div><span class="rs-pk-go">＋</span></div>`);
     row.onclick=()=>{ DB.links.push({de, para:(t.id||t.jp)}); sheet.remove(); render(); toast('Subtécnica conectada'); };
     list.appendChild(row);
   });
@@ -2804,33 +2874,8 @@ function evoluirBiblioteca(){
   const cont = { novo:0, aprendendo:0, treinando:0, dominada:0 };
   DB.tecnicas.forEach(t=>{ const nv=nivelDe(t); if(cont[nv]!=null) cont[nv]++; });
 
-  // KPIs (3 colunas dos níveis com progresso real)
-  w.appendChild(el(`<div class="kpis block" style="margin-top:6px">
-    <div class="kpi"><div class="v gold">${cont.aprendendo}</div><div class="l">Aprendendo</div></div>
-    <div class="kpi"><div class="v blue">${cont.treinando}</div><div class="l">Treinando</div></div>
-    <div class="kpi"><div class="v green">${cont.dominada}</div><div class="l">Dominadas</div></div>
-  </div>`));
-
-  // 🔁 Revisão espaçada
-  const due = tecnicasParaRevisar();
-  if (due.length){
-    w.appendChild(el(`<div class="sec-row"><div class="sec-title" style="margin:0">🔁 Revisar · ${due.length}</div>
-      <span style="font-size:12px;color:var(--muted);font-weight:700">faz tempo que não treina</span></div>`));
-    const rl = el(`<div class="tec-list"></div>`);
-    due.slice(0,4).forEach(({t,i,dias})=>{
-      const row = el(`<div class="tec-row rev-row">
-        <div class="tec-ic rev-ic">🔁</div>
-        <div class="tec-tx"><div class="tn">${safeTxt(t.jp)}</div>
-          <div class="ts">${safeTxt(t.pt)} · faz ${dias} dias</div></div>
-        <button class="rev-ok" title="Revisei">✓</button></div>`);
-      row.querySelector('.rev-ok').onclick = (e)=>{ e.stopPropagation(); marcarRevisado(i); };
-      row.onclick = ()=> bibToggle(t.jp);
-      rl.appendChild(row);
-    });
-    w.appendChild(rl);
-  }
-
-  // adicionar técnica
+  // adicionar técnica (v412: KPI topo e bloco Revisar separado removidos — filtros
+  // abaixo já mostram esses números; o dot vermelho no card sinaliza revisão).
   const addBtn = el(`<button class="add-tec-btn">＋ Adicionar técnica</button>`);
   addBtn.onclick = ()=> abrirEditorTecnica(null);
   w.appendChild(addBtn);
@@ -2849,11 +2894,14 @@ function evoluirBiblioteca(){
   if(DB._bibQ){ searchInp.value = DB._bibQ; searchClr.hidden = false; }
   searchClr.onclick = ()=>{ searchInp.value=''; DB._bibQ=''; searchClr.hidden=true; searchInp.dispatchEvent(new Event('input')); searchInp.focus(); };
 
+  // v412: "Catálogo" (=sem filtro, mostra tudo) fica ativo por default.
+  // Clicar em outro chip filtra por nível; clicar em Catálogo volta pra tudo.
+  // Sem estado "nenhum ativo" — evita chip flutuante sem sinalização.
   const bibNivel = DB._bibNivel || null;
   const fbar = el(`<div class="bib-filter-bar"></div>`);
-  [['novo','Catálogo','muted',cont.novo],['aprendendo','Aprendendo','gold',cont.aprendendo],['treinando','Treinando','blue',cont.treinando],['dominada','Dominadas','green',cont.dominada]].forEach(([id,l,cls,n])=>{
+  [[null,'Catálogo','muted',DB.tecnicas.length],['aprendendo','Aprendendo','gold',cont.aprendendo],['treinando','Treinando','blue',cont.treinando],['dominada','Dominadas','green',cont.dominada]].forEach(([id,l,cls,n])=>{
     const b = el(`<button class="bib-fchip ${cls} ${bibNivel===id?'on':''}">${l} · ${n}</button>`);
-    b.onclick = ()=>{ DB._bibNivel = bibNivel===id ? null : id; render(); };
+    b.onclick = ()=>{ if(bibNivel!==id){ DB._bibNivel = id; render(); } };
     fbar.appendChild(b);
   });
   w.appendChild(fbar);
@@ -2863,34 +2911,57 @@ function evoluirBiblioteca(){
 
   const filterByNivel = (arr)=> bibNivel ? arr.filter(t=>nivelDe(t)===bibNivel) : arr;
 
-  // 📚 Catálogo — por categoria, accordion fechado, 1 categoria por vez
+  // 📚 Catálogo (v413) — agrupado por tradição (Kodokan / Jiu-Jitsu). Cada
+  // tradição vira um cabeçalho fixo; famílias dentro são accordion como antes.
   const catBlock = el(`<div></div>`);
-  catBlock.appendChild(el(`<div class="bib-div">📚 Catálogo · por categoria</div>`));
-  CAT_ORDER.forEach(cat=>{
-    const itensTotais = DB.tecnicas.filter(t=>t.cat===cat);
-    const itens = filterByNivel(itensTotais);
-    if(!itensTotais.length) return;
-    const c = CATS[cat];
-    const open = DB.bibCat===cat;
-    const dueN = itens.filter(t=>(t.treinos||0)>0 && revInfo(t).due).length;
-    const tagCls = cat==='outros' ? 'mod' : (cat==='kosen' ? 'kosen' : 'oficial');
-    const tagTxt = cat==='outros' ? 'BJJ moderno' : (cat==='kosen' ? 'não-oficial' : 'Kodokan');
-    const head = el(`<div class="cat-acc ${open?'open':''} ${bibNivel && !itens.length?'dim':''}" data-cat="${cat}">
-      <div class="cat-emoji" title="${c.nome}">${c.emoji}</div>
-      <div class="cat-tx"><div class="cn">${c.nome}</div><div class="cs">${c.sub}</div></div>
-      ${dueN?`<span class="cat-due" title="a revisar">${dueN}🔁</span>`:''}
-      <span class="cat-tag ${tagCls}">${tagTxt}</span>
-      <span class="cat-acc-n">${bibNivel?`${itens.length}/${itensTotais.length}`:itensTotais.length}</span>
-      <span class="cat-caret">${open?'⌄':'›'}</span>
-    </div>`);
-    head.onclick = ()=>{ DB.bibCat = open?null:cat; DB.bibExp=null; render(); };
-    catBlock.appendChild(head);
-    if(open){
-      const children = el(`<div class="cat-children"></div>`);
-      if(!itens.length){ children.appendChild(el(`<div class="empty-line" style="padding:10px 20px">Nenhuma técnica nesse filtro</div>`)); }
-      else itens.forEach(t=> children.appendChild(bibCardNode(t, t.estado)));
-      catBlock.appendChild(children);
-    }
+  TRADICOES_ORDER.forEach(tradKey=>{
+    const trad = TRADICOES[tradKey];
+    const famsDaTrad = CAT_ORDER.filter(c=> CATS[c].trad===tradKey);
+    // Header da tradição só aparece se pelo menos uma técnica dela existe.
+    if(!famsDaTrad.some(c=> DB.tecnicas.some(t=>t.cat===c))) return;
+    catBlock.appendChild(el(`<div class="bib-div">${safeTxt(trad.nome)} · ${safeTxt(trad.sub)}</div>`));
+    famsDaTrad.forEach(cat=>{
+      const itensTotais = DB.tecnicas.filter(t=>t.cat===cat);
+      const itens = filterByNivel(itensTotais);
+      if(!itensTotais.length) return;
+      const c = CATS[cat];
+      const open = DB.bibCat===cat;
+      const dueN = itens.filter(t=>(t.treinos||0)>0 && revInfo(t).due).length;
+      const head = el(`<div class="cat-acc ${open?'open':''} ${bibNivel && !itens.length?'dim':''}" data-cat="${cat}">
+        <div class="cat-emoji" title="${c.nome}">${c.emoji}</div>
+        <div class="cat-tx"><div class="cn">${c.nome}</div><div class="cs">${c.sub}</div></div>
+        ${dueN?`<span class="cat-due" title="a revisar">${dueN}🔁</span>`:''}
+        <span class="cat-acc-n">${bibNivel?`${itens.length}/${itensTotais.length}`:itensTotais.length}</span>
+        <span class="cat-caret">${open?'⌄':'›'}</span>
+      </div>`);
+      head.onclick = ()=>{ DB.bibCat = open?null:cat; DB.bibExp=null; render(); };
+      catBlock.appendChild(head);
+      if(open){
+        const children = el(`<div class="cat-children"></div>`);
+        if(!itens.length){ children.appendChild(el(`<div class="empty-line" style="padding:10px 20px">Nenhuma técnica nesse filtro</div>`)); }
+        else if(cat==='nage'){
+          // v415: Nage-waza aberto vira sub-accordion Te/Koshi/Ashi/Sutemi.
+          // Outras famílias ficam plano — só o Nage tem sub-taxonomia comparável.
+          NAGE_SUB_ORDER.forEach(subKey=>{
+            const subInfo = NAGE_SUB[subKey];
+            const subItens = itens.filter(t=>t.sub===subKey);
+            if(!subItens.length) return;
+            const subOpen = DB.bibNageSub===subKey;
+            const subHead = el(`<div class="cat-acc sub-acc ${subOpen?'open':''}">
+              <div class="cat-emoji" title="${subInfo.nome}">${subInfo.emoji}</div>
+              <div class="cat-tx"><div class="cn">${subInfo.nome}</div><div class="cs">${subInfo.sub}</div></div>
+              <span class="cat-acc-n">${subItens.length}</span>
+              <span class="cat-caret">${subOpen?'⌄':'›'}</span>
+            </div>`);
+            subHead.onclick = ()=>{ DB.bibNageSub = subOpen?null:subKey; DB.bibExp=null; render(); };
+            children.appendChild(subHead);
+            if(subOpen) subItens.forEach(t=> children.appendChild(bibCardNode(t, t.estado)));
+          });
+        }
+        else itens.forEach(t=> children.appendChild(bibCardNode(t, t.estado)));
+        catBlock.appendChild(children);
+      }
+    });
   });
   w.appendChild(catBlock);
 
@@ -2931,24 +3002,19 @@ function bibCardNode(t, st){
     <div class="rep-row">
       <span class="rep-dot dot-${nvColor}" title="${NIVEIS[nv]?NIVEIS[nv][0]:''}"></span>
       <div class="rep-tx"><div class="rep-nm">${safeTxt(t.jp)}${r.due?' <span class="rev-dot" title="revisar"></span>':''}</div>
-        <div class="rep-st">${safeTxt(t.pt||'')} · ${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}${isCustom?' · customizada':''}</div></div>
+        <div class="rep-st">${stat}${subs.length?` · ${subs.length} sub`:''}${pres.length?` · ${pres.length} pré`:''}${isCustom?' · customizada':''}</div></div>
       <span class="rep-caret">${exp?'⌄':'›'}</span>
     </div>
     ${exp?`<div class="rep-sub">
-      <div class="rs-lab">Estatísticas</div>
-      ${bibStats(t)}
+      ${T>0?`<div class="rs-lab">Estatísticas</div>${bibStats(t)}`:''}
       ${t.nota?`<div class="rs-lab">Sua anotação</div><div class="det-nota">${safeTxt(t.nota)}</div>`:''}
-      <div class="rs-lab">Revisão espaçada</div>
-      <div class="bib-rev ${r.due?'due':''}">${r.due?`faz ${r.dias} dias — passou do intervalo de ${r.alvo}d`:`em dia · revisada faz ${r.dias}d (intervalo ${r.alvo}d)`}</div>
+      ${r.due?`<div class="rs-lab">Revisão espaçada</div><div class="bib-rev due">faz ${r.dias} dias — passou do intervalo de ${r.alvo}d</div>`:''}
       ${st==='guardada'?`<button class="rs-add voltar" data-act="voltar">↩ voltar a praticar</button>`:(st==='aprendida'?`<button class="rs-add voltar" data-act="voltar">＋ colocar no foco</button>`:'')}
-      <div class="rs-lab">Vem de (pré-técnicas)</div>
-      ${pres.length?pres.map(s=>`<div class="rs-item"><span>${safeTxt(_tecLabel(s))} →</span><button data-del-de="${safeAttr(s)}" data-del-para="${safeAttr(key)}">✕</button></div>`).join(''):'<div class="rs-empty">nada apontando pra cá ainda</div>'}
-      <div class="rs-lab">Leva pra (subtécnicas)</div>
-      ${subs.length?subs.map(s=>`<div class="rs-item"><span>→ ${safeTxt(_tecLabel(s))}</span><button data-del-de="${safeAttr(key)}" data-del-para="${safeAttr(s)}">✕</button></div>`).join(''):'<div class="rs-empty">nenhuma ainda</div>'}
+      ${pres.length?`<div class="rs-lab">Vem de (pré-técnicas)</div>${pres.map(s=>`<div class="rs-item"><span>${safeTxt(_tecLabel(s))} →</span><button data-del-de="${safeAttr(s)}" data-del-para="${safeAttr(key)}">✕</button></div>`).join('')}`:''}
+      ${subs.length?`<div class="rs-lab">Leva pra (subtécnicas)</div>${subs.map(s=>`<div class="rs-item"><span>→ ${safeTxt(_tecLabel(s))}</span><button data-del-de="${safeAttr(key)}" data-del-para="${safeAttr(s)}">✕</button></div>`).join('')}`:''}
       <button class="rs-add" data-act="connect">＋ conectar subtécnica</button>
       <div class="bib-actions">
         <button class="bib-btn" data-act="revisar">Marcar revisado</button>
-        <button class="bib-btn ghost" data-act="editar">Editar</button>
       </div>
       ${isCustom?`<div class="rep-del-row"><button class="rep-del-btn" data-act="excluir">🗑️ Excluir técnica</button></div>`:''}
     </div>`:''}
@@ -2969,7 +3035,6 @@ function bibCardNode(t, st){
     const av=card.querySelector('[data-act="voltar"]');  if(av) av.onclick=(e)=>{ e.stopPropagation(); bibVoltarFoco(t.jp); };
     card.querySelector('[data-act="connect"]').onclick=(e)=>{ e.stopPropagation(); bibConnectSub(key); };
     card.querySelector('[data-act="revisar"]').onclick=(e)=>{ e.stopPropagation(); bibRevisar(t.jp); };
-    card.querySelector('[data-act="editar"]').onclick=(e)=>{ e.stopPropagation(); bibEditar(t.jp); };
     const dl=card.querySelector('[data-act="excluir"]'); if(dl) dl.onclick=(e)=>{ e.stopPropagation(); bibExcluirCustom(t.id); };
   }
   return card;
@@ -3284,18 +3349,40 @@ function abrirImportGrad(){
 
 /* ---- Sub-aba: TÉCNICAS (biblioteca) ---- */
 const NIVEIS = { novo:['Catálogo','muted'], aprendendo:['Aprendendo','gold'], treinando:['Treinando','blue'], dominada:['Dominada','green'] };
-// Categorias no continuum da arte única — do em pé ao chão
-// Categorias — taxonomia Kodokan oficial (referência: CBJ + Kodokan Judo Institute).
-// `kanji` = caractere principal do nome da categoria. `sub` = tradução PT documentada.
+// Taxonomia (v413): 2 tradições × famílias. Kodokan segue o Judo Institute
+// (nage/osaekomi/shime/kansetsu). Jiu-Jitsu agrupa por função no jogo — guardas,
+// raspagens, passagens, escapes e básicas de faixa branca (não são Kodokan mas
+// são o vocabulário real da academia de BJJ). Kosen deixou de existir na v413:
+// suas 5 técnicas migraram pra Kodokan (Dō-jime→shime, Ashi-garami→kansetsu) ou
+// Jiu-Jitsu (Hikikomi/Hikikomi-gaeshi→guarda/raspagem, Tate-sankaku→guarda).
 const CATS = {
-  nage:     { nome:'Nage-waza', sub:'Técnicas de projeção', emoji:'投' },
-  osaekomi: { nome:'Osaekomi-waza', sub:'Técnicas de imobilização (solo)', emoji:'押' },
-  shime:    { nome:'Shime-waza', sub:'Técnicas de estrangulamento', emoji:'絞' },
-  kansetsu: { nome:'Kansetsu-waza', sub:'Técnicas de luxação articular', emoji:'関' },
-  kosen:    { nome:'Kosen · ne-waza', sub:'Tradição Kosen · técnicas de solo', emoji:'寝' },
-  outros:   { nome:'Outros', sub:'BJJ moderno · guardas e raspagens', emoji:'柔' },
+  nage:     { nome:'Nage-waza',     sub:'Técnicas de projeção',                    emoji:'投', trad:'kodokan' },
+  osaekomi: { nome:'Osaekomi-waza', sub:'Técnicas de aprisionamento (Imobilizações)', emoji:'押', trad:'kodokan' },
+  shime:    { nome:'Shime-waza',    sub:'Técnicas de estrangulamento',             emoji:'絞', trad:'kodokan' },
+  kansetsu: { nome:'Kansetsu-waza', sub:'Técnicas de articulações',                emoji:'関', trad:'kodokan' },
+  // v414: kanji temático nas famílias de Jiu-Jitsu (proposta B). Escolhidos pela
+  // ação central de cada família — 引 puxar (guarda), 返 reverter (raspagem),
+  // 通 passar (passagem), 基 base (básicas/fundamentos).
+  guarda:   { nome:'Guardas',       sub:'Jogo por baixo',                          emoji:'引', trad:'jiu-jitsu' },
+  raspagem: { nome:'Raspagens',     sub:'Inverter a posição',                      emoji:'返', trad:'jiu-jitsu' },
+  passagem: { nome:'Passagens',     sub:'Superar a guarda',                        emoji:'通', trad:'jiu-jitsu' },
+  basico:   { nome:'Básicas',       sub:'Fundamentos da faixa branca',             emoji:'基', trad:'jiu-jitsu' },
 };
-const CAT_ORDER = ['nage','osaekomi','shime','kansetsu','kosen','outros'];
+const CAT_ORDER = ['nage','osaekomi','shime','kansetsu','guarda','raspagem','passagem','basico'];
+const TRADICOES = {
+  kodokan:     { nome:'Kodokan',    sub:'Judô tradicional' },
+  'jiu-jitsu': { nome:'Jiu-Jitsu',  sub:'BJJ moderno + fundamentos' },
+};
+const TRADICOES_ORDER = ['kodokan','jiu-jitsu'];
+// v415: sub-família Kodokan pro Nage-waza (Te/Koshi/Ashi/Sutemi). Só o Nage-waza
+// tem essa subdivisão hoje — Osaekomi/Shime/Kansetsu ficam plano.
+const NAGE_SUB = {
+  te:     { nome:'Te-waza',     sub:'Técnicas de mão / braço', emoji:'手' },
+  koshi:  { nome:'Koshi-waza',  sub:'Técnicas de quadril',     emoji:'腰' },
+  ashi:   { nome:'Ashi-waza',   sub:'Técnicas de perna',       emoji:'足' },
+  sutemi: { nome:'Sutemi-waza', sub:'Técnicas de sacrifício',  emoji:'捨' },
+};
+const NAGE_SUB_ORDER = ['te','koshi','ashi','sutemi'];
 
 // ---- Revisão espaçada ("Anki do BJJ") ----
 const REV_BASE = { aprendendo:3, treinando:7, dominada:21 };
@@ -3342,8 +3429,7 @@ function abrirTecnica(i){
     <div class="sheet-grip"></div>
     <div class="tec-sheet-head">
       <div class="tec-ic" style="width:52px;height:52px;font-size:26px">${c.emoji}</div>
-      <div><div class="tec-sheet-name">${safeTxt(t.jp)}</div>
-        <div class="ts">${safeTxt(t.pt)}</div></div>
+      <div><div class="tec-sheet-name">${safeTxt(t.jp)}</div></div>
       <span class="niv-badge ${cor}" style="margin-left:auto">${nl}</span>
     </div>
     <div class="tec-sheet-meta">${tag}<span class="meta-dot">·</span><span>${c.nome}</span><span class="meta-dot">·</span><span>${plural(t.treinos||0,'treino','treinos')}${t.ultima?' · últ. '+safeTxt(t.ultima):''}</span></div>
@@ -3372,10 +3458,8 @@ function abrirEditorTecnica(idx){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">${editing?'Editar técnica':'Nova técnica'}</div>
-    <label class="flbl">Nome (japonês)</label>
-    <input class="inp" id="et-jp" placeholder="Ex: Juji-gatame" value="${safeAttr(t.jp)}">
-    <label class="flbl" style="margin-top:12px">Tradução (PT)</label>
-    <input class="inp" id="et-pt" placeholder="Ex: Chave de braço cruzada" value="${safeAttr(t.pt)}">
+    <label class="flbl">Nome</label>
+    <input class="inp" id="et-jp" placeholder="Ex: Juji-gatame ou Guarda fechada" value="${safeAttr(t.jp)}">
     <label class="flbl" style="margin-top:12px">Categoria</label>
     <div class="seg-wrap" id="et-cat"></div>
     <label class="flbl" style="margin-top:12px">Nível</label>
@@ -3400,7 +3484,7 @@ function abrirEditorTecnica(idx){
     // B5: evita técnica com nome duplicado (ignora a própria ao editar)
     const dup = DB.tecnicas.some((x,i)=> (!editing || i!==idx) && (x.jp||'').toLowerCase()===jp.toLowerCase());
     if (dup){ toast('Já existe uma técnica com esse nome'); return; }
-    const data = { jp, pt:sheet.querySelector('#et-pt').value.trim(), cat, oficial:cat!=='kosen'&&cat!=='outros', nivel:niv, nota:sheet.querySelector('#et-nota').value.trim() };
+    const data = { jp, pt:t.pt||'', cat, oficial:cat!=='kosen'&&cat!=='outros', nivel:niv, nota:sheet.querySelector('#et-nota').value.trim() };
     if (editing) Object.assign(DB.tecnicas[idx], data);
     else DB.tecnicas.push({ id:'usr-'+Date.now().toString(36), ...data, treinos:0, ultima:'hoje', ultimaRev:HOJE_ISO });
     sheet.remove();
@@ -3903,10 +3987,14 @@ function renderFlow(){
    professor em Alunos → 🔑 Acesso → ⚙️ Configurações da academia → 📷 QR de presença).
    ============================================================ */
 function icoQRbig(){
-  // Viewfinder de QR: 3 marcadores de posição + cantos-guia. Sem dots random —
-  // o ruído fazia o ícone parecer bugado (v399→v400).
-  const m = (x,y)=>`<rect x="${x}" y="${y}" width="24" height="24" rx="4" fill="currentColor"/><rect x="${x+5}" y="${y+5}" width="14" height="14" rx="2" fill="var(--card)"/><rect x="${x+9}" y="${y+9}" width="6" height="6" rx="1" fill="currentColor"/>`;
-  return `<svg viewBox="0 0 86 86" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${m(2,2)}${m(60,2)}${m(2,60)}</svg>`;
+  // v414: câmera com moldura de scan. Coerente com a ação real ("vou usar câmera
+  // pra ler o QR"), não um QR desenhado (que confundia — parecia o QR a apontar).
+  return `<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M8 24 V14 H18"/><path d="M78 14 H88 V24"/><path d="M88 72 V82 H78"/><path d="M18 82 H8 V72"/>
+    <rect x="22" y="30" width="52" height="40" rx="6"/>
+    <circle cx="48" cy="50" r="10"/>
+    <path d="M38 30 L42 24 H54 L58 30"/>
+  </svg>`;
 }
 // Câmera / QR não disponíveis: fecha o flow com toast honesto. Batch do professor
 // resolve o edge case (aluno sem câmera bate presença via "Adicionar frequência").
@@ -4038,17 +4126,19 @@ function _renderPhase1(){
     <div class="ft"><div class="t">Check-in</div>
       <div class="s">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div></div>
   </div>`;
-  const body = el(`<div class="presenca-body"></div>`);
+  // v414: card centralizado verticalmente (min-height casa com header) e texto do
+  // fallback mais claro — chegou aqui porque a câmera foi cancelada/negada.
+  const body = el(`<div class="presenca-body" style="display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 140px);padding-bottom:40px"></div>`);
   if(DB.flow && DB.flow.aviso2x){
     const n = DB.treinos.filter(t=>t.data===HOJE_ISO).length;
     body.appendChild(el(`<div style="background:var(--red-tint);color:var(--red-strong);border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;margin:0 0 16px;text-align:center">Você já registrou ${plural(n,'treino','treinos')} hoje</div>`));
   }
   const qr = el(`<div class="qr-card">
     <div class="qr-frame">${icoQRbig()}</div>
-    <div class="qr-title">Escaneie o QR da academia</div>
-    <div class="qr-hint">Procure o QR no tatame ou na parede</div>
+    <div class="qr-title">Abra a câmera pra ler o QR</div>
+    <div class="qr-hint">Aponte pro QR fixado no tatame ou na parede</div>
     <button class="btn-scan">📷 Abrir câmera</button>
-    <div class="qr-foot">Sem câmera? Peça ao professor pra registrar sua presença.</div>
+    <div class="qr-foot">Não deu certo? Peça ao professor pra registrar sua presença.</div>
   </div>`);
   qr.querySelector('.btn-scan').onclick = presencaScan;
   body.appendChild(qr);
@@ -6074,6 +6164,9 @@ function profAlunos(){
     <div class="erp-c erp-c-turmas">Turmas</div>
     <button class="erp-c erp-c-pres"   data-sort="pres">Últ. presença</button>
     <button class="erp-c erp-c-days"   data-sort="diasSem">Dias sem</button>
+    <button class="erp-c erp-c-grau"   data-sort="grau" title="Presenças desde o último grau">Grau</button>
+    <button class="erp-c erp-c-faixapres" data-sort="faixapres" title="Presenças desde o início da faixa">Faixa</button>
+    <button class="erp-c erp-c-aniv"   data-sort="aniv" title="Data de aniversário">Aniv.</button>
     <div class="erp-c erp-c-pay">Pgto</div>
     <div class="erp-c erp-c-wa" aria-hidden="true"></div>
   </div>`);
@@ -6098,6 +6191,18 @@ function profAlunos(){
       return ((a.graus||0)-(b.graus||0))*dir;
     }
     if(sortKey==='diasSem') return ((a.diasSem||0)-(b.diasSem||0))*dir;
+    if(sortKey==='grau')      return ((a.aulasNoGrau||0)-(b.aulasNoGrau||0))*dir;
+    if(sortKey==='faixapres') return ((a.aulasNaFaixa||0)-(b.aulasNaFaixa||0))*dir;
+    if(sortKey==='aniv'){
+      // Ordena por mês/dia (ignora ano) — quem faz aniversário depois no calendário
+      // vai pro fim quando asc. Sem data cai pro fim, independente da direção.
+      const mmdd = s => s ? (String(s).slice(5,7)+String(s).slice(8,10)) : '';
+      const ka=mmdd(a.nascData), kb=mmdd(b.nascData);
+      if(!ka && !kb) return 0;
+      if(!ka) return 1;
+      if(!kb) return -1;
+      return ka.localeCompare(kb)*dir;
+    }
     if(sortKey==='etaria'){
       // Ordena por IDADE (não alfabético do rótulo): Kids 3-5 antes de Adulto.
       // Sem data de nascimento vai pro fim, independente da direção.
@@ -6225,6 +6330,9 @@ function profAlunos(){
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
         <div class="erp-c erp-c-pres-cell">${presTx}</div>
         <div class="erp-c erp-c-days-cell${(a.diasSem||0)>=7?' warn':''}">${daysTx}</div>
+        <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+PROF_METAS.META_GRAU):'—'}</div>
+        <div class="erp-c erp-c-faixapres-cell" title="Presenças desde o início da faixa atual">${(a.aulasNaFaixa!=null)?safeTxt(a.aulasNaFaixa):'—'}</div>
+        <div class="erp-c erp-c-aniv-cell" title="Data de aniversário">${a.nascData?safeTxt(String(a.nascData).slice(8,10)+'/'+String(a.nascData).slice(5,7)):'—'}</div>
         <div class="st-right"><span class="pay-badge ${cls}">${txt}</span></div>
         <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="Mandar WhatsApp">💬</button>
       </div>`);
@@ -12133,6 +12241,7 @@ async function _cloudLogin(user){
     }
     else if (!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen = true;
     try{ if(sbSync.pullLoja) await sbSync.pullLoja(); }catch(e){}
+    try{ if(sbSync.pullTecnicas) await sbSync.pullTecnicas(); }catch(e){}   // v416: catálogo do banco (0031); seed hardcoded fica de fallback
     try{ if(sbSync.pullTurmas) await sbSync.pullTurmas(); }catch(e){}   // grade p/ presença por sessão
     try{ if(sbSync.pullMatricula) await sbSync.pullMatricula(); }catch(e){}   // rótulo "Turma" com TODAS as matrículas
     track('app_open');
