@@ -4170,7 +4170,10 @@ function _renderPhase2(){
 /* ============================================================
    LOJA — produtos da academia (retirada na recepção)
    ============================================================ */
-function openLoja(){ DB.lojaOpen=true; render(); window.scrollTo(0,0); }
+// v418: Loja e Meus Pedidos são mutuamente exclusivas — o roteador (render())
+// checa lojaOpen ANTES de meusPedidosOpen, então abrir uma tem que desligar a
+// outra, senão um lojaOpen "preso" faz o botão "meus pedidos" voltar pra Loja.
+function openLoja(){ DB.lojaOpen=true; DB.meusPedidosOpen=false; render(); window.scrollTo(0,0); }
 function closeLoja(){ DB.lojaOpen=false; render(); }
 
 /* ============================================================
@@ -4179,7 +4182,7 @@ function closeLoja(){ DB.lojaOpen=false; render(); }
    Reusa .ped-card/.status-chip (CSS já existe pra fila do professor).
    ============================================================ */
 let _meusPedidosData = null, _meusPedidosTs = 0;
-function openMeusPedidos(){ DB.meusPedidosOpen=true; _meusPedidosTs=0; render(); window.scrollTo(0,0); }
+function openMeusPedidos(){ DB.lojaOpen=false; DB.meusPedidosOpen=true; _meusPedidosTs=0; render(); window.scrollTo(0,0); }
 function closeMeusPedidos(){ DB.meusPedidosOpen=false; render(); }
 function _loadMeusPedidos(force){
   if(DEMO || typeof sbSync==='undefined' || !sbSync.getMeusPedidos){ _meusPedidosData=[]; return; }
@@ -12314,13 +12317,27 @@ if (DEMO || TESTMODE) {
   })();
 }
 
-// Splash: some após o app montar
+// Splash: some quando os dados reais chegam do backend (v419). Antes tinha timer
+// fixo de 1.9s — em cold start de PWA (mobile 4G) o pullState demorava mais,
+// então o app renderizava com o seed hardcoded (DB.eu = 'Gabriel Tavares · Azul 2')
+// e o dado real substituía DEPOIS → flash visível de perfil errado.
+// Condições pra esconder: pull terminou (_cloudReady) · ou tela de login/setup ·
+// ou demo/test · ou timeout de segurança 5s (não trava se pull falhar).
 (function(){
   const sp = document.getElementById('splash');
   if (!sp) return;
-  const hide = ()=>{ sp.classList.add('hide'); setTimeout(()=>sp.remove(), 600); };
-  sp.addEventListener('click', hide);          // toque pula a splash
-  setTimeout(hide, 1900);
+  const hide = ()=>{ if(!sp.parentNode) return; sp.classList.add('hide'); setTimeout(()=>sp.remove(), 600); };
+  sp.addEventListener('click', hide);
+  const t0 = Date.now();
+  const tick = ()=>{
+    const authGate = (typeof DB!=='undefined') && (DB.authOpen || DB.trocarSenhaOpen);
+    const modo = (typeof DEMO!=='undefined' && DEMO) || (typeof TESTMODE!=='undefined' && TESTMODE);
+    const ready = (typeof _cloudReady!=='undefined') && _cloudReady;
+    if (ready || authGate || modo){ hide(); return; }
+    if (Date.now() - t0 > 5000){ hide(); return; }   // safety net
+    setTimeout(tick, 100);
+  };
+  setTimeout(tick, 200);   // grace: espera boot inicial montar
 })();
 
 // Boot: scroll lock em sheets + theme-color sincronizado com tema atual

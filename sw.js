@@ -22,11 +22,17 @@ self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
   const title = d.title || 'Yama Jiu-Jitsu';
+  // v418: renotify + tag por tipo. Antes tudo caía em 'yama-aviso' → o navegador
+  // substituía a notificação anterior EM SILÊNCIO (mesma tag, sem renotify).
+  // Cenário do bug: recebeu teste, depois comprou → o push do pedido chegou mas
+  // sobrescreveu o teste sem tocar som (parecia que "não chegou"). renotify=true
+  // força o alerta; tag por tipo evita que tipos diferentes se anulem.
   e.waitUntil(self.registration.showNotification(title, {
     body: d.body || '',
     icon: 'brand/icon-192.png',
     badge: 'brand/icon-192.png',
-    tag: d.tag || 'yama-aviso',      // mesma tag substitui — nunca empilha
+    tag: d.tag || 'yama-aviso',      // mesma tag do mesmo tipo AINDA agrupa (não empilha ao infinito)
+    renotify: true,                   // …mas SEMPRE toca som/vibra, mesmo substituindo
     data: { url: d.url || '/' },
   }));
 });

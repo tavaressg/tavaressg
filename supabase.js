@@ -436,11 +436,24 @@
         .select('id,tradicao,familia,subfamilia,jp,pt,oficial,status,academy_id')
         .order('familia');
       if (error) throw error;
-      const arr = (data || []).map(t => ({
-        id: t.id, jp: t.jp, pt: t.pt || '', cat: t.familia,
-        sub: t.subfamilia || undefined, oficial: !!t.oficial,
-        _status: t.status, _acad: t.academy_id,
-      }));
+      // v418: preserva PROGRESSO por técnica (estado/dias/hojeA/etc). O pull acontece
+      // DEPOIS do applyDump — antes dessa preservação, sobrescrever DB.tecnicas apagava
+      // o `estado='foco'` que o aluno acabou de setar (bug: foco não persistia no reload).
+      const progPrev = new Map((d.tecnicas || []).map(t => [t.id || t.jp, t]));
+      const arr = (data || []).map(t => {
+        const base = {
+          id: t.id, jp: t.jp, pt: t.pt || '', cat: t.familia,
+          sub: t.subfamilia || undefined, oficial: !!t.oficial,
+          _status: t.status, _acad: t.academy_id,
+        };
+        const prev = progPrev.get(t.id) || progPrev.get(t.jp);
+        if (prev) {
+          // Só copia campos de PROGRESSO — cat/jp/pt/oficial vêm do banco (autoritativo)
+          ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev','nota','nivel']
+            .forEach(f => { if (prev[f] != null) base[f] = prev[f]; });
+        }
+        return base;
+      });
       // Preserva customizadas (usr-*) vindas do dump — o pull traz só as do banco.
       const custom = (d.tecnicas || []).filter(t => t.id && t.id.indexOf('usr-') === 0);
       d.tecnicas = arr.concat(custom);
