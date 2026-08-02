@@ -577,53 +577,55 @@ const DB = {
   // biblioteca pessoal de técnicas — id estável (chave de persistência), jp=display, pt=tradução
   // Para "outros" (BJJ moderno) o jp aceita nome em PT/EN consagrado (sem japonês inventado).
   tecnicas: [
+    // v410: catálogo puro — sem placeholder de estado do aluno (nivel/treinos/ultima/ultimaRev/nota).
+    // Cada aluno começa zerado; anotação e progresso vêm do uso real do app.
     // Tachi-waza · Nage-waza (quedas / projeções) — oficiais do Kodokan
-    { id:'nag-osoto', jp:'O-soto-gari', pt:'Grande ceifada externa', cat:'nage', oficial:true, nivel:'treinando', treinos:8, ultima:'01 jun', ultimaRev:'2026-05-20', nota:'Desequilibrar pra trás (kuzushi), plantar o pé de apoio e ceifar a perna como um pêndulo.' },
-    { id:'nag-ouchi', jp:'O-uchi-gari', pt:'Grande ceifada interna', cat:'nage', oficial:true, nivel:'aprendendo', treinos:3, ultima:'29 mai', ultimaRev:'2026-05-29', nota:'Enganchar por dentro e empurrar na diagonal; cuidado pra não cair junto.' },
-    { id:'nag-seoi', jp:'Seoi-nage', pt:'Projeção por sobre o ombro', cat:'nage', oficial:true, nivel:'treinando', treinos:9, ultima:'31 mai', ultimaRev:'2026-05-18', nota:'Entrar girando, quadril abaixo do dele, cotovelo preso. Puxar a manga pra cima.' },
-    { id:'nag-uchimata', jp:'Uchi-mata', pt:'Projeção por dentro da coxa', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'15 mai', ultimaRev:'2026-05-15', nota:'Carregar o peso pra frente e levantar a coxa interna num só tempo.' },
-    { id:'nag-tomoe', jp:'Tomoe-nage', pt:'Projeção em círculo (sacrifício)', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'12 mai', ultimaRev:'2026-05-12', nota:'Sentar sob o oponente, pé no quadril, projetar por cima da cabeça. Ponte do Kosen pro chão.' },
-    { id:'nag-kanibasami', jp:'Kani-basami', pt:'Tesoura voadora', cat:'nage', oficial:true, nivel:'aprendendo', treinos:2, ultima:'14 mai', ultimaRev:'2026-05-14', nota:'Yoko-sutemi-waza Kodokan: derruba prendendo o corpo entre as pernas como uma tesoura. Banida na competição esportiva.' },
-    { id:'nag-obitori', jp:'Obi-tori-gaeshi', pt:'Inversão pegando a faixa', cat:'nage', oficial:true, nivel:'treinando', treinos:5, ultima:'27 mai', ultimaRev:'2026-05-24', nota:'Nage-waza Kodokan (reconhecida em 1997): agarra a faixa/cintura por baixo e inverte.' },
-    { id:'nag-tawara', jp:'Tawara-gaeshi', pt:'Inversão "fardo de arroz"', cat:'nage', oficial:true, nivel:'treinando', treinos:4, ultima:'23 mai', ultimaRev:'2026-05-18', nota:'Yoko-sutemi-waza Kodokan: defendendo, abraça o tronco e rola o oponente por cima da cabeça como um saco.' },
+    { id:'nag-osoto', jp:'O-soto-gari', pt:'Grande ceifada externa', cat:'nage', oficial:true },
+    { id:'nag-ouchi', jp:'O-uchi-gari', pt:'Grande ceifada interna', cat:'nage', oficial:true },
+    { id:'nag-seoi', jp:'Seoi-nage', pt:'Projeção por sobre o ombro', cat:'nage', oficial:true },
+    { id:'nag-uchimata', jp:'Uchi-mata', pt:'Projeção por dentro da coxa', cat:'nage', oficial:true },
+    { id:'nag-tomoe', jp:'Tomoe-nage', pt:'Projeção em círculo (sacrifício)', cat:'nage', oficial:true },
+    { id:'nag-kanibasami', jp:'Kani-basami', pt:'Tesoura voadora', cat:'nage', oficial:true },
+    { id:'nag-obitori', jp:'Obi-tori-gaeshi', pt:'Inversão pegando a faixa', cat:'nage', oficial:true },
+    { id:'nag-tawara', jp:'Tawara-gaeshi', pt:'Inversão "fardo de arroz"', cat:'nage', oficial:true },
     // Ne-waza · Osaekomi-waza (imobilizações / controle) — oficiais do Kodokan
-    { id:'osa-kesa', jp:'Kesa-gatame', pt:'Imobilização em echarpe', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:12, ultima:'02 jun', ultimaRev:'2026-06-02', nota:'Prender cabeça e braço, quadril baixo, perna-freio atrás pra não ser rolado.' },
-    { id:'osa-kuzure-kesa', jp:'Kuzure-kesa-gatame', pt:'Echarpe modificada', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:6, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Underhook no braço de longe em vez de prender a cabeça — mais estável contra a fuga.' },
-    { id:'osa-kata', jp:'Kata-gatame', pt:'Imobilização pelo ombro', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:5, ultima:'28 mai', ultimaRev:'2026-05-28', nota:'O ombro empurra o braço contra o pescoço; junta as mãos e abre a base.' },
-    { id:'osa-kami', jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)', cat:'osaekomi', oficial:true, nivel:'treinando', treinos:7, ultima:'27 mai', ultimaRev:'2026-05-27', nota:'Pegar a cintura/faixa, peito no peito, cabeça de um lado. Andar na ponta dos pés se ele virar.' },
-    { id:'osa-yoko', jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)', cat:'osaekomi', oficial:true, nivel:'dominada', treinos:10, ultima:'25 mai', ultimaRev:'2026-05-25', nota:'Bloquear quadril e pescoço, pressão de peito, joelhos colados pra matar a recuperação de guarda.' },
-    { id:'osa-tate', jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)', cat:'osaekomi', oficial:true, nivel:'aprendendo', treinos:3, ultima:'21 mai', ultimaRev:'2026-05-21', nota:'Ganchos por dentro, peso no peito, mãos no chão pra não ser rolado.' },
+    { id:'osa-kesa', jp:'Kesa-gatame', pt:'Imobilização em echarpe', cat:'osaekomi', oficial:true },
+    { id:'osa-kuzure-kesa', jp:'Kuzure-kesa-gatame', pt:'Echarpe modificada', cat:'osaekomi', oficial:true },
+    { id:'osa-kata', jp:'Kata-gatame', pt:'Imobilização pelo ombro', cat:'osaekomi', oficial:true },
+    { id:'osa-kami', jp:'Kami-shiho-gatame', pt:'Cem quilos (norte-sul)', cat:'osaekomi', oficial:true },
+    { id:'osa-yoko', jp:'Yoko-shiho-gatame', pt:'Cem quilos cruzado (lateral)', cat:'osaekomi', oficial:true },
+    { id:'osa-tate', jp:'Tate-shiho-gatame', pt:'Montada (cem quilos montado)', cat:'osaekomi', oficial:true },
     // Ne-waza · Shime-waza (estrangulamentos)
-    { id:'shi-hadaka', jp:'Hadaka-jime', pt:'Mata-leão', cat:'shime', oficial:true, nivel:'dominada', treinos:14, ultima:'30 mai', ultimaRev:'2026-05-30', nota:'Esconder o queixo, mão de bandeira, fechar o triângulo de braços.' },
-    { id:'shi-okurieri', jp:'Okuri-eri-jime', pt:'Estrangulamento pela gola deslizante', cat:'shime', oficial:true, nivel:'treinando', treinos:5, ultima:'24 mai', ultimaRev:'2026-05-24', nota:'Pela costas: mão profunda na gola, a outra puxa a lapela oposta pra fechar.' },
-    { id:'shi-sankaku', jp:'Sankaku-jime', pt:'Triângulo', cat:'shime', oficial:true, nivel:'treinando', treinos:7, ultima:'28 mai', ultimaRev:'2026-05-16', nota:'Ângulo é tudo — sair pra fora antes de fechar a perna. Especialidade do Kosen.' },
+    { id:'shi-hadaka', jp:'Hadaka-jime', pt:'Mata-leão', cat:'shime', oficial:true },
+    { id:'shi-okurieri', jp:'Okuri-eri-jime', pt:'Estrangulamento pela gola deslizante', cat:'shime', oficial:true },
+    { id:'shi-sankaku', jp:'Sankaku-jime', pt:'Triângulo', cat:'shime', oficial:true },
     // Ne-waza · Kansetsu-waza (chaves articulares)
-    { id:'kan-juji', jp:'Juji-gatame', pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:8, ultima:'26 mai', ultimaRev:'2026-05-26', nota:'Prender o braço, juntar os joelhos, subir o quadril devagar pra não perder.' },
-    { id:'kan-udegarami', jp:'Ude-garami', pt:'Chave de braço dobrada (kimura/americana)', cat:'kansetsu', oficial:true, nivel:'treinando', treinos:6, ultima:'23 mai', ultimaRev:'2026-05-23', nota:'Figura-de-quatro no braço; pulso colado ao corpo e gira o ombro.' },
-    { id:'kan-waki', jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true, nivel:'aprendendo', treinos:2, ultima:'10 mai', ultimaRev:'2026-05-10', nota:'Prender o braço na axila e pressionar o cotovelo. Cuidado: entra rápido.' },
+    { id:'kan-juji', jp:'Juji-gatame', pt:'Chave de braço cruzada (armlock)', cat:'kansetsu', oficial:true },
+    { id:'kan-udegarami', jp:'Ude-garami', pt:'Chave de braço dobrada (kimura/americana)', cat:'kansetsu', oficial:true },
+    { id:'kan-waki', jp:'Ude-hishigi-waki-gatame', pt:'Chave de braço sob a axila', cat:'kansetsu', oficial:true },
     // Kosen · ne-waza — guarda e jogo por baixo (Kodokan ou jargão documentado)
-    { id:'kos-hikikomi', jp:'Hikikomi', pt:'Puxada para a guarda', cat:'kosen', oficial:false, nivel:'dominada', treinos:15, ultima:'02 jun', ultimaRev:'2026-06-01', nota:'Marca do Kosen: puxar direto pro chão. Pegada firme e senta já entrando com o gancho.' },
-    { id:'kos-hikikomi-gaeshi', jp:'Hikikomi-gaeshi', pt:'Puxada com rolamento (raspagem)', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'31 mai', ultimaRev:'2026-05-17', nota:'Puxa pra guarda e usa o impulso pra rolar por cima — a raspagem clássica do Kosen.' },
-    { id:'kos-dojime', jp:'Dō-jime', pt:'Tesoura de tronco', cat:'kosen', oficial:false, nivel:'treinando', treinos:4, ultima:'19 mai', ultimaRev:'2026-05-19', nota:'Comprime o tronco com as pernas. Banida no judô esportivo em 1925, viva no ne-waza Kosen.' },
-    { id:'kos-ashigarami', jp:'Ashi-garami', pt:'Entrelaçamento de pernas (chave de perna)', cat:'kosen', oficial:false, nivel:'aprendendo', treinos:3, ultima:'22 mai', ultimaRev:'2026-05-13', nota:'Enrosca a perna e controla o joelho/tornozelo. O Kosen explora muito o que o judô esportivo baniu.' },
-    { id:'kos-tate-sankaku', jp:'Tate-sankaku', pt:'Triângulo montado', cat:'kosen', oficial:false, nivel:'treinando', treinos:6, ultima:'29 mai', ultimaRev:'2026-05-21', nota:'Sankaku por cima, controlando da montada. Posição de domínio muito explorada no ne-waza Kosen.' },
+    { id:'kos-hikikomi', jp:'Hikikomi', pt:'Puxada para a guarda', cat:'kosen', oficial:false },
+    { id:'kos-hikikomi-gaeshi', jp:'Hikikomi-gaeshi', pt:'Puxada com rolamento (raspagem)', cat:'kosen', oficial:false },
+    { id:'kos-dojime', jp:'Dō-jime', pt:'Tesoura de tronco', cat:'kosen', oficial:false },
+    { id:'kos-ashigarami', jp:'Ashi-garami', pt:'Entrelaçamento de pernas (chave de perna)', cat:'kosen', oficial:false },
+    { id:'kos-tate-sankaku', jp:'Tate-sankaku', pt:'Triângulo montado', cat:'kosen', oficial:false },
     // Outros · BJJ moderno (nomes em PT consagrados, ou EN quando universal)
-    { id:'out-guarda-fechada', jp:'Guarda fechada', pt:'Closed guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Base do jogo por baixo: pernas travadas no quadril, postura quebrada, controle de pegada. Masterizar até a faixa branca.' },
-    { id:'out-guarda-aberta', jp:'Guarda aberta', pt:'Open guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Pernas livres, pés no quadril/joelhos do oponente. Ponto de partida das guardas modernas. Masterizar até a azul.' },
-    { id:'out-meia-guarda', jp:'Meia-guarda', pt:'Half guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Uma perna do oponente entre as suas. Underhook é a chave. Masterizar até a azul.' },
-    { id:'out-tartaruga', jp:'Tartaruga', pt:'Turtle', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Posição defensiva de quatro apoios. Proteger pescoço e cotovelos colados. Masterizar até a azul.' },
-    { id:'out-guarda-borboleta', jp:'Guarda borboleta', pt:'Butterfly guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Ganchos por dentro das coxas, postura sentada, underhook ou pegada cruzada. Masterizar até a roxa.' },
-    { id:'out-guarda-aranha', jp:'Guarda aranha', pt:'Spider guard', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Pegada nas mangas + pés nos bíceps. Controle de distância e ângulos. Masterizar até a roxa.' },
-    { id:'out-delariva', jp:'De La Riva', pt:'Guarda De La Riva', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Gancho externo na coxa do oponente em pé. Criada por Ricardo De La Riva. Base do jogo moderno + entrada do berimbolo. Masterizar até a roxa.' },
-    { id:'out-zguard', jp:'Z-guard', pt:'Z-guard (knee shield)', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Meia-guarda com joelho atravessado no peito do oponente. Quadro forte = oponente longe. Masterizar até a roxa.' },
-    { id:'out-rasp-pendulo', jp:'Raspagem do pêndulo', pt:'Pendulum sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Underhook na perna + balanço da perna livre como pêndulo. Termina na montada. Masterizar até a azul.' },
-    { id:'out-rasp-tesoura', jp:'Raspagem de tesoura', pt:'Scissor sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Canela atravessada na barriga, fecha as pernas em tesoura. Raspagem clássica da fechada. Masterizar até a azul.' },
-    { id:'out-rasp-borboleta', jp:'Raspagem da borboleta', pt:'Butterfly sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Da borboleta: eleva com o gancho + underhook, joga lateral. Direção do underhook. Masterizar até a roxa.' },
-    { id:'out-rasp-aranha', jp:'Raspagem da aranha', pt:'Spider sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Estica um braço, dobra o outro, gira o quadril. Várias variações (lasso, joelho na linha). Masterizar até a roxa.' },
-    { id:'out-rasp-delariva', jp:'Raspagem De La Riva', pt:'DLR sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Gancho DLR + pegada manga/tornozelo. Desequilibra para fora. Entrada também pro berimbolo. Masterizar até a roxa.' },
-    { id:'out-berimbolo', jp:'Berimbolo', pt:'Berimbolo (inversão para as costas)', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Popularizado pelos irmãos Mendes (~2009). Inverte o corpo por baixo girando da DLR pra pegar as costas. Mecânica do quadril é tudo. Masterizar até a roxa.' },
-    { id:'out-rasp-xguard', jp:'Raspagem X-guard', pt:'X-guard sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Sistema X-guard de Marcelo Garcia: eleva a perna do oponente, desequilibra para trás ou para o lado. Masterizar até a roxa.' },
-    { id:'out-rasp-balao', jp:'Raspagem balão', pt:'Balloon sweep', cat:'outros', oficial:false, nivel:'novo', treinos:0, ultima:'—', ultimaRev:null, nota:'Eleva o oponente com as duas pernas em forma de balão e rola por cima. Útil contra base forte. Masterizar até a roxa.' },
+    { id:'out-guarda-fechada', jp:'Guarda fechada', pt:'Closed guard', cat:'outros', oficial:false },
+    { id:'out-guarda-aberta', jp:'Guarda aberta', pt:'Open guard', cat:'outros', oficial:false },
+    { id:'out-meia-guarda', jp:'Meia-guarda', pt:'Half guard', cat:'outros', oficial:false },
+    { id:'out-tartaruga', jp:'Tartaruga', pt:'Turtle', cat:'outros', oficial:false },
+    { id:'out-guarda-borboleta', jp:'Guarda borboleta', pt:'Butterfly guard', cat:'outros', oficial:false },
+    { id:'out-guarda-aranha', jp:'Guarda aranha', pt:'Spider guard', cat:'outros', oficial:false },
+    { id:'out-delariva', jp:'De La Riva', pt:'Guarda De La Riva', cat:'outros', oficial:false },
+    { id:'out-zguard', jp:'Z-guard', pt:'Z-guard (knee shield)', cat:'outros', oficial:false },
+    { id:'out-rasp-pendulo', jp:'Raspagem do pêndulo', pt:'Pendulum sweep', cat:'outros', oficial:false },
+    { id:'out-rasp-tesoura', jp:'Raspagem de tesoura', pt:'Scissor sweep', cat:'outros', oficial:false },
+    { id:'out-rasp-borboleta', jp:'Raspagem da borboleta', pt:'Butterfly sweep', cat:'outros', oficial:false },
+    { id:'out-rasp-aranha', jp:'Raspagem da aranha', pt:'Spider sweep', cat:'outros', oficial:false },
+    { id:'out-rasp-delariva', jp:'Raspagem De La Riva', pt:'DLR sweep', cat:'outros', oficial:false },
+    { id:'out-berimbolo', jp:'Berimbolo', pt:'Berimbolo (inversão para as costas)', cat:'outros', oficial:false },
+    { id:'out-rasp-xguard', jp:'Raspagem X-guard', pt:'X-guard sweep', cat:'outros', oficial:false },
+    { id:'out-rasp-balao', jp:'Raspagem balão', pt:'Balloon sweep', cat:'outros', oficial:false },
   ],
 
   // Sistemas de jogo — técnicas conectadas no seu jogo (do controle à finalização)
@@ -3344,9 +3346,9 @@ function abrirTecnica(i){
         <div class="ts">${safeTxt(t.pt)}</div></div>
       <span class="niv-badge ${cor}" style="margin-left:auto">${nl}</span>
     </div>
-    <div class="tec-sheet-meta">${tag}<span class="meta-dot">·</span><span>${c.nome}</span><span class="meta-dot">·</span><span>${plural(t.treinos||0,'treino','treinos')} · últ. ${t.ultima}</span></div>
-    <div class="flbl" style="margin-top:16px">Sua anotação</div>
-    <div class="det-nota">${safeTxt(t.nota||'—')}</div>
+    <div class="tec-sheet-meta">${tag}<span class="meta-dot">·</span><span>${c.nome}</span><span class="meta-dot">·</span><span>${plural(t.treinos||0,'treino','treinos')}${t.ultima?' · últ. '+safeTxt(t.ultima):''}</span></div>
+    ${t.nota?`<div class="flbl" style="margin-top:16px">Sua anotação</div>
+    <div class="det-nota">${safeTxt(t.nota)}</div>`:''}
     <div class="revisao-card ${r.due?'due':''}">${revTxt}</div>
     <button class="btn-save" id="ts-rev">Marcar como revisado</button>
     <button class="sheet-cancel" id="ts-edit" style="color:var(--blue)">Editar técnica</button>
@@ -4350,27 +4352,15 @@ function abrirCarrinho(){
   DB.loja.carrinho = DB.loja.carrinho.filter(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return p && p.ativo!==false; });
   if (DB.loja.carrinho.length < antes){ toast('Itens indisponíveis foram removidos da sacola'); if(DB.lojaOpen) render(); }
   if (!DB.loja.carrinho.length){ toast('Sua sacola está vazia'); return; }
-  const _pix = _lojaPix();
-  const _brRaw = _lojaPixBrCode();
-  const _total = carrinhoTotal();
-  const _brCom = _brRaw ? _pixBrCodeComValor(_brRaw, _total) : '';
-  // Preferência: Copia-e-Cola com valor injetado (aluno cola no banco e paga
-  // exato). Fallback: chave PIX pura (aluno digita o valor à mão).
-  const pixLabel = _brCom ? 'PIX Copia e Cola' : 'PIX';
-  const pixShow  = _brCom || _pix;
-  const pixRow = pixShow ? `<div style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px">
-    <span style="font-size:11px;font-weight:800;color:var(--muted);white-space:nowrap">${pixLabel}</span>
-    <code style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(pixShow)}</code>
-    <button id="cart-pix-copy" style="border:none;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:6px 12px;border-radius:99px;cursor:pointer">Copiar</button>
-  </div>` : '';
+  // v408: sacola vira só resumo — sem PIX Copia-e-Cola aqui e sem WhatsApp.
+  // Fluxo novo: [Sacola] → [Pagamento (PIX)] → "Já paguei" grava pedido + push.
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Sua sacola</div>
     <div class="cart-items"></div>
     <div class="cart-total"><span>Total</span><b>${moneyBR(carrinhoTotal())}</b></div>
-    ${pixRow}
-    <div class="cart-pickup">📍 Retire na recepção da Yama — sem frete · pague no PIX e confirme o pedido no WhatsApp</div>
-    <button class="btn-save" style="margin-top:6px">📲 Enviar pedido no WhatsApp</button>
+    <div class="cart-pickup">📍 Retire na recepção da Yama — sem frete · pague por PIX e o professor confirma</div>
+    <button class="btn-save" style="margin-top:6px">Ir para pagamento →</button>
     <button class="sheet-cancel">Continuar comprando</button>
   </div></div>`);
   const itemsWrap = sheet.querySelector('.cart-items');
@@ -4407,108 +4397,71 @@ function abrirCarrinho(){
     renderItems();
   };
   renderItems();
-  const pixBtn = sheet.querySelector('#cart-pix-copy');
-  if(pixBtn) pixBtn.onclick = async ()=>{
-    // Recomputa com o total ATUAL (usuário pode ter mexido em +/− antes de copiar).
-    const raw = _lojaPixBrCode();
-    const k = raw ? _pixBrCodeComValorTxid(raw, carrinhoTotal(), _txidAtual()) : _lojaPix();
-    const msg = raw ? 'Copia e Cola do PIX com valor ✓' : 'Chave PIX copiada ✓';
-    try{ await navigator.clipboard.writeText(k); toast(msg); }catch(e){ toast('Copie: '+k); }
-  };
   sheet.querySelector('.btn-save').onclick = ()=>{ close(); finalizarCompra(); };
 }
 
-// v403: fluxo bifásico. Antes disparava WhatsApp direto; agora abre sheet de
-// confirmação (nome do recebedor, chave, cidade, valor) com Web Share + "Já paguei".
-function finalizarCompra(){
-  const _wa=_lojaWa();
-  if (!_wa){ toast('⚠️ Loja sem WhatsApp configurado'); return; }
-  _abrirConfirmPix();
-}
-// txid de conciliação (0030): 1 por tentativa de checkout, reaproveitado entre o
-// botão rápido da sacola e a sheet de confirmação — trocar o txid a cada clique
-// quebraria a rastreabilidade do mesmo pedido no extrato do banco.
+// v408: fluxo direto — sacola → pagamento PIX → "Já paguei" grava pedido + push.
+// Removido: WhatsApp do aluno (redundante — o pedido vive em `pedidos` e o
+// professor recebe push). Removido: Web Share (não expõe bancos em PWA iOS).
+function finalizarCompra(){ _abrirConfirmPix(); }
+// txid de conciliação (0030): 1 por tentativa de checkout, reaproveitado se o
+// aluno abrir/fechar a tela de pagamento — trocar o txid a cada clique quebraria
+// a rastreabilidade do mesmo pedido no extrato do banco.
 function _txidAtual(){ if(!DB._checkoutTxid) DB._checkoutTxid = _pixGerarTxid(); return DB._checkoutTxid; }
-function _enviarPedidoWhatsapp(pagou){
-  const _wa=_lojaWa(), _pix=_lojaPix();
+function _registrarPedidoJaPago(){
+  const total = carrinhoTotal();
   const txid = _txidAtual();
-  const linhas = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
-    return `• ${p.nome} (${i.tam}) x${i.qtd} — ${moneyBR(p.preco*i.qtd)}`; }).join('\n');
-  const _brRaw = _lojaPixBrCode();
-  const _brCom = _brRaw ? _pixBrCodeComValorTxid(_brRaw, carrinhoTotal(), txid) : '';
-  const pix = _brCom
-    ? `\nPIX Copia e Cola (com valor):\n${_brCom}`
-    : (_pix ? `\nPagamento via PIX: ${_pix}` : '\nPagamento via PIX.');
-  const marker = pagou ? `\n✅ PIX pago — confirme no seu extrato (ref. ${txid}).` : '';
-  const msg = `Olá! Quero comprar na Loja Yama:\n${linhas}\n\nTotal: ${moneyBR(carrinhoTotal())}${pix}${marker}\nVou retirar na recepção.`;
-  let win=null;
-  try{ win = window.open(`https://wa.me/${_wa}?text=${encodeURIComponent(msg)}`, '_blank'); }catch(e){ win = null; }
-  if(!win){ toast('⚠️ Não consegui abrir o WhatsApp — permita pop-ups e tente de novo. Sua sacola foi mantida.'); return false; }
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined' && sbSync.registrarPedido){
     const itens = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
       return { produto_id:i.id, nome:p?p.nome:'', tam:i.tam, qtd:i.qtd, preco:p?p.preco:0 }; });
-    sbSync.registrarPedido(itens, carrinhoTotal(), txid).then(pedidoId=>{
-      // "Já paguei": avisa o professor por push. Best-effort — não bloqueia o aluno
-      // se o push não estiver configurado ou a Edge Function ainda não foi implantada.
-      if(pagou && pedidoId && sbSync.notificarPedidoPago) sbSync.notificarPedidoPago(pedidoId).catch(()=>{});
+    sbSync.registrarPedido(itens, total, txid).then(pedidoId=>{
+      if(pedidoId && sbSync.notificarPedidoPago) sbSync.notificarPedidoPago(pedidoId).catch(()=>{});
     }).catch(()=>{});
   }
   DB.loja.carrinho = [];
   DB._checkoutTxid = null;
-  if (DB.lojaOpen) render();
+  if(DB.lojaOpen) render();
   scheduleSave();
-  toast(pagou ? 'Pedido enviado com aviso de pagamento ✔' : 'Pedido aberto no WhatsApp ✔');
-  return true;
+  toast('Pedido enviado ✔ Aguarde a confirmação do professor.');
 }
-/* Sheet de confirmação PIX (v403). Mostra dados do recebedor extraídos do próprio
-   BR Code (nome, chave, cidade) + valor da sacola. Ações:
-   - 🏦 Pagar no meu banco → Web Share do Copia-e-Cola (fallback: copy)
-   - 📋 Copiar código → clipboard
-   - ✅ Já paguei → dispara WhatsApp com marker "PIX pago" e limpa sacola */
+/* Tela de pagamento (v408). Recebedor/chave/cidade extraídos do BR Code que o
+   professor colou. Dois botões: copiar (com valor + txid injetados) e "Já paguei"
+   (grava pedido + notifica professor por push). Sem WhatsApp, sem Web Share. */
 function _abrirConfirmPix(){
   const total = carrinhoTotal();
   const brRaw = _lojaPixBrCode();
   const brCom = brRaw ? _pixBrCodeComValorTxid(brRaw, total, _txidAtual()) : '';
   const dados = brRaw ? _pixParseBrCode(brRaw) : null;
-  // Sem BR Code cadastrado: cai pro fluxo antigo (WhatsApp direto com chave PIX pura).
-  if(!brCom){ _enviarPedidoWhatsapp(false); return; }
+  // Sem BR Code cadastrado: mostra a chave PIX pura como fallback. Aluno digita o valor à mão.
+  const chaveMostrar = dados ? dados.chave : _lojaPix();
+  const codigoParaCopiar = brCom || _lojaPix();
   const linha = (lbl, val)=> `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px">
     <span style="color:var(--muted);font-weight:600">${lbl}</span>
     <b style="color:var(--ink);text-align:right;word-break:break-all">${safeTxt(val)}</b></div>`;
-  const podeShare = !!(navigator.share && navigator.canShare);
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">Confirme o PIX</div>
-    <div class="sheet-desc">Confira o recebedor antes de pagar. Golpe de PIX começa aqui — se algo não bate, cancele.</div>
+    <div class="sheet-title">Pagamento por PIX</div>
+    <div class="sheet-desc">Confira o recebedor antes de pagar. Copie o código, cole no seu banco e volte pra confirmar.</div>
     <div style="background:var(--field);border:1px solid var(--line);border-radius:12px;padding:4px 14px;margin:12px 0">
-      ${linha('Recebedor', dados && dados.nome || '—')}
-      ${linha('Chave PIX', dados && dados.chave || '—')}
-      ${linha('Cidade', dados && dados.cidade || '—')}
+      ${dados ? linha('Recebedor', dados.nome || '—') : ''}
+      ${linha('Chave PIX', chaveMostrar || '—')}
+      ${dados && dados.cidade ? linha('Cidade', dados.cidade) : ''}
       <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;font-size:15px">
         <span style="color:var(--muted);font-weight:700">Valor</span>
         <b style="color:var(--red-strong);font-size:17px">${moneyBR(total)}</b></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
-      ${podeShare ? '<button id="cp-share" class="btn-save">🏦 Pagar no meu banco</button>' : ''}
-      <button id="cp-copy" class="btn-save" style="background:var(--ink);color:#fff">📋 Copiar código PIX</button>
-      <button id="cp-paid" class="btn-save" style="background:var(--good);color:#fff">✅ Já paguei — enviar pedido</button>
+      <button id="cp-copy" class="btn-save">📋 Copiar código PIX e pagar</button>
+      <button id="cp-paid" class="btn-save" style="background:var(--good);color:#fff">✅ Já paguei</button>
       <button class="sheet-cancel">Cancelar</button>
     </div>
   </div></div>`);
   const close = openSheet(sheet, '.sheet-cancel');
-  const share = sheet.querySelector('#cp-share');
-  if(share) share.onclick = async ()=>{
-    // Web Share API abre a folha nativa (bancos aparecem se instalados).
-    try{ await navigator.share({ title:'PIX Yama', text: brCom }); }
-    catch(e){ if(e && e.name!=='AbortError') toast('Não deu pra compartilhar — copie o código'); }
-  };
   sheet.querySelector('#cp-copy').onclick = async ()=>{
-    try{ await navigator.clipboard.writeText(brCom); toast('Copia e Cola do PIX copiado ✓'); }
-    catch(e){ toast('Copie: '+brCom.substr(0,40)+'…'); }
+    try{ await navigator.clipboard.writeText(codigoParaCopiar); toast('PIX copiado — cole no seu banco pra pagar'); }
+    catch(e){ toast('Copie: '+codigoParaCopiar.substr(0,40)+'…'); }
   };
-  sheet.querySelector('#cp-paid').onclick = ()=>{
-    if(_enviarPedidoWhatsapp(true)) close();
-  };
+  sheet.querySelector('#cp-paid').onclick = ()=>{ close(); _registrarPedidoJaPago(); };
 }
 
 /* ============================================================
@@ -9058,6 +9011,7 @@ function profPedidos(){
       if(p.status==='pendente'){
         const acts = el(`<div class="ped-acts">
           <button class="ped-ok">✓ Confirmar (baixa estoque)</button>
+          <button class="ped-wa">📱 Responder no WhatsApp</button>
           <button class="ped-no">Cancelar</button></div>`);
         acts.querySelector('.ped-ok').onclick=async()=>{
           const b=acts.querySelector('.ped-ok'); b.disabled=true; b.textContent='Confirmando…';
@@ -9067,6 +9021,7 @@ function profPedidos(){
           } else { p.status='concluido'; _baixaEstoqueMock(p); }   // demo
           toast('Pedido confirmado · estoque baixado ✔'); _reload();
         };
+        acts.querySelector('.ped-wa').onclick=()=> _abrirRespostaWhatsapp(p);
         acts.querySelector('.ped-no').onclick=async()=>{
           if(!DEMO && typeof sbProf!=='undefined' && sbProf.cancelarPedido){
             try{ await sbProf.cancelarPedido(p.id); }catch(e){ toast('Erro: '+(e.message||e)); return; }
@@ -9082,6 +9037,34 @@ function profPedidos(){
   renderList();
   w.appendChild(seg); w.appendChild(list);
   return w;
+}
+// v408: sheet com respostas prontas de WhatsApp pro professor confirmar um pedido.
+// (B) Professor escolhe caso a caso — não tem flag no produto, cobre pedidos híbridos
+// (kimono + barrinha) sem lógica de negócio pra manter.
+function _abrirRespostaWhatsapp(p){
+  const wa = (p.telefone||'').replace(/\D/g,'');
+  if(!wa){ toast('Aluno sem telefone cadastrado — abra a ficha dele pra editar'); return; }
+  const nome = (p.cliente||'').split(' ')[0] || '';
+  const valor = moneyBR(p.total);
+  const ref = p.txid ? ` (ref. ${p.txid})` : '';
+  const tpls = [
+    { rot: '📦 Retire no balcão', msg: `Oi ${nome}! Recebemos seu PIX de ${valor}${ref} ✅\nSeu pedido está separado — pode retirar no balcão da recepção quando passar por aqui.` },
+    { rot: '🙏 Obrigado (já retirado)', msg: `Oi ${nome}! Recebemos seu PIX de ${valor}${ref} ✅\nObrigado! Bom treino 🥋` },
+  ];
+  const btns = tpls.map((t,i)=>`<button class="btn-save" data-i="${i}">${t.rot}</button>`).join('');
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Responder ao aluno</div>
+    <div class="sheet-desc">Escolha o texto — abre o WhatsApp já preenchido.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${btns}</div>
+    <button class="sheet-cancel" style="margin-top:12px">Cancelar</button>
+  </div></div>`);
+  const close = openSheet(sheet, '.sheet-cancel');
+  sheet.querySelectorAll('[data-i]').forEach(b=> b.onclick=()=>{
+    const t = tpls[+b.dataset.i];
+    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(t.msg)}`, '_blank');
+    close();
+  });
 }
 // Demo: baixa o estoque do mock ao confirmar (com backend a RPC faz isso no servidor).
 function _baixaEstoqueMock(p){

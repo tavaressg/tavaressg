@@ -1174,12 +1174,13 @@
     getPedidos: wrap(async () => {
       const acad = await myAcademyId();
       const { data } = await SB.from('pedidos')
-        .select('id,user_id,itens,total,status,canal,criado_em, profiles(apelido,nome_completo)')
+        .select('id,user_id,itens,total,status,canal,criado_em,txid, profiles(apelido,nome_completo,telefone)')
         .eq('academy_id', acad).order('criado_em', { ascending: false }).limit(200);
       return (data || []).map(p => ({
         id: p.id, itens: Array.isArray(p.itens) ? p.itens : [], total: Number(p.total),
-        status: (p.status === 'aberto' ? 'pendente' : p.status), canal: p.canal, criadoEm: p.criado_em,
+        status: (p.status === 'aberto' ? 'pendente' : p.status), canal: p.canal, criadoEm: p.criado_em, txid: p.txid,
         cliente: p.profiles ? (p.profiles.apelido || p.profiles.nome_completo || '—') : '—',
+        telefone: p.profiles ? (p.profiles.telefone || '') : '',   // v408: professor responde WhatsApp com msg pronta
       }));
     }),
     // Confirma o pedido → RPC baixa o estoque + audita + marca 'concluido' (atômico).
