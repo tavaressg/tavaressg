@@ -6571,7 +6571,11 @@ function _gradTimelineNode(grads){
 }
 
 // Alunos matriculados numa turma (UI/offline: lê a.turmas; backend real vem no passo 2-backend).
-function _turmaAlunos(turmaId){ return _profAlunosArr().filter(a=>(a.turmas||[]).includes(turmaId)); }
+function _turmaAlunos(turmaId){
+  // v421: alunos inativos somem das turmas (heatmap de ocupacao, lista da turma).
+  // A matricula (enrollments) continua registrada — se voltar a treinar, reaparece.
+  return _profAlunosArr().filter(a=> (a.turmas||[]).includes(turmaId) && _statusAluno(a).valor!=='inativo');
+}
 
 /* Lesões — painel gerencial no detalhe do aluno (visão do professor).
    Autorizado pela §4: professor vê parte/status/data (informação clínica objetiva). */
@@ -7975,7 +7979,11 @@ function _metaAulasFaixa(faixa){
    Tempo/idade CBJJ nao bloqueiam mais (decisao de produto v395) — o professor
    sempre pode graduar. */
 function _aptosGraduar(){
+  // v421: ignora alunos inativos — quem parou de treinar nao aparece na fila
+  // "aptos a graduar" (o professor nao vai chamar quem sumiu). Se voltar a
+  // treinar (statusManual='ativo' ou diasSem cair), volta automaticamente.
   return _profAlunosArr().filter(a=>{
+    if(_statusAluno(a).valor === 'inativo') return false;
     const s = _prontidaoGrad(a);
     return s.grau.ok || s.faixa.ok;
   });
