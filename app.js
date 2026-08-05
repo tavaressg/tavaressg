@@ -3848,6 +3848,56 @@ function _saveDraft(d){ DB._draft=d; scheduleSave(); }
 function _clearDraft(){ DB._draft=null; scheduleSave(); }
 function _autosaveDraft(){ if(DB._draft){ DB._draft.registro=DB.registro; scheduleSave(); } }
 
+/* ============================================================
+   RASCUNHO DE FORMULÁRIO DE PÁGINA (v425) — "a gaveta"
+   ------------------------------------------------------------
+   PROBLEMA: render() faz `root.innerHTML=''` (linha ~1517). Formulários que
+   vivem DENTRO de #root (páginas cheias: cadastro de aluno, cadastro de
+   produto) são destruídos e reconstruídos — e o que o usuário digitou existia
+   SÓ como `<input>.value`, ou seja, só no DOM. Um refetch em background
+   (_loadProfData resolvendo) apagava o formulário no meio do preenchimento.
+   Medido: cadastro de aluno perde 28 campos; produto perde 9.
+
+   Sheets NÃO precisam disto — vivem em document.body e sobrevivem ao render()
+   (verificado em teste: valor digitado permanece).
+
+   SOLUÇÃO: o valor passa a morar no MODELO. A tela vira projeção do rascunho,
+   então render() fica inofensivo — não é preciso lembrar de travá-lo em cada
+   uma das 144 chamadas, nem na 145ª.
+
+   ESCOPO: memória apenas (DB._formDrafts). NÃO entra no dump — mexer no
+   formato de buildDump/applyDump exige aprovação explícita (ver CLAUDE.md).
+   Persistir entre sessões ("fechei o app no meio do cadastro") é opt-in futuro.
+   ============================================================ */
+function _formDraftLer(chave){ return (DB._formDrafts && DB._formDrafts[chave]) || null; }
+function _formDraftLimpar(chave){ if(DB._formDrafts) delete DB._formDrafts[chave]; }
+/* Liga um container de formulário ao rascunho:
+   1. restaura o que já estava guardado (sobrevive ao render)
+   2. grava a cada digitação (debounce 200ms — não precisa gravar por tecla)
+   `extra()` guarda estado não-textual junto (ex.: em qual etapa do wizard está). */
+function _bindFormDraft(container, chave, extra){
+  const campos = ()=> [...container.querySelectorAll('input[id],textarea[id],select[id]')];
+  const coletar = ()=>{
+    const c = {};
+    campos().forEach(e=>{ c[e.id] = (e.type==='checkbox'||e.type==='radio') ? e.checked : e.value; });
+    return Object.assign({ campos:c }, (typeof extra==='function' ? extra() : null) || {});
+  };
+  const salvo = _formDraftLer(chave);
+  if(salvo && salvo.campos){
+    campos().forEach(e=>{
+      const v = salvo.campos[e.id];
+      if(v == null) return;
+      if(e.type==='checkbox'||e.type==='radio') e.checked = !!v; else e.value = v;
+    });
+  }
+  let t = null;
+  const grava = ()=>{ clearTimeout(t); t = setTimeout(()=>{ DB._formDrafts = DB._formDrafts||{}; DB._formDrafts[chave] = coletar(); }, 200); };
+  container.addEventListener('input',  grava);
+  container.addEventListener('change', grava);
+  // salvarAgora: para trocas de etapa do wizard (não espera o debounce)
+  return { restaurado: salvo, salvarAgora(){ clearTimeout(t); DB._formDrafts = DB._formDrafts||{}; DB._formDrafts[chave] = coletar(); } };
+}
+
 function openFlow(){
   const draft = _loadDraft();
   const treinoHoje = DB.treinos.find(t=>t.data===HOJE_ISO);
@@ -6876,9 +6926,12 @@ function renderCadastroAluno(){
       <button class="sheet-cancel" id="ca-back">Cancelar</button>
       <button class="btn-save" id="ca-next">Continuar</button>
     </div>`;
-  const back=()=>{ DB.cadastroAlunoOpen=false; render(); window.scrollTo(0,0); };
+  // v425: sair de vez limpa a gaveta — senão o próximo cadastro abriria com os
+  // dados do anterior. Só `back()` limpa; render() no meio do preenchimento não.
+  const back=()=>{ _formDraftLimpar('cadastroAluno'); DB.cadastroAlunoOpen=false; render(); window.scrollTo(0,0); };
   const close=back;   // "Cancelar" no passo 0 e os fluxos de sucesso voltam pra lista
   let _caDirty=false; body.addEventListener('input',()=>{ _caDirty=true; });
+  let _caDraft=null;   // v425: preenchido no fim (depois que os campos existem)
   const tryClose=()=>{ if(_caDirty) _confirmDescartar(back); else back(); };
   const _bk=v.querySelector('.back');
   _bk.onclick=tryClose; _bk.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tryClose(); } };
@@ -6899,12 +6952,15 @@ function renderCadastroAluno(){
   const scroller=null;   // página cheia: o scroll é da janela (showStep usa window.scrollTo)
   const val=id=>{ const e=sheet.querySelector('#'+id); return e?e.value.trim():''; };
   const paintSteps=()=>{ stepsEl.innerHTML=STEPS.map((s,i)=>`<span class="cad-dot ${i===step?'on':''} ${i<step?'done':''}"></span>`).join(''); };
-  const showStep=(n)=>{
+  const showStep=(n, semScroll)=>{
     step=Math.max(0,Math.min(STEPS.length-1,n));
     sheet.querySelectorAll('.cad-step').forEach(sec=>{ sec.hidden=(+sec.dataset.step!==step); });
     backBtn.textContent = step===0 ? 'Cancelar' : 'Voltar';
     nextBtn.textContent = step===STEPS.length-1 ? 'Cadastrar e gerar senha' : 'Continuar';
     paintSteps();
+    if(_caDraft) _caDraft.salvarAgora();   // v425: guarda a etapa junto com os campos
+    // Restaurar após render() não deve jogar o usuário pro topo (ele estava rolando).
+    if(semScroll) return;
     if(scroller) scroller.scrollTop=0; else window.scrollTo(0,0);
   };
   const validateStep=()=>{
@@ -6958,7 +7014,13 @@ function renderCadastroAluno(){
     _profData=null; _profTs=0; _loadProfData();   // M4: invalida o cache p/ o novo aluno aparecer já
     close(); _senhaProvisoriaSheet(email, senha); refresh();
   };
-  showStep(0);
+  // v425: liga a gaveta DEPOIS que os campos existem no DOM. Se havia rascunho
+  // (render() no meio do preenchimento), os valores voltam e a etapa é retomada
+  // — sem pular pro topo, porque o usuário pode estar rolando a página.
+  _caDraft = _bindFormDraft(body, 'cadastroAluno', ()=>({ step }));
+  const _caSalvo = _caDraft.restaurado;
+  if(_caSalvo){ _caDirty = true; showStep(_caSalvo.step || 0, true); }
+  else showStep(0);
   v.appendChild(body);
   return v;
 }
@@ -9317,17 +9379,26 @@ function renderProdutoForm(){
   const p = DB._produtoEdit;
   const novo = !p;
   const cats = ['Kimonos','Vestuário','Acessórios'];
-  let selCat = p ? p.cat : 'Kimonos';
-  let ativo  = p ? p.ativo!==false : true;
-  let sizes = p ? (p.tam||[]).slice() : (CAT_TAMANHOS['Kimonos']||[]).slice();
-  let sizesCustom = !novo;   // produto existente: nunca trocar os tamanhos ao mudar categoria
-  let dirty = false;
+  // v425: gaveta. Chave por produto — editar A e depois B não pode misturar rascunho.
+  // Lido ANTES do estado inicial pra semear categoria/tamanhos/estoque já restaurados
+  // (paintEst/paintFotos rodam logo abaixo e precisam do valor final).
+  const _pfKey = 'produto:' + (novo ? 'novo' : String(p.id));
+  const _pfSalvo = _formDraftLer(_pfKey);
+  let selCat = _pfSalvo ? _pfSalvo.selCat : (p ? p.cat : 'Kimonos');
+  let ativo  = _pfSalvo ? !!_pfSalvo.ativo : (p ? p.ativo!==false : true);
+  let sizes = _pfSalvo ? (_pfSalvo.sizes||[]).slice() : (p ? (p.tam||[]).slice() : (CAT_TAMANHOS['Kimonos']||[]).slice());
+  let sizesCustom = _pfSalvo ? !!_pfSalvo.sizesCustom : !novo;   // produto existente: nunca trocar os tamanhos ao mudar categoria
+  let dirty = !!_pfSalvo;   // rascunho restaurado já conta como mexido (protege o "descartar?")
   // Fotos: primeira = capa (p.img), resto = galeria (p.imgs[]). URLs no Supabase Storage
   // (bucket `produtos`, público-leitura). Upload cru — sem crop/compressão (as fotos do
   // catálogo já vêm 1:1 e leves; ver CLAUDE.md § análise de fotos).
-  let fotos = p ? [p.img, ...(Array.isArray(p.imgs)?p.imgs:[])].filter(Boolean) : [];
-  const est = {}; sizes.forEach(t=> est[t] = p ? (p.estoque?.[t] ?? 0) : 10);
-  const back=()=>{ DB.produtoFormOpen=false; DB._produtoEdit=null; render(); window.scrollTo(0,0); };
+  let fotos = _pfSalvo && Array.isArray(_pfSalvo.fotos) ? _pfSalvo.fotos.slice()
+            : (p ? [p.img, ...(Array.isArray(p.imgs)?p.imgs:[])].filter(Boolean) : []);
+  const est = {};
+  sizes.forEach(t=> est[t] = (_pfSalvo && _pfSalvo.est && _pfSalvo.est[t] != null) ? _pfSalvo.est[t]
+                            : (p ? (p.estoque?.[t] ?? 0) : 10));
+  // v425: sair de vez limpa a gaveta deste produto (salvar, cancelar ou excluir).
+  const back=()=>{ _formDraftLimpar(_pfKey); DB.produtoFormOpen=false; DB._produtoEdit=null; render(); window.scrollTo(0,0); };
   const tryBack=()=>{ dirty ? _confirmDescartar(back) : back(); };
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
@@ -9413,6 +9484,13 @@ function renderProdutoForm(){
   const visRow=body.querySelector('#pr-vis');
   visRow.onclick=()=>{ dirty=true; ativo=!ativo; visRow.querySelector('span').textContent = ativo?'👁️ Visível na loja':'🚫 Oculto da loja'; };
   body.addEventListener('input', ()=>{ dirty=true; });
+  // v425: liga a gaveta. `extra()` carrega o que NÃO é <input> (categoria,
+  // tamanhos, estoque, visibilidade, fotos já enviadas) — senão o render()
+  // devolveria os textos mas zeraria o estoque que o professor ajustou.
+  const _pfDraft = _bindFormDraft(body, _pfKey, ()=>({ selCat, ativo, sizes:sizes.slice(), sizesCustom, est:{...est}, fotos:fotos.slice() }));
+  // Cliques (+/− estoque, trocar categoria, remover tamanho) não disparam 'input'
+  // — este listener garante que essas mudanças também caiam na gaveta.
+  body.addEventListener('click', ()=>{ if(dirty) _pfDraft.salvarAgora(); });
   const salvar=()=>{
     const nome=body.querySelector('#pr-nome').value.trim();
     const preco=parseFloat(body.querySelector('#pr-preco').value)||0;
