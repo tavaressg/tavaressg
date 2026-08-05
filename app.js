@@ -771,7 +771,10 @@ const isHoje = (s) => s === HOJE_ISO;
    Aditivo: cada técnica ganha `estado` (foco|arma|guardada|aprendida) e
    `dias[]` (histórico diário de 30 dias) · DB.links substitui DB.sistemas.
    ============================================================ */
-const FOCO_INICIAL = ['Sankaku-jime','Hikikomi-gaeshi','Juji-gatame']; // máx 3 em treino (todas existem no catálogo)
+// v422: FOCO_INICIAL removido. Antes forcava Sankaku/Hikikomi-gaeshi/Juji em
+// foco pra TODO aluno no boot — mesmo quem nunca tinha aberto o app via essas
+// 3 aparecerem "em foco" (bug: Hikikomi-gaeshi vazando pra todos os alunos).
+// Aluno comeca zerado; foco e sempre escolha manual dele.
 const _WD = ['dom','seg','ter','qua','qui','sex','sáb'];
 function gerarDias(t){
   const base  = t.nivel==='dominada'?64 : t.nivel==='treinando'?40 : 18;
@@ -786,7 +789,7 @@ function gerarDias(t){
   return out;
 }
 DB.tecnicas.forEach(t=>{
-  t.estado = FOCO_INICIAL.includes(t.jp) ? 'foco' : (t.nivel==='dominada' ? 'arma' : 'aprendida');
+  t.estado = (t.nivel==='dominada' ? 'arma' : 'aprendida');   // v422: sem FOCO_INICIAL forcado
   if(!t.dias) t.dias = DEMO ? gerarDias(t) : [];
   if(t.hojeT==null){ t.hojeT=0; t.hojeA=0; }
 });
@@ -12273,6 +12276,11 @@ if (DEMO || TESTMODE) {
     DB.turmas = [];   // grade demo não vale p/ aluno real — pullTurmas popula do backend no login
     if(DB.loja) DB.loja.produtos = [];   // catálogo mock é só da vitrine — pullLoja popula do backend
     DB.academia = Object.assign({}, DB.academia, { turma:null });  // sem turma mock; pullAll preenche a real (kanji/artes ficam de fallback da marca)
+    // v423: DB.eu seed hardcoded ('Gabriel Tavares · Azul 2') vazava em flash quando
+    // o PWA iOS mostrava snapshot da tela antes do applyDump popular o perfil real.
+    // Zera o perfil aqui — mesmo tratamento de alunos/turmas/loja. Se algum render
+    // escapar antes do login completar, aparece "—" em vez de perfil errado.
+    DB.eu = Object.assign({}, DB.eu, { nome:'', nomeCompleto:'', apelido:'', iniciais:'', faixa:'', graus:0, foto:null, nascimento:null });
     if(!render._wrapped){ const _ro = render; render = function(){ _ro.apply(this, arguments); scheduleSave(); }; render._wrapped=true; }
     let session = null;
     try{ const { data } = await SB.auth.getSession(); session = data?.session??null; }catch(_){}
