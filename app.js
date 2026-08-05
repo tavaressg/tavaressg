@@ -78,6 +78,10 @@ const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov'
 const diasSem = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 // ?demo=1 = vitrine (data congelada p/ o seed casar); usuário real = data de hoje (presença real ao longo dos dias)
 const DEMO = (()=>{ try{ return new URLSearchParams(location.search).has('demo'); }catch(e){ return false; } })();
+// v424: TESTMODE subiu pra cá (era definido lá embaixo) porque a separação
+// SEED_DEMO × DB precisa saber, ANTES de montar o estado, se é vitrine/teste.
+const TESTMODE = (()=>{ try{ return new URLSearchParams(location.search).has('test'); }catch(e){ return false; } })();
+const VITRINE = DEMO || TESTMODE;   // único ponto que decide se o seed fake entra
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 let HOJE_ISO = isoOf(hoje);
@@ -487,11 +491,22 @@ function renderBeltField(container, faixas, sel, onPick){
   container.appendChild(field);
 }
 
-/* ---------------- ESTADO COMPARTILHADO (o "banco") ---------------- */
-const DB = {
-  role: 'aluno',                 // 'aluno' | 'professor'
-  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', artes:'Judô Kodokan · Kosen · Jiu-Jitsu', turma:'Adulto · Gi · 19h30' },
+/* ============================================================
+   SEED_DEMO — dados de VITRINE. Só entram com ?demo=1 ou ?test=1.
+   ------------------------------------------------------------
+   v424 (correção estrutural): antes esses dados nasciam DENTRO do DB e a
+   produção ia zerando campo a campo conforme descobríamos vazamentos
+   (v416 alunos/turmas/loja · v422 FOCO_INICIAL · v423 eu). Cada campo novo
+   com placeholder era um bug futuro. Agora a vitrine é OPT-IN: o DB nasce
+   vazio e só recebe o seed se VITRINE for true. Vazar virou impossível
+   por construção, não por lembrança.
+
+   NÃO entra aqui: identidade da marca (academia.nome/kanji/artes) e o
+   catálogo de técnicas — valem em produção também.
+   ============================================================ */
+const SEED_DEMO = {
   professor: { nome:'Prof. Ricardo Maciel' },
+  academiaTurma: 'Adulto · Gi · 19h30',
 
   // Turmas (grupo) → sessões (dia+hora+variação). Fonte da grade de horários (§ gestão).
   // dia: 'seg'..'dom'; hora: 'HH:MM'; variacao: rótulo curto opcional; bilingue: 🇺🇸.
@@ -545,8 +560,6 @@ const DB = {
     { faixa:'branca', graus:4, tipo:'faixa', data:'2021-03-01' },
   ],
 
-  // >>> ponto de integração nº3: check-in fundido ao registro do treino
-  checkinHoje: { feito:false, hora:null },
   // consistência / streak semanal (S T Q Q S S D)
   semana: { feitos:2, meta:4, streakSemanas:5, dias:[true,true,false,false,false,false,false] },
 
@@ -574,7 +587,79 @@ const DB = {
     finBat: 2.3, pctTecnica: 70, faixaConquista: 'Azul · 2º grau',
   },
 
+  // Sistemas de jogo — técnicas conectadas no seu jogo (do controle à finalização)
+  sistemas: [
+    { nome:'Guarda → finalização', emoji:'🛡️', cor:'#2f8fef', desc:'Seu jogo por baixo, do puxar à chave.',
+      passos:[ {t:'Hikikomi', d:'puxa pra guarda'}, {t:'Dō-jime', d:'controla o tronco'}, {t:'Juji-gatame', d:'finaliza no braço'} ] },
+    { nome:'Pressão por cima', emoji:'⬇️', cor:'#ef5350', desc:'Passou, controlou, estrangulou.',
+      passos:[ {t:'Yoko-shiho-gatame', d:'cem quilos lateral'}, {t:'Kami-shiho-gatame', d:'norte-sul'}, {t:'Hadaka-jime', d:'pega as costas'} ] },
+    { nome:'Em pé → chão (Kosen)', emoji:'⬆️', cor:'#43b581', desc:'Da queda direto pro ataque no solo.',
+      passos:[ {t:'O-soto-gari', d:'derruba'}, {t:'Tate-shiho-gatame', d:'monta'}, {t:'Ude-garami', d:'chaveia'} ] },
+  ],
+
+  // Notas rápidas (insights soltos, sem formulário)
+  notas: [
+    { id:1, data:'2026-06-01', texto:'Lembrar de manter o cotovelo colado no juji-gatame, sempre perco quando abro.' },
+  ],
+
+  // Lesões (registrar e acompanhar)
+  lesoes: [
+    { id:1, parte:'Joelho direito', data:'2026-05-10', status:'recuperando', nota:'Torci numa raspagem. Evitar leglock por 3 semanas.' },
+  ],
+
+  // Centro de notificações
+  notificacoes: [
+    { id:2, ic:'⭐', txt:'Você está a 4 aulas do 3º grau!', data:'2026-06-02' },
+    { id:3, ic:'💳', txt:'Mensalidade vence dia 10/06', data:'2026-06-01' },
+  ],
+
+  // Catálogo REAL da Yama (importado de marketplace.youdraw.com.br/pages/store/yama-jiu-jitsu,
+  // 2026-07-10). Imagens locais em loja/ (CSP 'self'). `img` opcional — fallback = emoji.
+  // Em PRODUÇÃO quem popula é sbSync.pullLoja (backend) — este array é só vitrine.
+  lojaProdutos: [
+    { id:1, nome:'Moletom Yama — Coleção Classic', cat:'Vestuário', preco:210.35, emoji:'🧥', cor:'#f0f0f2', img:'loja/moletom-yama.jpg', desc:'O moletom da Coleção Clássica Yama Jiu Jitsu foi criado para quem valoriza tradição, identidade e simplicidade.', tam:['P','M','G','GG','EG'] },
+    { id:2, nome:'Camiseta Yama Jiu Jitsu — Coleção Classic', cat:'Vestuário', preco:131.29, emoji:'👕', cor:'#fdecec', img:'loja/camiseta-classic.jpg', desc:'A camiseta Classic Yama Jiu Jitsu traduz a essência da marca em sua forma mais pura.', tam:['P','M','G','GG','EG'] },
+    { id:3, nome:"Seiryoku Zen'yō — Oversized", cat:'Vestuário', preco:180.91, emoji:'👕', cor:'#eaf4fe', img:'loja/seiryoku-zenyo.jpg', desc:'Inspirada no princípio Seiryoku Zen’yō: o máximo de eficiência com o mínimo de esforço.', tam:['P','M','G','GG','EG'] },
+    { id:4, nome:'SAKURA JUDO', cat:'Vestuário', preco:147.94, emoji:'🌸', cor:'#fdecec', img:'loja/sakura-judo.jpg', desc:'Camiseta oversized da linha Sakura.', tam:['P','M','G','GG'] },
+    { id:5, nome:'JIU JITSU SAKURA', cat:'Vestuário', preco:148.48, emoji:'🌸', cor:'#fef7e0', img:'loja/jiu-jitsu-sakura.jpg', desc:'Camiseta oversized da linha Sakura.', tam:['P','M','G','GG'] },
+    { id:6, nome:'Body Infantil Yama — Coleção Classic', cat:'Vestuário', preco:53.06, emoji:'👶', cor:'#e7f6ef', img:'loja/body-infantil.png', desc:'O body infantil da Coleção Clássica, para quem faz parte da história desde cedo.', tam:['P','M','G','GG'] },
+    { id:7, nome:'YAMA KIDS (0–3 anos)', cat:'Vestuário', preco:109.48, emoji:'🧒', cor:'#eaf4fe', img:'loja/yama-kids-0-3.jpg', desc:'Camiseta infantil Yama.', tam:['0','2'] },
+    { id:8, nome:'YAMA Kids (4–9 anos)', cat:'Vestuário', preco:113.56, emoji:'🧒', cor:'#e7f6ef', img:'loja/yama-kids-4-9.jpg', desc:'Camiseta infantil Yama.', tam:['4','6','8'] },
+  ],
+};
+
+/* ============================================================
+   DB — ESTADO COMPARTILHADO (o "banco"), shape de PRODUÇÃO.
+   ------------------------------------------------------------
+   v424: nasce VAZIO. Quem enche é (a) o seed de vitrine, só com ?demo=1/?test=1,
+   ou (b) applyDump + pull* do backend, em produção. Não existe mais dado fake
+   "de fábrica" esperando ser zerado depois.
+   Fica em produção: identidade da marca (academia.nome/kanji/artes) e o
+   CATÁLOGO de técnicas (fallback do pullTecnicas quando offline).
+   ============================================================ */
+const DB = {
+  role: 'aluno',                 // 'aluno' | 'professor'
+  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', artes:'Judô Kodokan · Kosen · Jiu-Jitsu', turma:null },
+  professor: { nome:'' },
+  turmas: [],            // pullTurmas popula
+  eu: { nome:'', nomeCompleto:'', apelido:'', iniciais:'', faixa:'', graus:0, modalidade:'Jiu-Jitsu', foto:null,
+        isProfessor:false, desde:'', nascimento:null,
+        aulasGrau:{ atual:0, meta:40 }, aulasGraduacao:160, avisos:0,
+        mensalidade:{ valor:0, status:'ok', venc:'—' } },
+  treinos: [],           // applyDump popula
+  graduacoes: [],        // pullAll popula
+  checkinHoje: { feito:false, hora:null },
+  semana: { feitos:0, meta:4, streakSemanas:0, dias:[false,false,false,false,false,false,false] },
+  alunos: [],            // sbProf.getAlunos popula (só professor)
+  retro: null,
+  sistemas: [],
+  notas: [],
+  lesoes: [],
+  notificacoes: [],
+  loja: { cat:'Todos', carrinho:[], produtos:[] },   // pullLoja popula produtos
+
   // biblioteca pessoal de técnicas — id estável (chave de persistência), jp=display, pt=tradução
+  // FICA em produção: é o catálogo base + fallback do pullTecnicas (migration 0031).
   // Para "outros" (BJJ moderno) o jp aceita nome em PT/EN consagrado (sem japonês inventado).
   tecnicas: [
     // v413: taxonomia 2 tradições (Kodokan + Jiu-Jitsu). Kosen desativado — suas
@@ -689,52 +774,6 @@ const DB = {
     { id:'esc-armlock',     jp:'Defesa do armlock', pt:'Esconder o cotovelo',           cat:'basico', oficial:false },
   ],
 
-  // Sistemas de jogo — técnicas conectadas no seu jogo (do controle à finalização)
-  sistemas: [
-    { nome:'Guarda → finalização', emoji:'🛡️', cor:'#2f8fef', desc:'Seu jogo por baixo, do puxar à chave.',
-      passos:[ {t:'Hikikomi', d:'puxa pra guarda'}, {t:'Dō-jime', d:'controla o tronco'}, {t:'Juji-gatame', d:'finaliza no braço'} ] },
-    { nome:'Pressão por cima', emoji:'⬇️', cor:'#ef5350', desc:'Passou, controlou, estrangulou.',
-      passos:[ {t:'Yoko-shiho-gatame', d:'cem quilos lateral'}, {t:'Kami-shiho-gatame', d:'norte-sul'}, {t:'Hadaka-jime', d:'pega as costas'} ] },
-    { nome:'Em pé → chão (Kosen)', emoji:'⬆️', cor:'#43b581', desc:'Da queda direto pro ataque no solo.',
-      passos:[ {t:'O-soto-gari', d:'derruba'}, {t:'Tate-shiho-gatame', d:'monta'}, {t:'Ude-garami', d:'chaveia'} ] },
-  ],
-
-  // Notas rápidas (insights soltos, sem formulário)
-  notas: [
-    { id:1, data:'2026-06-01', texto:'Lembrar de manter o cotovelo colado no juji-gatame, sempre perco quando abro.' },
-  ],
-
-  // Lesões (registrar e acompanhar)
-  lesoes: [
-    { id:1, parte:'Joelho direito', data:'2026-05-10', status:'recuperando', nota:'Torci numa raspagem. Evitar leglock por 3 semanas.' },
-  ],
-
-  // Centro de notificações
-  notificacoes: [
-    { id:2, ic:'⭐', txt:'Você está a 4 aulas do 3º grau!', data:'2026-06-02' },
-    { id:3, ic:'💳', txt:'Mensalidade vence dia 10/06', data:'2026-06-01' },
-  ],
-
-  // loja da academia (retirada na recepção, sem frete)
-  loja: {
-    cat: 'Todos',
-    carrinho: [],   // { id, tam, qtd }
-    // Catálogo REAL da Yama (importado de marketplace.youdraw.com.br/pages/store/yama-jiu-jitsu,
-    // 2026-07-10). Imagens locais em loja/ (CSP 'self'). `img` opcional — fallback = emoji.
-    produtos: [
-      { id:1, nome:'Moletom Yama — Coleção Classic', cat:'Vestuário', preco:210.35, emoji:'🧥', cor:'#f0f0f2', img:'loja/moletom-yama.jpg', desc:'O moletom da Coleção Clássica Yama Jiu Jitsu foi criado para quem valoriza tradição, identidade e simplicidade.', tam:['P','M','G','GG','EG'] },
-      { id:2, nome:'Camiseta Yama Jiu Jitsu — Coleção Classic', cat:'Vestuário', preco:131.29, emoji:'👕', cor:'#fdecec', img:'loja/camiseta-classic.jpg', desc:'A camiseta Classic Yama Jiu Jitsu traduz a essência da marca em sua forma mais pura.', tam:['P','M','G','GG','EG'] },
-      { id:3, nome:"Seiryoku Zen'yō — Oversized", cat:'Vestuário', preco:180.91, emoji:'👕', cor:'#eaf4fe', img:'loja/seiryoku-zenyo.jpg', desc:'Inspirada no princípio Seiryoku Zen’yō: o máximo de eficiência com o mínimo de esforço.', tam:['P','M','G','GG','EG'] },
-      { id:4, nome:'SAKURA JUDO', cat:'Vestuário', preco:147.94, emoji:'🌸', cor:'#fdecec', img:'loja/sakura-judo.jpg', desc:'Camiseta oversized da linha Sakura.', tam:['P','M','G','GG'] },
-      { id:5, nome:'JIU JITSU SAKURA', cat:'Vestuário', preco:148.48, emoji:'🌸', cor:'#fef7e0', img:'loja/jiu-jitsu-sakura.jpg', desc:'Camiseta oversized da linha Sakura.', tam:['P','M','G','GG'] },
-      { id:6, nome:'Body Infantil Yama — Coleção Classic', cat:'Vestuário', preco:53.06, emoji:'👶', cor:'#e7f6ef', img:'loja/body-infantil.png', desc:'O body infantil da Coleção Clássica, para quem faz parte da história desde cedo.', tam:['P','M','G','GG'] },
-      { id:7, nome:'YAMA KIDS (0–3 anos)', cat:'Vestuário', preco:109.48, emoji:'🧒', cor:'#eaf4fe', img:'loja/yama-kids-0-3.jpg', desc:'Camiseta infantil Yama.', tam:['0','2'] },
-      { id:8, nome:'YAMA Kids (4–9 anos)', cat:'Vestuário', preco:113.56, emoji:'🧒', cor:'#e7f6ef', img:'loja/yama-kids-4-9.jpg', desc:'Camiseta infantil Yama.', tam:['4','6','8'] },
-    ],
-  },
-
-  // metas pessoais (removido)
-
   // nav atual de cada perfil
   navAluno: 'inicio',
   navProf: 'painel',
@@ -747,6 +786,25 @@ const DB = {
   sbUser:    null,       // { id, email } do usuário Supabase autenticado
   authOpen:  false,      // true → mostra tela de login (self-signup desabilitado — A4)
 };
+
+/* v424: a vitrine é OPT-IN. Só aqui o dado fake encosta no DB — em produção
+   esta linha inteira não roda, então não há o que vazar. */
+if (VITRINE){
+  DB.professor     = SEED_DEMO.professor;
+  DB.academia.turma= SEED_DEMO.academiaTurma;
+  DB.turmas        = SEED_DEMO.turmas;
+  DB.eu            = SEED_DEMO.eu;
+  DB.treinos       = SEED_DEMO.treinos;
+  DB.graduacoes    = SEED_DEMO.graduacoes;
+  DB.semana        = SEED_DEMO.semana;
+  DB.alunos        = SEED_DEMO.alunos;
+  DB.retro         = SEED_DEMO.retro;
+  DB.sistemas      = SEED_DEMO.sistemas;
+  DB.notas         = SEED_DEMO.notas;
+  DB.lesoes        = SEED_DEMO.lesoes;
+  DB.notificacoes  = SEED_DEMO.notificacoes;
+  DB.loja.produtos = SEED_DEMO.lojaProdutos;
+}
 window.DB = DB;   // expõe p/ o adapter (supabase.js lê global.DB; `const` não cria propriedade em window)
 
 // Metas compartilhadas app ↔ adapter (fonte única — evita divergência entre painel
@@ -955,8 +1013,8 @@ const TEC_PROG = ['estado','dias','hojeA','hojeT','treinos','ultima','ultimaRev'
 // Se bloqueado (modo anônimo/cookies bloqueados), o app roda mas a sessão não persiste.
 function _hasStorage(){ try{ const k='__y'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; } }
 const STORAGE_OK = _hasStorage();
-// modo teste (?test=1): roda o selfTest sobre o seed em memória, sem rede nem persistência
-const TESTMODE = (()=>{ try{ return new URLSearchParams(location.search).has('test'); }catch(e){ return false; } })();
+// modo teste (?test=1) — const TESTMODE subiu pro topo do arquivo na v424
+// (a separação SEED_DEMO × DB precisa dela antes de montar o estado).
 
 /* ---- buildDump/applyDump: núcleo puro da persistência (testável no selfTest) ---- */
 function buildDump(){
@@ -5804,9 +5862,25 @@ function profImportAlunos(){
         await new Promise(r=>setTimeout(r,150));
       }
     }
+    // v424: aplica a SENHA PADRÃO nos recém-criados. Sem isso, cada aluno nascia
+    // com a senha aleatória do create-student (gerarSenha()) — que se perde no
+    // lote, porque ninguém guarda 158 senhas. O professor mandava "sua senha é
+    // Yama2026", o aluno não conseguia entrar, e o reset virava SQL manual.
+    // Só toca em quem NUNCA acessou (regra da própria Edge senha-padrao).
+    let senhaAplicada = 0, senhaErro = null;
+    if(ok > 0 && !DEMO && typeof sbProf!=='undefined' && sbProf.senhaPadraoLote){
+      try{
+        const rs = await sbProf.senhaPadraoLote(_senhaPadrao(), false);
+        senhaAplicada = (rs && rs.aplicadas) || 0;
+      }catch(e){ senhaErro = String((e && (e.code||e.message)) || e); }
+      try{ window._acessoCache = null; }catch(_){}   // a tela "Acesso dos alunos" recontar
+    }
     _profData=null; _profTs=0; _loadProfData();
     const restantes = total - feitos;
-    const resumo = [ok?`${ok} criado${ok!==1?'s':''} ✓`:'', upd?`${upd} atualizado${upd!==1?'s':''} ↻`:''].filter(Boolean).join('\n');
+    const senhaTxt = senhaErro
+      ? `\n⚠️ Senha padrão NÃO aplicada (${_impMotivoPT(senhaErro)}).\nUse Alunos → 🔑 Acesso para aplicar.`
+      : (senhaAplicada ? `\n🔑 Senha padrão "${_senhaPadrao()}" aplicada a ${senhaAplicada} aluno(s).` : '');
+    const resumo = [ok?`${ok} criado${ok!==1?'s':''} ✓`:'', upd?`${upd} atualizado${upd!==1?'s':''} ↻`:''].filter(Boolean).join('\n') + senhaTxt;
     if(abortou){
       alert(`Importação interrompida no ${feitos}º de ${total}.\n\n`+
         `LIMITE POR HORA ATINGIDO no servidor.\n\n${resumo}\n`+
@@ -12272,15 +12346,9 @@ if (DEMO || TESTMODE) {
   renderSetupRequired();
 } else {
   (async ()=>{
-    DB.alunos = [];   // M13: alunos fictícios são só da vitrine — produção usa o backend
-    DB.turmas = [];   // grade demo não vale p/ aluno real — pullTurmas popula do backend no login
-    if(DB.loja) DB.loja.produtos = [];   // catálogo mock é só da vitrine — pullLoja popula do backend
-    DB.academia = Object.assign({}, DB.academia, { turma:null });  // sem turma mock; pullAll preenche a real (kanji/artes ficam de fallback da marca)
-    // v423: DB.eu seed hardcoded ('Gabriel Tavares · Azul 2') vazava em flash quando
-    // o PWA iOS mostrava snapshot da tela antes do applyDump popular o perfil real.
-    // Zera o perfil aqui — mesmo tratamento de alunos/turmas/loja. Se algum render
-    // escapar antes do login completar, aparece "—" em vez de perfil errado.
-    DB.eu = Object.assign({}, DB.eu, { nome:'', nomeCompleto:'', apelido:'', iniciais:'', faixa:'', graus:0, foto:null, nascimento:null });
+    // v424: os zeramentos reativos (alunos/turmas/loja/academia.turma/eu) saíram
+    // daqui — o DB já NASCE vazio em produção (a vitrine só entra sob VITRINE).
+    // Ver a separação SEED_DEMO × DB no topo do arquivo.
     if(!render._wrapped){ const _ro = render; render = function(){ _ro.apply(this, arguments); scheduleSave(); }; render._wrapped=true; }
     let session = null;
     try{ const { data } = await SB.auth.getSession(); session = data?.session??null; }catch(_){}
