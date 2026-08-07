@@ -85,7 +85,9 @@ const VITRINE = DEMO || TESTMODE;   // único ponto que decide se o seed fake en
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 let HOJE_ISO = isoOf(hoje);
-function _checkMidnight(){ const now=new Date(); now.setHours(0,0,0,0); if(now.getTime()!==hoje.getTime()){ hoje.setTime(now.getTime()); HOJE_ISO=isoOf(hoje); _resetDiario(''); render(); } }
+// v427: renderBg — virar o dia durante o login/onboarding não muda nada nessas telas,
+// e no meio da chamada apagaria as marcações. Sair da tela já redesenha com a data nova.
+function _checkMidnight(){ const now=new Date(); now.setHours(0,0,0,0); if(now.getTime()!==hoje.getTime()){ hoje.setTime(now.getTime()); HOJE_ISO=isoOf(hoje); _resetDiario(''); renderBg(); } }
 setInterval(_checkMidnight, 60000);
 const fmtData = (d) => `${String(d.getDate()).padStart(2,'0')} ${meses[d.getMonth()]}`;
 function diaRelativo(iso){
@@ -1458,6 +1460,7 @@ function rsAddFoco(){
    ROTEADOR
    ============================================================ */
 function _viewKey(){
+  if (DB.authOpen) return 'auth';   // v427: sem isto o login herdava a chave da tela pós-login
   if (DB.trocarSenhaOpen) return 'trocarSenha';
   if (DB.onboardingOpen) return 'onb';
   if (DB.retroOpen) return 'retro';
@@ -1532,6 +1535,18 @@ function render(){
   if (DB.flow){ root.appendChild(renderFlow(DB.flow)); return; }
   if (DB.role === 'aluno') root.appendChild(renderAluno());
   else root.appendChild(renderProfessor());
+}
+
+/* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
+   (refetch por foco, retorno de suspensão, resposta de um _load*). render() faz
+   `root.innerHTML=''`: é inofensivo numa tela que é projeção do modelo, mas apaga
+   tela com trabalho em andamento cujo estado ainda mora no DOM ou numa closure —
+   login/senha (campos digitados), onboarding (apelido/nascimento + faixa escolhida)
+   e a chamada (alunos já marcados). O dado novo fica no cache e aparece quando o
+   usuário sair da tela. Generaliza a guarda pontual de batchCheckin da v426. */
+function renderBg(){
+  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin) return;
+  render();
 }
 
 /* ---------------- topbar comum ---------------- */
@@ -4299,7 +4314,7 @@ function _loadMeusPedidos(force){
   if(DEMO || typeof sbSync==='undefined' || !sbSync.getMeusPedidos){ _meusPedidosData=[]; return; }
   if(!force && Date.now()-_meusPedidosTs < 15000) return;
   _meusPedidosTs = Date.now();
-  sbSync.getMeusPedidos().then(ps=>{ _meusPedidosData=ps; render(); }).catch(()=>{ _meusPedidosTs=0; });
+  sbSync.getMeusPedidos().then(ps=>{ _meusPedidosData=ps; renderBg(); }).catch(()=>{ _meusPedidosTs=0; });
 }
 function renderMeusPedidos(){
   _loadMeusPedidos();
@@ -4962,6 +4977,11 @@ window.onDadosMudaram = function(){
 let _refetchTs = 0;
 function _refetchAoVoltar(){
   if(document.visibilityState !== 'visible') return;
+  // v427: sem sessão não há o que refazer. Sem esta linha, o aluno que alternava
+  // pro gerenciador de senhas e voltava perdia o e-mail/senha já digitados: o
+  // focus disparava getAlunos(), que SEM sessão resolve com [] (myAcademyId()
+  // retorna null) em vez de rejeitar — o .then() rodava e o render() limpava o form.
+  if(!DB.sbUser) return;
   if(Date.now() - _refetchTs < 10000) return;
   _refetchTs = Date.now();
   window.onDadosMudaram();
@@ -4981,12 +5001,7 @@ function _loadProfData(){
   }
   Promise.all([ sbProf.getAlunos(), sbProf.getKPIs() ]).then(([alunos, kpis])=>{
     _profData = { alunos, kpis };
-    // v426: a chamada (Adicionar frequência) é trabalho em andamento — refetch em
-    // background não pode redesenhá-la no meio. O dado novo fica em _profData e
-    // aparece quando o professor sair da tela. A gaveta cobre o caso de um render()
-    // vindo por outro caminho; esta guarda evita o redesenho desnecessário.
-    if (DB.batchCheckin) return;
-    render();
+    renderBg();   // v427: a guarda de batchCheckin (v426) virou caso do renderBg
   }).catch(_=>{ _profTs = 0; });
   // regras da academia (meta de aulas por faixa) — 1 fetch por sessão
   if(!DB.academyConfig && sbProf.getConfig) sbProf.getConfig().then(c=>{ DB.academyConfig=c||{}; }).catch(()=>{});
@@ -7805,7 +7820,7 @@ function _loadRelData(){
     return;
   }
   sbProf.getRelatorios().then(d=>{
-    _relData = d || {checkins:[],graduacoes:[],progresso:[],lesoes:[]}; render();
+    _relData = d || {checkins:[],graduacoes:[],progresso:[],lesoes:[]}; renderBg();
   }).catch(()=>{ _relTs = 0; });
 }
 
@@ -9238,7 +9253,7 @@ function _loadPedidos(force){
   }
   if(!force && Date.now() - _pedidosTs < 30000) return;
   _pedidosTs = Date.now();
-  sbProf.getPedidos().then(ps=>{ _pedidosData = ps; render(); }).catch(()=>{ _pedidosTs = 0; });
+  sbProf.getPedidos().then(ps=>{ _pedidosData = ps; renderBg(); }).catch(()=>{ _pedidosTs = 0; });
 }
 function _pedidosArr(){ return _pedidosData || []; }
 function _pedidosPendentesN(){ _loadPedidos(); return _pedidosArr().filter(p=>p.status==='pendente').length; }
@@ -9609,7 +9624,7 @@ function _loadTurmas(){
   if(DEMO || typeof sbProf==='undefined') return;   // demo/local: usa DB.turmas em memória
   if(Date.now() - _turmasTs < 30000) return;
   _turmasTs = Date.now();
-  sbProf.getTurmas().then(ts=>{ DB.turmas = ts; render(); }).catch(()=>{ _turmasTs = 0; });
+  sbProf.getTurmas().then(ts=>{ DB.turmas = ts; renderBg(); }).catch(()=>{ _turmasTs = 0; });
 }
 
 function profTurmas(){
@@ -12495,7 +12510,7 @@ if (DEMO || TESTMODE) {
       const antes = _hashSyncState();
       sbSync.pullAll(DB.sbUser.id).then(()=>{
         if(_hashSyncState() === antes) return;   // nada mudou → não mexe na tela
-        try{ render(); }catch(_){}
+        try{ renderBg(); }catch(_){}
       }).catch(()=>{});
     };
     document.addEventListener('visibilitychange', _refreshOnFocus);
@@ -12613,7 +12628,7 @@ _warnNoStorage();
       const gap = Date.now() - _lastVisible;
       if (gap > 5*60*1000){ // 5min+ suspenso: pode ter virado o dia
         try{ _checkMidnight(); }catch(e){}
-        try{ render(); }catch(e){}
+        try{ renderBg(); }catch(e){}   // v427: não apaga login/onboarding/chamada em aberto
       }
       _lastVisible = Date.now();
     } else {
@@ -12790,7 +12805,7 @@ function _restoreScroll(viewKey){
 // ?test=1 → roda o smoke test e guarda o resultado em window.__selfTest
 try{ if (new URLSearchParams(location.search).has('test')) setTimeout(()=>{ window.__selfTest = selfTest(); }, 500); }catch(_){}
 // Push: reata o SW de quem já tinha avisos ligados + trata ?checkin=1 (v306)
-try{ setTimeout(()=>{ try{ _pushBoot(); render(); }catch(e){} }, 400); }catch(_){}
+try{ setTimeout(()=>{ try{ _pushBoot(); renderBg(); }catch(e){} }, 400); }catch(_){}
 // PWA shortcuts: ?flow=registrar | ?go=biblioteca
 try{
   const qp = new URLSearchParams(location.search);
