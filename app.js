@@ -4980,7 +4980,13 @@ function _loadProfData(){
     return;
   }
   Promise.all([ sbProf.getAlunos(), sbProf.getKPIs() ]).then(([alunos, kpis])=>{
-    _profData = { alunos, kpis }; render();
+    _profData = { alunos, kpis };
+    // v426: a chamada (Adicionar frequência) é trabalho em andamento — refetch em
+    // background não pode redesenhá-la no meio. O dado novo fica em _profData e
+    // aparece quando o professor sair da tela. A gaveta cobre o caso de um render()
+    // vindo por outro caminho; esta guarda evita o redesenho desnecessário.
+    if (DB.batchCheckin) return;
+    render();
   }).catch(_=>{ _profTs = 0; });
   // regras da academia (meta de aulas por faixa) — 1 fetch por sessão
   if(!DB.academyConfig && sbProf.getConfig) sbProf.getConfig().then(c=>{ DB.academyConfig=c||{}; }).catch(()=>{});
@@ -5032,11 +5038,18 @@ function profBatchCheckin(turma, sessao, dataISO){
     .slice()
     .sort((a,b)=> String(_nomeInst(a)||'').localeCompare(String(_nomeInst(b)||''), 'pt-BR', {sensitivity:'base'}));
   const DIAS_K = {seg:'Segunda',ter:'Terça',qua:'Quarta',qui:'Quinta',sex:'Sexta',sab:'Sábado',dom:'Domingo'};
-  let onlyPending = true;
-  const marcados = new Set();
-  const close = ()=>{ DB.batchCheckin=null; render(); window.scrollTo(0,0); };
   const _isoHoje = ()=>{ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const dataFinal = dataISO || _isoHoje();
+  // v426: gaveta da chamada. Sem isto, um render() (refetch em background) zerava
+  // os alunos já marcados no meio da chamada — o professor tinha que recomeçar.
+  // Chave por turma+DATA+HORA: a mesma turma tem horários diferentes no mesmo dia
+  // (ADULTO na terça: 06:00/08:00/19:30), e cada aula é uma chamada independente.
+  const _freqKey = `freq:${turma.id}:${dataFinal}:${sessao.hora||'-'}`;
+  const _freqSalvo = _formDraftLer(_freqKey);
+  let onlyPending = _freqSalvo ? !!_freqSalvo.onlyPending : true;
+  const marcados = new Set(_freqSalvo && Array.isArray(_freqSalvo.marcados) ? _freqSalvo.marcados : []);
+  const _freqGravar = ()=>{ DB._formDrafts = DB._formDrafts||{}; DB._formDrafts[_freqKey] = { marcados:[...marcados], onlyPending }; };
+  const close = ()=>{ _formDraftLimpar(_freqKey); DB.batchCheckin=null; render(); window.scrollTo(0,0); };
   const [_y,_m,_d] = dataFinal.split('-');
   const isHoje = dataFinal === _isoHoje();
   const dataLbl = `${DIAS_K[sessao.dia]||sessao.dia}, ${_d}/${_m}${isHoje?' (hoje)':''}`;
@@ -5089,7 +5102,7 @@ function profBatchCheckin(turma, sessao, dataISO){
         ${jaPres?'<span class="erp-batch-flag" title="Clique para remover">Presente · remover</span>':''}
       </div>`);
       if(!jaPres){
-        const toggle = ()=>{ if(marcados.has(key)) marcados.delete(key); else marcados.add(key); paintList(); refreshCount(); };
+        const toggle = ()=>{ if(marcados.has(key)) marcados.delete(key); else marcados.add(key); _freqGravar(); paintList(); refreshCount(); };
         row.onclick = toggle;
         row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
       } else {
@@ -5108,21 +5121,33 @@ function profBatchCheckin(turma, sessao, dataISO){
       listEl.appendChild(row);
     });
   };
-  // Busca no backend quem já tem check-in NESSA aula (turma+data+hora) — usa a
-  // mesma dedup do UNIQUE (user_id, aula_id). Filtra por turma_id/data/hora pra
-  // pegar tanto a aula real (com aula_id) quanto legados (via='app' sem aula_id).
+  // v426 — BUG CORRIGIDO: a consulta filtrava só por turma_id+data, ignorando o
+  // HORÁRIO (o comentário antigo dizia que filtrava por hora, mas o código não).
+  // Efeito em produção: ADULTO tem 3 horários na terça (06:00/08:00/19:30) —
+  // marcar presença às 06:00 fazia o aluno aparecer como "já presente" nas outras
+  // duas aulas do mesmo dia, sumindo da lista com "Ocultar quem já marquei".
+  //
+  // A amarração correta é o `aula_id` (fonte única desde a 0025), NÃO `checkins.hora`:
+  // medido em produção, `checkins.hora` guarda QUANDO o check-in foi registrado
+  // (22:33 = professor marcando) e `aulas.hora` é o horário da AULA (19:30) —
+  // 261 dos 262 registros divergem. Filtrar pela hora do check-in daria errado.
   (async ()=>{
     if(typeof SB==='undefined' || !turma.id) return;
     try{
-      const { data } = await SB.from('checkins')
-        .select('user_id')
-        .eq('turma_id', turma.id)
-        .eq('data', dataFinal);
+      let q = SB.from('checkins').select('user_id, aulas!inner(hora)')
+        .eq('turma_id', turma.id).eq('data', dataFinal);
+      // Sessão com horário definido → conta só quem tem check-in NAQUELE horário.
+      // Sessão sem horário (aula avulsa) → mantém o comportamento por dia.
+      if(sessao.hora) q = q.eq('aulas.hora', sessao.hora);
+      const { data, error } = await q;
+      if(error) throw error;
       (data||[]).forEach(r=> jaPresIds.add(r.user_id));
       paintList();
     }catch(e){ /* silencia — pior caso mostra tudo desmarcado */ }
   })();
-  page.querySelector('#bc-pending').onchange = (e)=>{ onlyPending = e.target.checked; paintList(); };
+  const pendChk = page.querySelector('#bc-pending');
+  pendChk.checked = onlyPending;   // v426: restaura o toggle depois de um render()
+  pendChk.onchange = (e)=>{ onlyPending = e.target.checked; _freqGravar(); paintList(); };
   goBtn.onclick = ()=>{
     if(!marcados.size) return;
     const userIds = [...marcados];
@@ -7366,9 +7391,13 @@ function _erpFicha(a, c, paint, refresh){
 function _erpPresencas(freq, aluno, refresh, paint){
   const box=el('<div class="erp-card"></div>');
   box.appendChild(el(`<div class="erp-card-h">Histórico de presenças</div>`));
+  // v426: ordena pelo horário da AULA (não pelo do registro). Com 2 aulas no mesmo
+  // dia, o professor marca as duas de uma vez — as horas de registro ficam iguais
+  // (22:33/22:33) e a ordem saía aleatória; por aula, sai 06:00 antes de 19:30.
+  const _hAula = c => (c && (c.horaAula || c.hora)) || '';
   const arr=(freq||[]).filter(c=>c&&c.data).slice().sort((a,b)=>{
     if(b.data!==a.data) return b.data.localeCompare(a.data);
-    return (b.hora||'').localeCompare(a.hora||'');
+    return _hAula(b).localeCompare(_hAula(a));
   });
   if(!arr.length){ box.appendChild(el('<div class="erp-tl-empty">Sem presenças registradas.</div>')); return box; }
   const list=el('<div class="erp-pres-list"></div>');
@@ -7377,7 +7406,9 @@ function _erpPresencas(freq, aluno, refresh, paint){
     const [y,m,d]=c.data.split('-');
     const dt = new Date(c.data+'T12:00:00');
     const dow = DIA[dt.getDay()];
-    const hora = c.hora ? String(c.hora).slice(0,5) : '—';
+    // Horário da AULA (19:30). Fallback pro horário de registro só em check-in
+    // sem aula vinculada (legado) — melhor mostrar algo aproximado que "—".
+    const hora = _hAula(c) ? String(_hAula(c)).slice(0,5) : '—';
     // v363: monta "TURMA · variacao" (ex: "ADULTO · No-Gi"). Antes so mostrava
     // "Aula" fixo, que era o default do payload da RPC sem variacao.
     const turma = c.turmaNome || '';

@@ -772,7 +772,10 @@
       const [prof, freq, grads, lesoes, prog, notas] = await Promise.all([
         SB.from('profiles').select('*').eq('id', id).single(),
         // v363: traz o nome da turma junto (histórico de presenças exibia só "Aula" fixo).
-        SB.from('checkins').select('id,data,tipo,hora,turma_id,turmas(nome)').eq('user_id', id).order('data', { ascending: false }).limit(90),
+        // v426: traz aulas(hora) junto — `checkins.hora` é QUANDO foi registrado
+        // (22:33 = professor marcando), não o horário da aula (19:30). O histórico
+        // precisa do horário da AULA pra distinguir 2 aulas no mesmo dia.
+        SB.from('checkins').select('id,data,tipo,hora,turma_id,turmas(nome),aulas(hora)').eq('user_id', id).order('data', { ascending: false }).limit(90),
         SB.from('graduations').select('*').eq('user_id', id).order('data'),
         SB.from('lesoes').select('*').eq('user_id', id).order('data', { ascending: false }),
         SB.from('technique_progress').select('*').eq('user_id', id), // objetivo, sem privado
@@ -784,6 +787,9 @@
       // Achata turmas(nome) → turmaNome (o cliente não conhece o shape do embed).
       const frequencia = (freq.data || []).map(c => ({
         id: c.id, data: c.data, hora: c.hora, tipo: c.tipo,
+        // horaAula = horário da AULA (19:30). `hora` fica como registro (22:33) —
+        // a UI mostra horaAula e cai em `hora` só quando não há aula vinculada.
+        horaAula: (c.aulas && c.aulas.hora) || null,
         turmaId: c.turma_id, turmaNome: (c.turmas && c.turmas.nome) || null,
       }));
       return { perfil: prof.data, cad: cadFromProfile(prof.data),
