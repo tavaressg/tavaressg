@@ -51,13 +51,19 @@
 <!-- SRI (M-5): trava o conteúdo da lib de terceiros (supabase-js@2.110.0). Se o arquivo
      vendorizado for trocado/adulterado, o browser recusa a execução. Ao re-vendorizar a lib,
      regenere o hash com `node gen_sri.mjs` e atualize o integrity abaixo. -->
-<script src="vendor/supabase-js.min.js?v=1" integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
+<!-- v434 (lote): `defer` nos três do caminho crítico. Eles já ficavam no fim do <body>, então
+     o DOM acima (splash, #root) já estava montado — mas o parser ainda PARAVA aqui até
+     baixar e executar. Com defer o download vai em paralelo e a execução espera o
+     documento, então o splash pinta antes. `defer` PRESERVA A ORDEM entre si, que é o
+     que mantém a dependência de pé: vendor define `supabase.createClient`, supabase.js
+     define sbAuth/sbSync, app.js consome os dois. -->
+<script src="vendor/supabase-js.min.js?v=1" defer integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
 <script src="vendor/xlsx.min.js?v=1" defer integrity="sha384-6fBkVFQw1YKyYpZpKf7bguegzeJqso45fTePEWGNuVaGy70fxEhICA/yswrPjW4+"></script>
 <script src="vendor/jspdf.min.js?v=1" defer integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk"></script>
 <script src="vendor/jspdf-autotable.min.js?v=1" defer integrity="sha384-Xl/CUCfJbzsngMp0CFxkmF0VW/8C160IsGujqeQlIhaGxKz2+JsIGORFqtCPeldF"></script>
 <!-- jsQR (leitor QR JS puro) — polyfill do BarcodeDetector pra Safari/Firefox. v378 (check-in QR). -->
 <script src="vendor/jsqr.min.js?v=1" defer integrity="sha384-RzK85/KLgWGyuQbCbjG2UOydKYl9dj1CN0ZP8cLP+41GwIybEfCZIhzzZTFCV2dG"></script>
-<script src="supabase.js?v=59"></script>
-<script src="app.js?v=431"></script>
+<script src="supabase.js?v=59" defer></script>
+<script src="app.js?v=434" defer></script>
 </body>
 </html>

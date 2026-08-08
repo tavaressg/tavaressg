@@ -1074,6 +1074,120 @@ function applyDump(data){
 /* ---- save(): sobe o dump para a nuvem (user_state), com dirty-check ---- */
 let _lastPushed = '';     // último dump enviado (string) — evita pushes redundantes (M7/M11)
 let _cloudReady = false;  // só é true após pullState bem-sucedido — impede sobrescrever a nuvem às cegas
+// v432: declarada AQUI (era lá embaixo, junto do _cloudLogin) porque renderBg() a
+// consulta e roda antes — `let` tem TDZ, e a referência antecipada lançaria.
+let _cloudLoginBusy = false;
+/* v432: true da entrada do _cloudLogin até o PRIMEIRO paint com dado real. É janela
+   diferente do `_cloudLoginBusy` (esse é guarda de reentrância e só cai no `finally`,
+   depois da revalidação inteira). Usar aquele aqui engolia o render final e a tela
+   nunca via o overlay — medido: 1 paint onde deviam ser 2. */
+let _hidratando = false;
+let _cachePintou = false;   // v433: o cartão de visita já desenhou algo → splash pode sair
+
+/* v433 — CARTÃO DE VISITA: cache de LEITURA, nunca de escrita.
+   Exceção explícita ao ADR 0004 (ver o ADR). O que o ADR proíbe é cache do DUMP:
+   estado local que disputa autoridade com a nuvem e sobrescrevia treino de outro
+   aparelho (last-write-wins — o bug que a RPC push_user_state passou a rejeitar).
+   Isto aqui é outra coisa: um punhado de campos VISUAIS pra desenhar o primeiro
+   quadro enquanto o pullState não volta. Regras que o mantêm inofensivo:
+     · nunca entra no buildDump, nunca sobe, não participa do dirty-check;
+     · é descartado assim que o applyDump chega — a nuvem sempre vence;
+     · só grava em estado assentado (sem gate, onboarding concluído);
+     · chaveado por user_id e apagado no SIGNED_OUT (aparelho compartilhado);
+     · sem `foto`: signed URL expira em 24h (viraria imagem quebrada) e o fallback
+       base64 é grande demais pro localStorage. As iniciais bastam pro avatar.
+   NÃO usar este precedente pra recachear treinos/notas/lesões — reabre o bug de 2026. */
+const _PERFIL_CACHE_CAMPOS = ['apelido','nomeCompleto','iniciais','faixa','graus'];
+/* v434 — MINIATURA do avatar (`fotoMini`), guardada junto do cartão.
+   Por que miniatura e não a foto nem a URL:
+     · a URL é signed (FOTO_TTL 24h) — cacheá-la não pinta nada instantâneo, o
+       navegador ainda baixaria a imagem pela rede; só pouparia a assinatura;
+     · a foto cheia tem 1024px/JPEG q0.85 ≈ 100–250 KB em base64, e o localStorage
+       é SÍNCRONO: ler isso antes do primeiro quadro travaria a main thread — o
+       oposto do objetivo. Em UTF-16 ainda dobra de tamanho no disco.
+   96px cobre o maior uso na tela (120px no Perfil) e cabe em ~3–6 KB.
+   Invalidação: nenhuma. É regerada a cada boot a partir da foto que a nuvem
+   confirmou — sempre fresca por construção, sem comparar URL (que muda a cada
+   assinatura e não diz nada sobre a imagem ter mudado). */
+const _FOTO_MINI_PX = 96;
+const _FOTO_MINI_MAX_BYTES = 20000;   // guarda-chuva: mini que estourar isso é descartada
+function _fotoMiniDeImg(img){
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+  if(!W || !H) return null;
+  const lado = Math.min(W, H);                  // recorte central quadrado — o avatar é
+  const sx = (W - lado)/2, sy = (H - lado)/2;   // redondo com object-fit:cover
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = _FOTO_MINI_PX;
+  cv.getContext('2d').drawImage(img, sx, sy, lado, lado, 0, 0, _FOTO_MINI_PX, _FOTO_MINI_PX);
+  return cv.toDataURL('image/jpeg', 0.7);
+}
+/* Regera a miniatura a partir de DB.eu.foto. Fire-and-forget: falha (CORS, URL
+   expirada, canvas tainted) só significa avatar com iniciais no próximo boot. */
+function _fotoMiniAtualizar(){
+  try{
+    if(DEMO || TESTMODE || !DB.sbUser || !_cloudReady) return;
+    const src = DB.eu && DB.eu.foto;
+    if(!src){ _perfilCacheSetMini(null); return; }   // tirou a foto → tira a mini junto
+    const img = new Image();
+    img.crossOrigin = 'anonymous';                   // sem isto o canvas fica tainted e toDataURL lança
+    img.onload = ()=>{ try{ _perfilCacheSetMini(_fotoMiniDeImg(img)); }catch(_){} };
+    img.onerror = ()=>{};
+    img.src = src;
+  }catch(_){}
+}
+const _perfilCacheKey = uid => 'yama.perfil.' + uid;
+function _perfilCacheLer(uid){
+  try{
+    const o = JSON.parse(localStorage.getItem(_perfilCacheKey(uid)) || 'null');
+    if(!o || typeof o !== 'object') return null;
+    const out = {};
+    _PERFIL_CACHE_CAMPOS.forEach(k=>{ if(o[k] != null) out[k] = o[k]; });
+    // v434: a miniatura entra como `foto`. Assim o avatar desenha sem nenhuma mudança
+    // no render — e quando a signed URL chega pelo overlay ela substitui em silêncio.
+    // Só aceita data:image (nunca uma URL): impede que alguém plante um endereço
+    // externo no localStorage e o app saia buscando imagem de terceiro no boot.
+    if(typeof o.fotoMini === 'string' && o.fotoMini.indexOf('data:image/') === 0
+       && o.fotoMini.length <= _FOTO_MINI_MAX_BYTES) out.foto = o.fotoMini;
+    return Object.keys(out).length ? out : null;
+  }catch(_){ return null; }
+}
+// Lê o objeto cru (com `fotoMini`), sem o mapeamento de leitura. Uso interno.
+function _perfilCacheRaw(uid){
+  try{ const o = JSON.parse(localStorage.getItem(_perfilCacheKey(uid)) || 'null'); return (o && typeof o === 'object') ? o : {}; }
+  catch(_){ return {}; }
+}
+function _perfilCacheSalvar(){
+  try{
+    if(DEMO || TESTMODE || !DB.sbUser || !_cloudReady) return;
+    // Estado assentado: a existência do cache passa a significar "da última vez esta
+    // conta abriu direto na Home" — é o que autoriza pintar a Home no boot seguinte
+    // antes de saber o must_change_pw, sem risco de piscar a tela errada.
+    if(DB.trocarSenhaOpen || DB.onboardingOpen || !DB.onboarded) return;
+    const anterior = _perfilCacheRaw(DB.sbUser.id);
+    const o = {};
+    _PERFIL_CACHE_CAMPOS.forEach(k=>{ if(DB.eu && DB.eu[k] != null) o[k] = DB.eu[k]; });
+    // Preserva a miniatura: ela tem ciclo próprio (_fotoMiniAtualizar) e não vem do DB.eu.
+    if(anterior.fotoMini) o.fotoMini = anterior.fotoMini;
+    localStorage.setItem(_perfilCacheKey(DB.sbUser.id), JSON.stringify(o));
+  }catch(_){}
+}
+// Grava/remove só a miniatura, sem tocar no resto do cartão.
+function _perfilCacheSetMini(dataUrl){
+  try{
+    if(DEMO || TESTMODE || !DB.sbUser || !_cloudReady) return;
+    const o = _perfilCacheRaw(DB.sbUser.id);
+    if(!Object.keys(o).length) return;   // sem cartão assentado, não cria só com a foto
+    if(dataUrl && dataUrl.length <= _FOTO_MINI_MAX_BYTES) o.fotoMini = dataUrl;
+    else delete o.fotoMini;
+    localStorage.setItem(_perfilCacheKey(DB.sbUser.id), JSON.stringify(o));
+  }catch(_){}
+}
+function _perfilCacheLimpar(uid){
+  try{
+    if(uid){ localStorage.removeItem(_perfilCacheKey(uid)); return; }
+    Object.keys(localStorage).filter(k=> k.indexOf('yama.perfil.') === 0).forEach(k=> localStorage.removeItem(k));
+  }catch(_){}
+}
 function _setSyncDot(ok){
   const d = document.getElementById('sync-dot'); if(!d) return;
   d.classList.toggle('sync-ok', !!ok); d.classList.toggle('sync-error', !ok);
@@ -1087,7 +1201,7 @@ function save(){
   if(s === _lastPushed) return;
   _lastPushed = s;
   sbSync.pushState(dump)
-    .then(()=> _setSyncDot(true))
+    .then(()=>{ _setSyncDot(true); _perfilCacheSalvar(); })   // v433: perfil mudou (ex: apelido) → cartão acompanha
     .catch((e)=>{
       _lastPushed=''; _setSyncDot(false);   // re-tenta no próximo save/flush ou ao voltar online
       if(e && e.conflict) _resolveStateConflict();   // outro aparelho gravou → re-baixa e reaplica
@@ -1545,7 +1659,11 @@ function render(){
    e a chamada (alunos já marcados). O dado novo fica no cache e aparece quando o
    usuário sair da tela. Generaliza a guarda pontual de batchCheckin da v426. */
 function renderBg(){
-  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin) return;
+  // v432: `_hidratando` = boot antes do primeiro paint. Nessa janela o DB ainda é o
+  // objeto VAZIO — pintar aqui mostra perfil em branco, que é exatamente o flash que
+  // o usuário via: o setTimeout de 400ms do _pushBoot chamava renderBg() antes do
+  // pullState voltar. O próprio _cloudLogin pinta assim que o dump é aplicado.
+  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin || _hidratando) return;
   render();
 }
 
@@ -10944,14 +11062,18 @@ function editarFotoPerfil(){
       URL.revokeObjectURL(url);
       // Storage (backend ligado + bucket 'fotos' criado): sobe binário e guarda URL.
       // Fallback (demo/offline/sem bucket): mantém base64 no dump — sem perda de feature.
-      const _finishBase64=()=>{ DB.eu.foto=cv.toDataURL('image/jpeg',0.85); close(); scheduleSave(); render(); toast('Foto atualizada ✔'); };
+      // v434: a miniatura sai do MESMO canvas, aqui — sem rede, sem CORS, sem esperar
+      // o próximo boot. `cv` já está no tamanho de exibição; o helper recorta o
+      // quadrado central e reduz pra 96px.
+      const _miniDoCanvas=()=>{ try{ _perfilCacheSetMini(_fotoMiniDeImg(cv)); }catch(_){} };
+      const _finishBase64=()=>{ DB.eu.foto=cv.toDataURL('image/jpeg',0.85); _miniDoCanvas(); close(); scheduleSave(); render(); toast('Foto atualizada ✔'); };
       if(DB.sbUser && typeof sbSync!=='undefined' && sbSync.uploadFoto){
         cv.toBlob(async blob=>{
           if(!blob){ _finishBase64(); return; }
           try{
             // 0007: signed URL (única por assinatura — cache-bust natural; ?t= extra QUEBRARIA o token)
             const url = await sbSync.uploadFoto(blob);
-            if(url){ DB.eu.foto = url; close(); scheduleSave(); render(); toast('Foto atualizada ✔'); return; }
+            if(url){ DB.eu.foto = url; _miniDoCanvas(); close(); scheduleSave(); render(); toast('Foto atualizada ✔'); return; }
             _finishBase64();
           }catch(_){ _finishBase64(); }
         }, 'image/jpeg', 0.85);
@@ -10961,6 +11083,8 @@ function editarFotoPerfil(){
   const rm = sheet.querySelector('#pf-rm');
   if(rm) rm.onclick = ()=>{
     DB.eu.foto=null;
+    _perfilCacheSetMini(null);   // v434: tirou a foto → a miniatura sai junto, senão o
+                                 // próximo boot pintaria uma foto que não existe mais
     if(DB.sbUser && typeof sbSync!=='undefined' && sbSync.deleteFoto) sbSync.deleteFoto().catch(()=>{});
     close(); scheduleSave(); render(); toast('Foto removida');
   };
@@ -12469,17 +12593,37 @@ function _renderOfflineBoot(retry){
 // Pipeline único de entrada na conta: migra legado → pull do estado → overlay
 // objetivo → troca de senha/onboarding. Usado no boot com sessão, no listener
 // SIGNED_IN e no login manual (renderAuth).
-let _cloudLoginBusy = false;
 async function _cloudLogin(user){
   if(_cloudLoginBusy || (DB.sbUser && _cloudReady)) return;
-  _cloudLoginBusy = true;
+  _cloudLoginBusy = true; _hidratando = true;
   try{
     DB.sbUser = user;
     DB.authOpen = false;
     DB.checkinHoje = { feito:false, hora:null };   // só confia no checkin vindo da nuvem
+    // v433 — PAINT ZERO, sem rede: cartão de visita do último acesso desta conta.
+    // `save()` só grava quando `_cloudReady` (que exige pullState), então pintar aqui
+    // NÃO pode empurrar dump vazio por cima do diário. O applyDump sobrescreve tudo
+    // isto em seguida — o cartão é pixel, não é fonte.
+    const _cartao = _perfilCacheLer(user.id);
+    if(_cartao){
+      DB.eu = Object.assign({}, DB.eu, _cartao);
+      _hidratando = false; _cachePintou = true;
+      render();
+    }
     try{ await sbSync.migrateLegacy(user.id); }catch(e){}   // one-time: acervo pré-cutover → nuvem
-    let dump;
-    try{ dump = await sbSync.pullState(user.id); }
+    // v432: o gate de troca de senha viaja JUNTO com o dump. Ele decide QUAL tela é a
+    // primeira, e agora a primeira tela é pintada já na hidratação — se continuasse
+    // sendo um await depois do pullAll, quem precisa trocar a senha veria a Home
+    // aparecer e sumir. Em paralelo não custa latência: são consultas independentes.
+    // Só a falha do pullState cai no boot offline; a do gate degrada para `false`.
+    let dump, mustChange = false;
+    try{
+      const [d, mc] = await Promise.all([
+        sbSync.pullState(user.id),
+        (sbAuth.mustChangePassword ? sbAuth.mustChangePassword() : Promise.resolve(false)).catch(()=>false),
+      ]);
+      dump = d; mustChange = !!mc;
+    }
     catch(e){
       // Sem estado local confiável: NUNCA assumir conta vazia (risco de sobrescrever a nuvem).
       _renderOfflineBoot(()=>{ _cloudLoginBusy=false; _cloudLogin(user); });
@@ -12489,6 +12633,15 @@ async function _cloudLogin(user){
     else { aplicarCleanSlate(); DB.onboarded = false; }     // conta nova de verdade
     _cloudReady = true;
     _lastPushed = JSON.stringify(buildDump());              // baseline do dirty-check
+    if (mustChange){ DB.trocarSenhaOpen = true; DB.onboardingOpen = false; }
+    // v432 — PRIMEIRO PAINT. Com o estado real do usuário, não com o DB vazio.
+    // `_lastPushed` é calculado ANTES porque render() está embrulhado com
+    // scheduleSave(): sem a baseline, o primeiro render empurraria de volta o que
+    // acabamos de puxar. Tudo o que vem depois (pullAll, loja, técnicas, turmas,
+    // matrícula) é REVALIDAÇÃO — antes o render só acontecia no fim dessa fila, e
+    // o splash já tinha saído há várias idas ao servidor.
+    render();
+    _hidratando = false;   // pintou com dado real — daqui pra frente renderBg() pode trabalhar
     let overlay = { hasProfile: true };
     try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}   // overlay objetivo (perfil/graduação/checkin)
     if (!overlay.hasProfile){
@@ -12499,23 +12652,36 @@ async function _cloudLogin(user){
       try{ await sbProf.bootstrapAcademia('Yama Jiu-Jitsu', '山', 'Judô Kodokan · Kosen · Jiu-Jitsu', null); }catch(_){}
       try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}
     }
-    let mustChange = false;
-    try{ mustChange = !!(sbAuth.mustChangePassword && await sbAuth.mustChangePassword()); }catch(e){}
-    if (mustChange){ DB.trocarSenhaOpen = true; DB.onboardingOpen = false; }
-    else if (DB.eu.role === 'dono' || DB.eu.role === 'professor'){
-      // Onboarding é do ALUNO (consentimento LGPD do praticante). Dono/professor
-      // pulam sempre — mesmo que apelido esteja vazio (editam depois no Perfil).
-      DB.onboarded = true; scheduleSave();
+    // Onboarding depende do `role`, que só é confiável depois do pullAll acima.
+    let abriuOnboarding = false;
+    if (!mustChange){
+      if (DB.eu.role === 'dono' || DB.eu.role === 'professor'){
+        // Onboarding é do ALUNO (consentimento LGPD do praticante). Dono/professor
+        // pulam sempre — mesmo que apelido esteja vazio (editam depois no Perfil).
+        DB.onboarded = true; scheduleSave();
+      }
+      else if (!DB.eu.apelido || !DB.onboarded){ DB.onboardingOpen = true; abriuOnboarding = true; }
     }
-    else if (!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen = true;
-    try{ if(sbSync.pullLoja) await sbSync.pullLoja(); }catch(e){}
-    try{ if(sbSync.pullTecnicas) await sbSync.pullTecnicas(); }catch(e){}   // v416: catálogo do banco (0031); seed hardcoded fica de fallback
-    try{ if(sbSync.pullTurmas) await sbSync.pullTurmas(); }catch(e){}   // grade p/ presença por sessão
-    try{ if(sbSync.pullMatricula) await sbSync.pullMatricula(); }catch(e){}   // rótulo "Turma" com TODAS as matrículas
+    // v432: independentes entre si — nenhum lê o que o outro escreve (loja · técnicas ·
+    // turmas · matrícula). Em série eram 4 idas ao servidor somadas; em paralelo, 1.
+    // `catch` por pull: um catálogo indisponível não pode derrubar o boot inteiro.
+    await Promise.all([
+      sbSync.pullLoja      ? sbSync.pullLoja().catch(()=>{})      : null,
+      sbSync.pullTecnicas  ? sbSync.pullTecnicas().catch(()=>{})  : null,   // v416: catálogo do banco (0031); seed hardcoded fica de fallback
+      sbSync.pullTurmas    ? sbSync.pullTurmas().catch(()=>{})    : null,   // grade p/ presença por sessão
+      sbSync.pullMatricula ? sbSync.pullMatricula().catch(()=>{}) : null,   // rótulo "Turma" com TODAS as matrículas
+    ]);
     track('app_open');
-    render();
+    _perfilCacheSalvar();   // v433: atualiza o cartão com o que a nuvem acabou de confirmar
+    _fotoMiniAtualizar();   // v434: regera a miniatura do avatar (assíncrono, não bloqueia)
+    // v432: só o onboarding TROCA de tela e exige render(); o resto é revalidação e
+    // vai de renderBg(), que no-opa em gate aberto — sem isso este render final
+    // apagaria a senha que o usuário já começou a digitar no gate do 1º acesso,
+    // que agora aparece ~1s antes (no primeiro paint).
+    if (abriuOnboarding) render(); else renderBg();
   } finally {
     _cloudLoginBusy = false;
+    _hidratando = false;   // rede de segurança: o boot offline sai por `return` antes do paint
   }
 }
 
@@ -12533,7 +12699,9 @@ if (DEMO || TESTMODE) {
     let session = null;
     try{ const { data } = await SB.auth.getSession(); session = data?.session??null; }catch(_){}
     sbAuth.onAuthStateChange((event, s)=>{
-      if(event==='SIGNED_OUT'){ DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
+      // v433: o cartão de visita sai JUNTO com a sessão — aparelho compartilhado não
+      // pode mostrar o apelido/faixa do dono anterior no boot seguinte.
+      if(event==='SIGNED_OUT'){ _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
       if(event==='SIGNED_IN' && s && !DB.sbUser){ _cloudLogin(s.user); }
       // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
       if(event==='PASSWORD_RECOVERY'){ DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render(); }
@@ -12597,8 +12765,22 @@ if (DEMO || TESTMODE) {
     const authGate = (typeof DB!=='undefined') && (DB.authOpen || DB.trocarSenhaOpen);
     const modo = (typeof DEMO!=='undefined' && DEMO) || (typeof TESTMODE!=='undefined' && TESTMODE);
     const ready = (typeof _cloudReady!=='undefined') && _cloudReady;
-    if (ready || authGate || modo){ hide(); return; }
-    if (Date.now() - t0 > 5000){ hide(); return; }   // safety net
+    // v433: `_cachePintou` — o cartão de visita já desenhou a Home sem tocar a rede.
+    // Segurar o splash esperando o pullState desperdiçaria exatamente o ganho.
+    if (ready || authGate || modo || (typeof _cachePintou!=='undefined' && _cachePintou)){ hide(); return; }
+    if (Date.now() - t0 > 5000){
+      // v432: o safety net antes revelava o paint vazio que o renderBg de 400ms tinha
+      // feito — errado, mas alguma coisa. Agora esse paint não acontece, então sair
+      // aqui com a hidratação pendente mostraria tela BRANCA. Se nada foi pintado,
+      // entrega o boot offline (com "Tentar novamente"). Se o pullState voltar depois,
+      // o próprio _cloudLogin redesenha por cima — a tela se cura sozinha.
+      try{
+        const root = document.getElementById('root');
+        if (root && !root.children.length && typeof _renderOfflineBoot === 'function')
+          _renderOfflineBoot(()=>{ try{ location.reload(); }catch(_){} });
+      }catch(_){}
+      hide(); return;
+    }
     setTimeout(tick, 100);
   };
   setTimeout(tick, 200);   // grace: espera boot inicial montar
