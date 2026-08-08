@@ -5030,8 +5030,11 @@ function _loadProfData(){
     _profData = { alunos, kpis };
     renderBg();   // v427: a guarda de batchCheckin (v426) virou caso do renderBg
   }).catch(_=>{ _profTs = 0; });
-  // regras da academia (meta de aulas por faixa) — 1 fetch por sessão
-  if(!DB.academyConfig && sbProf.getConfig) sbProf.getConfig().then(c=>{ DB.academyConfig=c||{}; }).catch(()=>{});
+  // regras da academia (meta de aulas por faixa, senha padrão) — 1 fetch por sessão.
+  // v430: redesenha ao chegar. A senha padrão saiu do dump local pra cá, e sem esse
+  // render a tela "Distribuir acesso" ficava mostrando o fallback (default hard-coded)
+  // até um render acidental — e o botão "aplicar" leria esse valor errado.
+  if(!DB.academyConfig && sbProf.getConfig) sbProf.getConfig().then(c=>{ DB.academyConfig=c||{}; renderBg(); }).catch(()=>{});
 }
 
 function renderProfessor(){
@@ -5757,9 +5760,16 @@ function _impMotivoPT(msg){
    sem como dar acesso a ninguém — e o aluno não sabe nem o link do app.
    ============================================================ */
 // Senha padrão da academia. Precisa passar na política do Supabase (upper+lower+digit).
-// Configurável em Configurações da academia (persiste em DB.loja.config.senhaPadrao).
+// Configurável em Configurações da academia (persiste em academies.config.senhaPadrao,
+// compartilhada entre os professores — v430). Este default só vale enquanto ninguém salvou.
 const SENHA_PADRAO_DEFAULT = 'YamaJiuJitsu2026';
-function _senhaPadrao(){ return (DB.loja && DB.loja.config && DB.loja.config.senhaPadrao) || SENHA_PADRAO_DEFAULT; }
+/* v430: mora em `academies.config` (COMPARTILHADA entre os professores da academia).
+   Antes lia de DB.loja.config, que vive no dump → `user_state`, RLS estritamente self:
+   cada professor tinha a SUA senha padrão e não via a do outro. Sintoma real: o dono
+   definia "Yama2026" e o segundo professor via o default hard-coded — e se ele clicasse
+   "aplicar", sobrescrevia os 149 alunos com outra senha, invalidando os convites já
+   enviados. Mesma cadeia de fallback do _lojaPix: nuvem → legado local → default. */
+function _senhaPadrao(){ return _acadCfg().senhaPadrao || (DB.loja && DB.loja.config && DB.loja.config.senhaPadrao) || SENHA_PADRAO_DEFAULT; }
 function profAcessoAlunos(){
   const close = ()=>{ DB.acessoAlunosOpen=false; render(); window.scrollTo(0,0); };
   const page = el(`<div class="erp-batch-page">
@@ -11172,11 +11182,11 @@ function _dadosAcademiaSheet(){
 // academies.config é lido por todo membro; se a senha estivesse lá, aluno veria a senha
 // dos colegas que ainda não trocaram.
 function _senhaPadraoSheet(){
-  const atual = (DB.loja && DB.loja.config && DB.loja.config.senhaPadrao) || SENHA_PADRAO_DEFAULT;
+  const atual = _senhaPadrao();
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Senha padrão dos alunos</div>
-    <div class="sheet-desc">Usada nos convites em lote. Fica só neste aparelho (não vai pra nuvem) — o professor precisa definir em cada dispositivo que gerencia acesso.</div>
+    <div class="sheet-desc">Usada nos convites em lote. Vale para <b>toda a academia</b> — todos os professores veem e aplicam esta mesma senha.</div>
     <label class="flbl">Nova senha <span style="color:var(--muted);font-weight:500">(letras + números, mín. 8, com MAIÚSCULA)</span></label>
     <input class="inp" id="sp-val" placeholder="Ex: YamaJiuJitsu2026" value="${safeAttr(atual)}">
     <button class="btn-save" id="sp-save" style="margin-top:14px">Salvar</button>
@@ -11185,14 +11195,20 @@ function _senhaPadraoSheet(){
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
   sheet.querySelector('#sp-close').onclick=close;
-  sheet.querySelector('#sp-save').onclick=()=>{
+  const btn = sheet.querySelector('#sp-save');
+  btn.onclick=()=>{
     const senha = sheet.querySelector('#sp-val').value.trim();
     if(senha.length<8 || !/[a-z]/.test(senha) || !/[A-Z]/.test(senha) || !/\d/.test(senha)){
       toast('Senha precisa 8+ com minúscula, MAIÚSCULA e número'); return;
     }
-    DB.loja = DB.loja || {}; DB.loja.config = Object.assign({}, DB.loja.config, { senhaPadrao: senha });
-    if(typeof scheduleSave==='function') scheduleSave();
-    toast('Senha padrão salva ✔'); close(); render();
+    // v430: grava em academies.config (compartilhada). _salvarAcademyConfig relê o
+    // remoto e faz merge antes de gravar — sem isso o update do JSONB inteiro
+    // apagaria qrToken/waTemplates/pix dos outros. Espera a nuvem confirmar: senha
+    // "salva" que não subiu faria o professor mandar convite com senha errada.
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    _salvarAcademyConfig({ senhaPadrao: senha })
+      .then(()=>{ toast('Senha padrão salva ✔ (vale para toda a academia)'); close(); render(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro ao salvar: '+(e.message||e)); });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
