@@ -7,6 +7,9 @@ CLAUDE.md
 # === Lixo do Supabase CLI na raiz (o backend real vive em confidencial/supabase/) ===
 /supabase/
 
+# === Lixo do http.server local (python -m http.server 5179) ===
+__pycache__/
+
 # === Lixo de SO / editor ===
 .DS_Store
 Thumbs.db
