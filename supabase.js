@@ -302,6 +302,19 @@
         const byId = {}; prog.data.forEach(p => { byId[p.tecnica_id] = p; });
         d.tecnicas.forEach(t => { const p = byId[t.id || t.jp]; if (p) { t.estado = p.estado; t.nivel = p.nivel; t.treinos = p.treinos; t.ultima = p.ultima; } });
       }
+      // 0034: aulas no grau / na faixa — MESMA RPC que o painel do professor usa
+      // (o escopo mora dentro da função: professor vê a academia, aluno vê a si).
+      // É o único jeito de o aluno contar aulas distintas: `DB.treinos` é o diário
+      // e não tem turma nem hora, então nunca soube separar 06:30 de 19:30.
+      try {
+        const { data: ag } = await SB.rpc('aulas_por_aluno');
+        const r = (ag || []).find(x => x.o_user_id === userId) || (ag || [])[0] || null;
+        d._aulasServidor = r ? {
+          grau: r.o_aulas_grau || 0, faixa: r.o_aulas_faixa || 0,
+          grauDesde: r.o_grau_desde || null, faixaDesde: r.o_faixa_desde || null,
+          creditoGrau: r.o_credito_grau || 0, creditoFaixa: r.o_credito_faixa || 0,
+        } : null;
+      } catch (_) { d._aulasServidor = null; }   // RPC ausente (pré-0034) → fallback local
       // check-in de hoje (+ sessão escolhida, se houver)
       const { data: ci } = await SB.from('checkins').select('hora, turma_id, tipo').eq('user_id', userId).eq('data', HOJE()).maybeSingle();
       d.checkinHoje = ci
@@ -627,7 +640,7 @@
       const acad = await myAcademyId(); if (!acad) return [];
       // 120d: cobre as 16 semanas do cálculo de tendência de queda (freq4 vs base4)
       const hojeISO = HOJE(), mes = mesAtual(), d120 = _diasAtras(120);
-      const [profs, hoje, mens, ckAll, grads, enrolls] = await Promise.all([
+      const [profs, hoje, mens, ckAll, grads, enrolls, aulasRpc] = await Promise.all([
         // Todos os usuários da academia (aluno + professor + dono). O papel vai no
         // campo `role` de cada linha; os KPIs (getKPIs) contam todos.
         SB.from('profiles').select('*').eq('academy_id', acad).eq('ativo', true),
@@ -637,14 +650,30 @@
         SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa').eq('academy_id', acad),               // M6 + v391 (credito 0029)
         // Matrículas ativas — popula a.turmas em cada aluno (a UI de Turmas usa isso)
         SB.from('enrollments').select('user_id,turma_id').eq('status', 'ativo'),
+        // 0034: aulas no grau / na faixa contadas NO SERVIDOR. Mesma RPC que o app do
+        // aluno chama pra si (o escopo mora dentro da função) — fim das duas contagens
+        // em JS que divergiam. Sem janela de data: `count(*)` não trafega linha.
+        SB.rpc('aulas_por_aluno'),
       ]);
       const presById = {}; (hoje.data || []).forEach(c => { presById[c.user_id] = c.hora || '✓'; });
       const mensById = {}; (mens.data || []).forEach(m => { mensById[m.user_id] = m; });
-      // agrega check-ins por aluno (dias distintos + último)
+      // agrega check-ins por aluno (dias distintos + último). `dias` continua sendo
+      // DIA distinto: alimenta freq (% do mês), diasSem e a tendência freq4/base4 —
+      // métricas de regularidade, que não podem virar volume. Aulas no grau/faixa
+      // saíram daqui pra RPC 0034 (contam por AULA, sem janela).
       const agg = {};
       (ckAll.data || []).forEach(c => {
         const a = agg[c.user_id] || (agg[c.user_id] = { dias: new Set(), last: null });
         a.dias.add(c.data); if (!a.last || c.data > a.last) a.last = c.data;
+      });
+      // 0034: { user_id → {grau, faixa, grauDesde, faixaDesde, creditoGrau, creditoFaixa} }
+      const aulasByUser = {};
+      ((aulasRpc && aulasRpc.data) || []).forEach(r => {
+        aulasByUser[r.o_user_id] = {
+          grau: r.o_aulas_grau || 0, faixa: r.o_aulas_faixa || 0,
+          grauDesde: r.o_grau_desde || null, faixaDesde: r.o_faixa_desde || null,
+          creditoGrau: r.o_credito_grau || 0, creditoFaixa: r.o_credito_faixa || 0,
+        };
       });
       const gradByUser = {}; (grads.data || []).forEach(g => { (gradByUser[g.user_id] || (gradByUser[g.user_id] = [])).push(g); });
       const turmasByUser = {}; (enrolls.data || []).forEach(e => { (turmasByUser[e.user_id] || (turmasByUser[e.user_id] = [])).push(e.turma_id); });
@@ -661,47 +690,19 @@
         // aluno é "não graduado" — a lista mostra isso em vez de uma faixa branca lisa
         // que ninguém registrou. (profiles.faixa segue como valor técnico.)
         base.semGrad = gs.length === 0;
-        const ref = (p.graus > 0
-          ? gs.filter(g => g.tipo === 'grau' && g.faixa === p.faixa && g.graus === p.graus)
-          : gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa)
-        ).map(g => g.data).sort().pop() || gs.filter(g => g.tipo === 'faixa' && g.faixa === p.faixa).map(g => g.data).sort().pop();
-        // Credito de presencas importado do app antigo (0029): soma o aulas_credito_grau
-        // do evento-ancora (mesma data usada acima como ref) as aulas reais.
-        // Sem evento-ancora ou sem credito, comportamento e' o de sempre (soma 0).
-        const evAncora = ref ? gs.find(g => g.data === ref && g.faixa === p.faixa &&
-          (p.graus > 0 ? (g.tipo === 'grau' && g.graus === p.graus) : g.tipo === 'faixa')) : null;
-        const creditoGrau = evAncora ? (evAncora.aulas_credito_grau || 0) : 0;
-        const aulasNoGrau = creditoGrau + (a ? (ref ? [...a.dias].filter(d => d >= ref).length : a.dias.size) : 0);
-        base.aulasNoGrau = aulasNoGrau;   // exposto p/ o semáforo de graduação (relatórios)
-        base.creditoGrau = creditoGrau;   // exposto p/ a UI mostrar "40/48 · 40 importadas" (transparencia)
-        // Data do evento mais recente (grau atual, ou faixa se grau=0) — é a mesma âncora
-        // usada acima pra contar aulasNoGrau. Exposta pro export "Base completa" (Alunos):
-        // é a data que ancora o crédito de presença na importação do app antigo.
-        base.grauDesde = ref || null;
-        base.aptoGrad = aulasNoGrau >= _METAS().META_GRAU;
-        // Data da faixa ATUAL (última graduação tipo 'faixa' dessa faixa) → eixo "tempo CBJJ"
-        // "Desde quando é a faixa atual":
-        //  1) última data de faixa|inicio na faixa atual (canônico)
-        //  2) fallback: 1ª data de grau na faixa atual (aluno já era essa faixa)
-        //  3) null se não houver evento na faixa atual
-        {
-          const arr = gs.filter(g => g && g.faixa === p.faixa && g.data);
-          const fx = arr.filter(g => g.tipo === 'faixa' || g.tipo === 'inicio').map(g => g.data).sort();
-          if (fx.length) base.faixaDesde = fx[fx.length - 1];
-          else {
-            const gr = arr.filter(g => g.tipo === 'grau').map(g => g.data).sort();
-            base.faixaDesde = gr[0] || null;
-          }
-          // Credito de presencas na FAIXA (0029): ancora e' o evento que definiu
-          // faixaDesde acima. Contador contínuo atravessando a migracao — na proxima
-          // troca de faixa nasce evento novo com credito 0 e naFaixa reinicia.
-          const evFaixaAncora = base.faixaDesde ? arr.find(g => g.data === base.faixaDesde &&
-            ((fx.length && (g.tipo === 'faixa' || g.tipo === 'inicio')) || (!fx.length && g.tipo === 'grau'))) : null;
-          const creditoFaixa = evFaixaAncora ? (evFaixaAncora.aulas_credito_faixa || 0) : 0;
-          const aulasNaFaixaCk = a && base.faixaDesde ? [...a.dias].filter(d => d >= base.faixaDesde).length : 0;
-          base.aulasNaFaixa = creditoFaixa + aulasNaFaixaCk;
-          base.creditoFaixa = creditoFaixa;
-        }
+        // 0034: âncoras, créditos e contagens vêm da RPC `aulas_por_aluno` — o MESMO
+        // SQL que o app do aluno chama pra si. Antes isso era ~30 linhas de JS aqui e
+        // outras ~20 no app.js (`aulasStats`), que contavam DIAS distintos dentro da
+        // janela de 120d; agora é `count(*)` de check-ins (1 linha = 1 aula) sem janela.
+        // Aluno com 4 turmas ADULTO no mesmo dia conta 4, não 1.
+        const ag = aulasByUser[p.id] || null;
+        base.aulasNoGrau   = ag ? ag.grau : null;      // null = RPC indisponível → UI mostra '—'
+        base.creditoGrau   = ag ? ag.creditoGrau : 0;
+        base.grauDesde     = ag ? ag.grauDesde : null;
+        base.aulasNaFaixa  = ag ? ag.faixa : null;
+        base.creditoFaixa  = ag ? ag.creditoFaixa : 0;
+        base.faixaDesde    = ag ? ag.faixaDesde : null;
+        base.aptoGrad      = ag ? (ag.grau >= _METAS().META_GRAU) : false;
         // Tendência de queda (risco v2): dias treinados nas últimas 4 semanas vs a média
         // por 4 semanas do trimestre anterior (semanas 5–16). Queda ≥50% = sinal de churn.
         if (a) {
@@ -798,26 +799,10 @@
         notas: (notas && notas.data) || [] };
     }),
 
-    // v306: insere sem UNIQUE user_id/data (destravado pela migration 0010).
-    // Row legada sem aula_id — bulk check-in do professor usa marcarPresencaLote,
-    // este só sobrevive pra correções pontuais raras.
-    lancarPresenca: wrap(async (id, hora) => {
-      const [enrR, acad] = await Promise.all([
-        SB.from('enrollments').select('turma_id').eq('user_id', id).limit(1).maybeSingle(),
-        myAcademyId(),
-      ]);
-      const { error } = await SB.from('checkins').insert({
-        user_id: id, academy_id: acad, turma_id: enrR.data ? enrR.data.turma_id : null,
-        data: HOJE(), hora, via: 'professor',
-      });
-      if (error) throw error;
-    }),
-    removerPresenca: wrap(async (id) => {
-      // Remove só os check-ins SEM aula_id (legados) do dia. Batch check-in por aula
-      // é gerenciado individualmente pela aba Presenças (roadmap).
-      const { error } = await SB.from('checkins').delete().eq('user_id', id).eq('data', HOJE()).is('aula_id', null);
-      if (error) throw error;
-    }),
+    // v428: `lancarPresenca`/`removerPresenca` deletados. Sem chamador desde a v292
+    // (que tirou o lançamento manual da ficha) e quebrados desde a 0027: o insert não
+    // populava `aula_id`, e a constraint `checkins_fato` o exige. Escrita de presença
+    // é só `marcarPresencaLote`; remoção, `removerPresencaBatch`/`removerCheckinId`.
     // v305: apaga um check-in específico do batch (clique errado no aluno).
     // Prefere aula_id real (turma+data+hora); cai em legado (turma+data sem aula_id).
     removerPresencaBatch: wrap(async (userId, turmaId, data, horaAula) => {

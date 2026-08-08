@@ -1594,8 +1594,12 @@ function desdeDinamico(){
    O grau atual conta só dias DESDE a data em que o grau começou → ao receber
    um novo grau/faixa a barra reinicia sozinha (sem acúmulo eterno). === */
 function maxGrausDe(faixa){ return faixa==='preta' ? 6 : 4; }
-function _treinoDays(){ return new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); }
-function _countSince(set, sinceISO){ if(!sinceISO) return set.size; let c=0; set.forEach(d=>{ if(d>=sinceISO) c++; }); return c; }
+/* v429/0034: fallback local de aulasStats (demo, offline, pré-0034). Conta REGISTROS,
+   não dias distintos — mesma regra da RPC, onde 1 check-in = 1 aula. Antes era um Set
+   de datas: treinar 2× no mesmo dia valia 1, o que impedia contar as 4 turmas ADULTO
+   de um mesmo dia. O caminho de produção não passa por aqui (usa DB._aulasServidor). */
+function _treinoDays(){ return (DB.treinos||[]).map(t=>t.data).filter(Boolean); }
+function _countSince(arr, sinceISO){ return sinceISO ? arr.filter(d=>d>=sinceISO).length : arr.length; }
 // data em que o grau ATUAL começou (entrada de grau; cai p/ a faixa se grau 0 ou sem registro)
 function _refDataGrauAtual(){
   const me=DB.eu, g=DB.graduacoes||[]; let e=null;
@@ -1623,6 +1627,17 @@ function aulasStats(){
   const base=(me.aulasGrau&&me.aulasGrau.base)||0;
   if(DEMO){ const atual=me.aulasGrau.atual||0;
     return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:me.aulasGraduacao||0 }; }
+  // 0034: com backend, o número vem do SERVIDOR — a MESMA RPC que o painel do
+  // professor usa. Fim das duas contagens em JS que divergiam (o aluno via um
+  // número na Jornada, o professor via outro na lista). O crédito da 0029 já vem
+  // somado. `base` local legado continua entrando: é dado do app antigo que só
+  // existe no dump. Sem RPC (demo/offline/pré-0034) cai no cálculo local abaixo.
+  const srv = DB._aulasServidor;
+  if(srv){
+    const atual = srv.grau + base;
+    const restantes = Math.max(0, (me.aulasGraduacao||160) - (srv.faixa + base));
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
+  }
   const dias=_treinoDays();
   const refGrau  = _refDataGrauAtual();
   const refFaixa = _refDataFaixaAtual();
@@ -4012,17 +4027,23 @@ function _sessoesNaJanela(min, pos){
   arr.sort((a,b)=> Math.abs(a._dt) - Math.abs(b._dt));
   return arr;
 }
-// Set de turmaIds que já receberam check-in hoje (dedup por turma, não por dia).
+/* v429: dedup por AULA, não por turma. A chave casa com a do banco — `aulas` é
+   (turma_id, data, hora) e o UNIQUE de `checkins` é (user_id, aula_id). Antes a
+   chave era só o turmaId, então quem tem 4 ADULTO no mesmo dia (06:30/08:00/
+   12:00/19:30) só conseguia registrar a primeira: as outras três sumiam de
+   _sessoesElegiveis(). Sessão sem hora (aula avulsa) vira chave com hora vazia. */
+function _aulaKey(s){ return String((s&&s.turmaId)||'') + '|' + String((s&&s.hora)||''); }
+// Set de aulas que já receberam check-in hoje.
 function _turmasComCheckin(){
   const set = new Set();
   const p = DB.checkinHoje && DB.checkinHoje.porTurma;
   if(p) Object.keys(p).forEach(k=>set.add(k));
   return set;
 }
-// Sessões elegíveis p/ check-in AGORA: dentro da janela E cuja turma ainda não foi feita.
+// Sessões elegíveis p/ check-in AGORA: dentro da janela E cuja AULA ainda não foi feita.
 function _sessoesElegiveis(){
   const feitas = _turmasComCheckin();
-  return _sessoesNaJanela().filter(s => !feitas.has(s.turmaId));
+  return _sessoesNaJanela().filter(s => !feitas.has(_aulaKey(s)));
 }
 // Atalho do card na Home: pré-seleciona a sessão e inicia a Fase 1 (código '0000'),
 // seguindo o MESMO fluxo bifásico do botão +. Não pula direto pro check-in.
@@ -4042,7 +4063,7 @@ function _flowCheckin(){
     const todas = sessoesDeHoje();
     if(todas.length === 0){ toast('Sem aula na grade de hoje — a presença precisa de uma turma'); DB.flow=null; render(); return; }
     const feitas = _turmasComCheckin();
-    const restantes = todas.filter(s => !feitas.has(s.turmaId));
+    const restantes = todas.filter(s => !feitas.has(_aulaKey(s)));
     if(restantes.length === 0){ toast('Você já fez check-in em todas as aulas de hoje ✔'); DB.flow=null; render(); return; }
     toast('Fora do horário da aula (até ' + CHECKIN_JANELA_POS + ' min após o início)'); DB.flow=null; render(); return;
   }
@@ -4059,11 +4080,17 @@ function _flowCheckin(){
 function _finalizarCheckin(sessao){
   const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   // variacao viaja junto → pushCheckin grava o TIPO da aula (No-Gi/Avançado/…/Aula) no checkin.
-  const s = sessao ? { turmaId:sessao.turmaId, label:_sessaoLabel(sessao), variacao:sessao.variacao||null } : null;
-  // Dedup por TURMA (não por dia): acumula em porTurma; mantém {feito,hora,sessao} p/ retrocompat.
+  // v429: `hora` (da AULA) viaja junto. Sem ela, pushCheckin mandava p_hora_aula=null
+  // e a RPC criava uma aula FANTASMA (turma, data, NULL) paralela à real das 19:30 —
+  // o UNIQUE (user_id, aula_id) não deduplicava contra a chamada do professor, e a
+  // consulta da v426 (filtra por aulas.hora) não enxergava o auto-registro.
+  const s = sessao ? { turmaId:sessao.turmaId, hora:sessao.hora||null, label:_sessaoLabel(sessao), variacao:sessao.variacao||null } : null;
+  // Dedup por AULA: acumula em porTurma sob _aulaKey; mantém {feito,hora,sessao} p/ retrocompat.
+  // Chave nova não casa com dump antigo (turmaId puro) — no pior caso o aluno registra
+  // 1× a mais no dia da atualização, e o UNIQUE do banco devolve duplicado:true sem gravar.
   const prev = DB.checkinHoje || {};
   const porTurma = Object.assign({}, prev.porTurma || {});
-  if(s) porTurma[s.turmaId] = { hora, label:s.label };
+  if(s) porTurma[_aulaKey(s)] = { hora, label:s.label };
   DB.checkinHoje = { feito:true, hora, sessao:s, porTurma };
   scheduleSave();   // dump completo (porTurma etc.) sobe pro user_state; pushCheckin() cuida da tabela
   track('presenca', { via:'flow' });
@@ -4933,12 +4960,12 @@ function _selfAluno(){
 }
 // Roteadores: se o alvo é o aluno logado (_self) escreve nos dados REAIS; senão no mock.
 // Sempre tenta o backend quando presente (idempotente).
-function _profSetPresenca(a, hora){
-  if(a._self) DB.checkinHoje = hora ? {feito:true,hora} : {feito:false,hora:null};
-  else a.pres = hora;
-  // !DEMO: com credenciais reais o sbProf existe até no ?demo=1 — o demo não pode disparar a nuvem
-  if(!DEMO && typeof sbProf!=='undefined'){ try{ hora ? sbProf.lancarPresenca(a.id,hora) : sbProf.removerPresenca(a.id); }catch(e){} }
-}
+// v428: `_profSetPresenca` deletado (com `sbProf.lancarPresenca/removerPresenca`).
+// Era código morto desde a v292, que tirou o lançamento manual da ficha pra deixar
+// UM caminho de escrita (Turmas → Adicionar frequência, com aula_id/turma/hora reais).
+// Além de sem chamadas, estava quebrado: gravava sem `aula_id`, e a 0027 exige
+// `turma_id is not null and aula_id is not null` — a própria migration cita a função
+// pelo nome como uma das vias que veio fechar.
 function _profSetPago(a, status){
   if(a._self) DB.eu.mensalidade = Object.assign({}, DB.eu.mensalidade, {status});
   else a.pago = status;
@@ -12300,22 +12327,27 @@ function selfTest(){
     ok('_isoToBr converte', _isoToBr('2024-09-10')==='10/09/2024');
     ok('_brToIso converte', _brToIso('10/09/2024')==='2024-09-10');
     ok('_brToIso inválido → vazio', _brToIso('99/99/2024')==='' && _brToIso('10/09')==='');
-    // C1: aulas = DIA distinto, contadas só no grau atual, reset na promoção, + baseline importada
+    // C1 (0034): aula = AULA distinta (1 check-in = 1 aula), contada só no grau atual,
+    // reset na promoção, + baseline importada. Antes era DIA distinto — mudou porque a
+    // academia tem 4 turmas ADULTO no mesmo dia e as 4 têm que contar.
     ok('maxGrausDe preta=6 · demais=4', maxGrausDe('preta')===6 && maxGrausDe('azul')===4);
-    if(!DEMO){ const sTr=DB.treinos, sGr=DB.graduacoes, sEu=DB.eu; try{
+    if(!DEMO){ const sTr=DB.treinos, sGr=DB.graduacoes, sEu=DB.eu, sSrv=DB._aulasServidor; try{
+      DB._aulasServidor = null;   // força o fallback local (a RPC é testada contra o banco)
       DB.eu = Object.assign({}, sEu, { faixa:'azul', graus:1, aulasGrau:{meta:40, base:0}, aulasGraduacao:160 });
       DB.graduacoes = [
         { faixa:'azul', graus:0, tipo:'faixa', data:'2025-01-01' },
         { faixa:'azul', graus:1, tipo:'grau',  data:'2025-06-01' },
       ];
       DB.treinos = [ {id:1,data:'2025-07-10'}, {id:2,data:'2025-07-10'}, {id:3,data:'2025-03-01'} ];
-      ok('C1 aulas dedup mesmo dia no grau', aulasStats().atual===1);   // 2x 10/07 = 1; 01/03 é pré-grau
-      ok('C1 estimativa da faixa dedup', aulasStats().restantes===158); // 160 - 2 dias na faixa
+      ok('C1 duas aulas no mesmo dia contam 2', aulasStats().atual===2);   // 2x 10/07 = 2; 01/03 é pré-grau
+      ok('C1 estimativa da faixa conta aulas', aulasStats().restantes===157); // 160 - 3 aulas na faixa
       DB.eu.graus=2; DB.graduacoes.push({faixa:'azul',graus:2,tipo:'grau',data:HOJE_ISO}); DB.eu.aulasGrau.base=0;
       ok('C1 reset de aulas no novo grau', aulasStats().atual===0);
       DB.eu.graus=1; DB.graduacoes.pop(); DB.eu.aulasGrau.base=5;
-      ok('C1 baseline importada entra no grau', aulasStats().atual===6); // 5 base + 1 dia
-    }catch(e){ ok('C1 aulasStats', false); } finally { DB.treinos=sTr; DB.graduacoes=sGr; DB.eu=sEu; } }
+      ok('C1 baseline importada entra no grau', aulasStats().atual===7); // 5 base + 2 aulas
+      DB._aulasServidor = { grau:9, faixa:20, grauDesde:'2025-06-01', faixaDesde:'2025-01-01', creditoGrau:0, creditoFaixa:0 };
+      ok('0034 servidor tem precedência sobre o cálculo local', aulasStats().atual===14); // 9 + base 5
+    }catch(e){ ok('C1 aulasStats', false); } finally { DB.treinos=sTr; DB.graduacoes=sGr; DB.eu=sEu; DB._aulasServidor=sSrv; } }
     const sg1 = _sugerirGraduacoes('azul', 2);
     ok('sugerirGrad azul 2 = 8 entries', sg1.length===8);
     ok('sugerirGrad começa branca lisa', sg1[0].faixa==='branca' && sg1[0].tipo==='faixa' && sg1[0].graus===0);
