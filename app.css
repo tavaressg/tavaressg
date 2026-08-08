@@ -2387,6 +2387,9 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 }
 
 /* Presenças — histórico */
+/* v431: nota do crédito de aulas importado (0029) — some da lista porque não tem
+   linha em `checkins`. Fica acima do histórico, discreta, sem virar alerta. */
+.erp-pres-cred{color:var(--muted);font-size:12px;line-height:1.45;background:var(--field);border-radius:9px;padding:9px 11px;margin:-4px 0 12px}
 .erp-pres-list{display:flex;flex-direction:column}
 .erp-pres-row{display:grid;grid-template-columns:64px 1fr 60px 28px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
 .erp-pres-del{width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--field);color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:0}

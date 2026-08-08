@@ -7443,6 +7443,14 @@ function _erpFicha(a, c, paint, refresh){
 function _erpPresencas(freq, aluno, refresh, paint){
   const box=el('<div class="erp-card"></div>');
   box.appendChild(el(`<div class="erp-card-h">Histórico de presenças</div>`));
+  // v431: crédito de aulas importado do app antigo (0029). Ele vive como NÚMERO no
+  // evento de graduação — não existe linha em `checkins` — então some desta lista e da
+  // contagem "N CHECK-INS". Sem esta nota, a ficha mostrava 9 e a coluna GRAU dizia
+  // 20/40, com 11 de diferença sem explicação em lugar nenhum da tela.
+  const _cred = Math.max(0, +(aluno && aluno.creditoGrau) || 0);
+  if(_cred > 0){
+    box.appendChild(el(`<div class="erp-pres-cred">+${_cred} aula${_cred!==1?'s':''} importada${_cred!==1?'s':''} do app antigo — ${_cred!==1?'contam':'conta'} para a graduação, mas não ${_cred!==1?'têm':'tem'} registro individual.</div>`));
+  }
   // v426: ordena pelo horário da AULA (não pelo do registro). Com 2 aulas no mesmo
   // dia, o professor marca as duas de uma vez — as horas de registro ficam iguais
   // (22:33/22:33) e a ordem saía aleatória; por aula, sai 06:00 antes de 19:30.
