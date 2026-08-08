@@ -7634,6 +7634,11 @@ function _erpActions(a, tab, refresh, paint, hora){
   if(!a._self) rows.push(['pa-status',`🔘 Status: ${_statusAlunoTxt(a)}`,'', ()=>_statusManualSheet(a, refresh, paint)]);
   // v300: "Graduação retroativa" unificado no "+ Novo evento" da timeline (aba Graduação).
   if(DB.eu && DB.eu.role==='dono' && !a._self) rows.push(['pa-promo','⬆️ Promover a professor','', ()=>{ _profPromoverSheet(a, ()=>{ refresh(); paint(); }); }]);
+  // v436: reset de senha individual. O lote (senha-padrao) pula quem já acessou — de
+  // propósito — e esses alunos ficavam sem caminho no app. Hierarquia igual à da Edge
+  // Function: dono nunca é alvo; professor só pelo dono; nunca em si mesmo.
+  if(!a._self && a.role!=='dono' && !(a.role==='professor' && DB.eu.role!=='dono'))
+    rows.push(['pa-senha','🔑 Redefinir senha','', ()=>_resetarSenhaSheet(a)]);
   if(!(a._self||a.role==='professor'||a.role==='dono')) rows.push(['pa-del','🗑️ Excluir','danger', ()=>{ _profExcluirAlunoSheet(a, ()=>{ DB.alunoAberto=null; DB._alunoTab=null; refresh(); render(); }); }]);
   rows.forEach(([id,lbl,cls,fn])=>{
     if(typeof cls==='function'){ fn=cls; cls=''; }
@@ -11321,6 +11326,56 @@ function _dadosAcademiaSheet(){
 // Sheet só da senha padrão — local (user_state do professor), fora da nuvem por LGPD:
 // academies.config é lido por todo membro; se a senha estivesse lá, aluno veria a senha
 // dos colegas que ainda não trocaram.
+/* v436 — reset de senha de UM aluno. Duas etapas de propósito: a primeira tela avisa o
+   que isso significa (quem sabe a senha entra na conta e vê o diário — dado que a RLS
+   nega ao professor), a segunda mostra a senha UMA vez. Não guardamos a senha em lugar
+   nenhum: some ao fechar a sheet. Preferir sempre "Esqueceu a senha?" quando o e-mail
+   do aluno funcionar — lá o professor nunca conhece a senha. */
+function _resetarSenhaSheet(a){
+  const nome = _nomeInst(a);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Redefinir senha">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Redefinir a senha de ${safeTxt(nome)}?</div>
+    <div class="sheet-desc">Uma senha nova e aleatória será gerada. A senha atual do aluno <b>deixa de funcionar na hora</b>, e ele terá que criar uma senha própria no primeiro acesso.</div>
+    <div class="auth-note" style="margin:10px 0 4px">⚠️ Enquanto o aluno não trocar, <b>quem souber essa senha consegue entrar na conta dele</b> e ver o diário (treinos, notas, lesões). Use só quando não der pra enviar o link por e-mail. A ação fica registrada.</div>
+    <button class="btn-save" id="rs-go" style="margin-top:12px">Gerar nova senha</button>
+    <button class="sheet-cancel" id="rs-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#rs-close').onclick = close;
+  const btn = sheet.querySelector('#rs-go');
+  btn.onclick = async ()=>{
+    if(DEMO || typeof sbProf==='undefined' || !sbProf.resetarSenha){ toast('Indisponível no modo demo'); return; }
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    try{
+      const r = await sbProf.resetarSenha(a.id);
+      const senha = r && r.senha;
+      if(!senha) throw new Error('resposta sem senha');
+      // Etapa 2: a senha aparece UMA vez. Sem persistir — recarregar a tela a perde.
+      const corpo = sheet.querySelector('.sheet');
+      corpo.innerHTML = `<div class="sheet-grip"></div>
+        <div class="sheet-title">Senha de ${safeTxt(nome)}</div>
+        <div class="sheet-desc">Anote ou envie agora — ela <b>não aparece de novo</b>.</div>
+        <div id="rs-val" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:26px;font-weight:800;letter-spacing:2px;text-align:center;background:var(--field);border-radius:12px;padding:16px;margin:12px 0;user-select:all">${safeTxt(senha)}</div>
+        <button class="btn-save" id="rs-copy">📋 Copiar senha</button>
+        ${_waLink(a)?`<button class="sheet-cancel" id="rs-wa">💬 Enviar no WhatsApp</button>`:''}
+        <button class="sheet-cancel" id="rs-fim">Fechar</button>`;
+      corpo.querySelector('#rs-fim').onclick = close;
+      corpo.querySelector('#rs-copy').onclick = ()=>{
+        try{ navigator.clipboard.writeText(senha).then(()=>toast('Senha copiada ✔'), ()=>toast('Selecione e copie à mão')); }
+        catch(_){ toast('Selecione e copie à mão'); }
+      };
+      const wa = corpo.querySelector('#rs-wa');
+      if(wa) wa.onclick = ()=>{ const u=_waLink(a, _waConviteBody(a, senha)); if(u) window.open(u,'_blank','noopener'); };
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Gerar nova senha';
+      toast('Falha: ' + (e.message || e));
+    }
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 function _senhaPadraoSheet(){
   const atual = _senhaPadrao();
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">

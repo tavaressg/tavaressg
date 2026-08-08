@@ -909,6 +909,21 @@
     // na importação em lote ela se perde e o professor fica sem como dar acesso.
     // `dryRun` só conta/lista (usado pra montar a tela antes de aplicar).
     // Quem JÁ acessou nunca é tocado: trocar a senha de conta em uso é sequestro.
+    // v436: senha ALEATÓRIA para UM aluno (botão na ficha). Devolve { senha, nome } —
+    // a senha existe só nesta resposta, não é gravada em lugar nenhum do cliente.
+    // Complementa o senhaPadraoLote, que por segurança pula quem já acessou.
+    resetarSenha: wrap(async (userId) => {
+      const { data, error } = await SB.functions.invoke('resetar-senha', { body: { user_id: userId } });
+      if (error) {
+        let code = null;
+        try { const b = await error.context.json(); code = b && (b.detail || b.error); }
+        catch (_) { /* corpo não-JSON */ }
+        if (code) { const e = new Error(code); e.code = code; throw e; }
+        throw error;
+      }
+      return data;   // { ok, senha, nome }
+    }),
+
     senhaPadraoLote: wrap(async (senha, dryRun) => {
       const { data, error } = await SB.functions.invoke('senha-padrao', { body: { senha, dry_run: !!dryRun } });
       if (error) {
