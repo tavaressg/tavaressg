@@ -652,7 +652,10 @@
         // Todos os usuários da academia (aluno + professor + dono). O papel vai no
         // campo `role` de cada linha; os KPIs (getKPIs) contam todos.
         SB.from('profiles').select('*').eq('academy_id', acad).eq('ativo', true),
-        SB.from('checkins').select('user_id,hora').eq('academy_id', acad).eq('data', hojeISO),               // M6: índice (academy_id,data)
+        // v435: traz a TURMA junto — o card "Check-ins de hoje" mostrava só nome/faixa/hora
+        // e o professor não sabia de qual aula era a presença. `turmas(nome)` é o embed;
+        // o cliente recebe achatado em `presTurma` logo abaixo.
+        SB.from('checkins').select('user_id,hora,turma_id,turmas(nome)').eq('academy_id', acad).eq('data', hojeISO),   // M6: índice (academy_id,data)
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
         SB.from('checkins').select('user_id,data').eq('academy_id', acad).gte('data', d120),                 // M6
         SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa').eq('academy_id', acad),               // M6 + v391 (credito 0029)
@@ -664,6 +667,14 @@
         SB.rpc('aulas_por_aluno'),
       ]);
       const presById = {}; (hoje.data || []).forEach(c => { presById[c.user_id] = c.hora || '✓'; });
+      // v435: turmas do dia por aluno. `pres` continua STRING (hora) — exports, ordenação
+      // e filtros dependem disso; a turma vai num campo novo. Set porque desde a v429 o
+      // aluno pode ter mais de um check-in no mesmo dia (4 turmas ADULTO, por ex.).
+      const presTurmaById = {};
+      (hoje.data || []).forEach(c => {
+        const nome = c.turmas && c.turmas.nome; if (!nome) return;
+        (presTurmaById[c.user_id] || (presTurmaById[c.user_id] = new Set())).add(nome);
+      });
       const mensById = {}; (mens.data || []).forEach(m => { mensById[m.user_id] = m; });
       // agrega check-ins por aluno (dias distintos + último). `dias` continua sendo
       // DIA distinto: alimenta freq (% do mês), diasSem e a tendência freq4/base4 —
@@ -687,6 +698,9 @@
       const turmasByUser = {}; (enrolls.data || []).forEach(e => { (turmasByUser[e.user_id] || (turmasByUser[e.user_id] = [])).push(e.turma_id); });
       const out = (profs.data || []).map(p => {
         const base = mapAluno(p, presById, mensById);
+        // v435: fora do mapAluno de propósito — não mexe na assinatura dele, que tem
+        // outros chamadores. Array (não Set) pra sobreviver a JSON/estruturação.
+        base.presTurma = presTurmaById[p.id] ? [...presTurmaById[p.id]] : null;
         base.turmas = turmasByUser[p.id] || [];   // ids das turmas matriculadas (UI de Turmas usa)
         const a = agg[p.id];
         base.diasSem = (a && a.last) ? Math.max(0, Math.round((new Date(hojeISO) - new Date(a.last)) / 86400000)) : 999;

@@ -1216,6 +1216,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* check-in list */
 .ci-row{display:flex;align-items:center;gap:13px;background:var(--card);border-radius:14px;padding:12px 15px;box-shadow:var(--shadow)}
 .ci-row .ci-time{margin-left:auto;font-size:12px;font-weight:800;color:var(--green)}
+/* v435: faixa + turma na mesma linha. `min-width:0` no meio deixa o nome longo truncar
+   em vez de empurrar a hora pra fora do card em tela estreita. */
+.ci-row .ci-mid{min-width:0;flex:1}
+.ci-row .ci-mid>div:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ci-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);font-weight:600}
 .ci-row .ci-dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-tint)}
 
 /* ============================================================

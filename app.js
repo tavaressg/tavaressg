@@ -5537,10 +5537,18 @@ function profPainel(){
     list.appendChild(el('<div class="empty-line">Nenhum check-in ainda hoje.</div>'));
   } else {
     alunos.filter(a=>a.pres).slice(0,5).forEach(a=>{
+      // v435: a TURMA do check-in. Vem do adapter (`presTurma`, embed turmas(nome) na
+      // consulta de hoje). Pode ser mais de uma desde a v429 — aluno com 4 turmas ADULTO
+      // no mesmo dia conta 4 check-ins; aqui vira "ADULTO · NO-GI".
+      // Sem turma (check-in legado sem vínculo) o chip simplesmente não aparece.
+      const turmas = Array.isArray(a.presTurma) ? a.presTurma.filter(Boolean) : [];
+      const chip = turmas.length
+        ? `<span class="st-turma-chip" title="${safeAttr(turmas.join(' · '))}">${safeTxt(turmas.join(' · '))}</span>`
+        : '';
       list.appendChild(el(`<div class="ci-row"><span class="ci-dot"></span>
         ${avatarAluno(a, 'width:36px;height:36px;font-size:13px')}
-        <div><div style="font-size:13.5px;font-weight:700">${safeTxt(_nomeInst(a))}</div>
-          <div style="font-size:11.5px;color:var(--muted);font-weight:600">${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${a.graus||0}º grau</div></div>
+        <div class="ci-mid"><div style="font-size:13.5px;font-weight:700">${safeTxt(_nomeInst(a))}</div>
+          <div class="ci-meta"><span>${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${a.graus||0}º grau</span>${chip}</div></div>
         <span class="ci-time">${safeTxt(a.pres)}</span></div>`));
     });
   }
