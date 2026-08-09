@@ -3779,7 +3779,7 @@ function alunoPerfil(){
   const _prodsAtivos = (DB.loja?.produtos||[]).filter(p=> p.ativo!==false);
   if(_prodsAtivos.length){
     const lojaWrap = el(`<div class="loja-destaque">
-      <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span>
+      <div class="ld-head"><span class="ld-t" role="button" tabindex="0" aria-label="Abrir Loja Yama">🛍️ Loja Yama<span class="ld-t-arrow">›</span></span>
         <span style="display:flex;gap:12px">
           <a class="ld-pedidos-link" style="font-size:12.5px;font-weight:700;color:var(--muted)">meus pedidos</a>
           <a class="ld-link">ver tudo ›</a>
@@ -3788,6 +3788,10 @@ function alunoPerfil(){
       <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
     lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
+    // v442: título "Loja Yama" também abre a loja (não só o "ver tudo").
+    const _ldT = lojaWrap.querySelector('.ld-t');
+    _ldT.onclick = ()=> openLoja();
+    _ldT.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openLoja(); } };
     lojaWrap.querySelector('.ld-pedidos-link').onclick = ()=> openMeusPedidos();
     const track = lojaWrap.querySelector('.ld-track');
     // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.

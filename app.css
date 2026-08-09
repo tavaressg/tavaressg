@@ -736,7 +736,11 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 /* ---------- Destaque da Loja no Perfil ---------- */
 .loja-destaque{margin:8px 0 6px}
 .ld-head{display:flex;align-items:center;justify-content:space-between;padding:0 20px;margin-bottom:11px}
-.ld-t{font-size:13.5px;font-weight:800}
+.ld-t{font-size:13.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:4px;user-select:none}
+.ld-t:hover{color:var(--red)}
+.ld-t-arrow{display:inline-block;font-weight:900;color:var(--red);animation:ld-nudge 1.8s ease-in-out infinite}
+@keyframes ld-nudge{0%,60%,100%{transform:translateX(0)}70%{transform:translateX(4px)}85%{transform:translateX(0)}}
+@media (prefers-reduced-motion: reduce){.ld-t-arrow{animation:none}}
 .ld-link{font-size:12.5px;font-weight:800;color:var(--red-strong);cursor:pointer}
 .ld-strip{display:flex;gap:11px;overflow-x:auto;scrollbar-width:none;padding:2px 20px 4px}
 .ld-strip::-webkit-scrollbar{display:none}
