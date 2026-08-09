@@ -7193,10 +7193,13 @@ function renderCadastroAluno(){
     const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
     // v296: início = hoje, sem obs, faixa/grau default (branca/0). Ajusta na ficha.
     const data_inicio=HOJE_ISO, observacoes='';
-    const senha=_gerarSenhaProvisoria();
+    // v437: senha do cadastro individual = senha padrão da academia. Antes gerava
+    // aleatória e o convite WhatsApp (que usa _senhaPadrao()) prometia outra coisa.
+    // Fallback pra provisória aleatória só se a padrão não estiver configurada.
+    const senha=_senhaPadrao()||_gerarSenhaProvisoria();
     const dados={ nome_completo:nome, apelido, email, faixa:selFaixa, graus:selGraus, nascimento, desde:HOJE_ISO.slice(0,7),
       telefone, cep, logradouro, numero, bairro, cidade, uf,
-      resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes };
+      resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes, senha };
     if(!DEMO && typeof sbProf!=='undefined'){
       try{ const r=await sbProf.criarAluno(dados);
         const novoId=(r&&(r.user_id||r.id))||null;
@@ -9666,6 +9669,9 @@ function renderProdutoForm(){
   // Grid de fotos: miniaturas + botão "+" que abre o file input.
   const fotosWrap = body.querySelector('#pf-fotos');
   const fileIn = body.querySelector('#pf-file');
+  // v438: `uploading` = fotos em voo. Pinta placeholder animado por cada uma e
+  // trava o Salvar enquanto > 0 (foto no meio do upload não pode virar img_url).
+  let uploading = 0;
   const paintFotos = ()=>{
     fotosWrap.innerHTML='';
     fotos.forEach((url,i)=>{
@@ -9674,21 +9680,33 @@ function renderProdutoForm(){
       t.querySelector('.pf-rm').onclick=()=>{ dirty=true; fotos.splice(i,1); paintFotos(); };
       fotosWrap.appendChild(t);
     });
-    const add=el(`<button class="pf-add" aria-label="Adicionar foto">＋</button>`);
+    for(let k=0;k<uploading;k++) fotosWrap.appendChild(el('<div class="pf-foto pf-loading" aria-label="Enviando foto"></div>'));
+    const add=el(`<button class="pf-add" aria-label="Adicionar foto"${uploading?' disabled':''}>＋</button>`);
     add.onclick=()=> fileIn.click();
     fotosWrap.appendChild(add);
+    const sv = body.querySelector('#pr-save');
+    if(sv){ sv.disabled = uploading>0; sv.textContent = uploading>0 ? 'Enviando foto…' : (novo?'Criar produto':'Salvar'); }
   };
   paintFotos();
   fileIn.onchange = async ()=>{
     const files = Array.from(fileIn.files||[]); fileIn.value='';
     if(!files.length) return;
     if(typeof sbProf==='undefined' || !sbProf.uploadProdutoFoto){ toast('Upload indisponível offline'); return; }
-    toast('Enviando '+files.length+' foto'+(files.length>1?'s':'')+'…');
+    uploading += files.length; paintFotos();
     for(const f of files){
       try{
         const url = await sbProf.uploadProdutoFoto(f, p?p.id:null);
-        if(url){ fotos.push(url); dirty=true; paintFotos(); }
+        if(url){ fotos.push(url); dirty=true; }
       }catch(e){ toast('Erro no upload: '+(e.message||e)); }
+      finally{ uploading--; paintFotos(); }
+    }
+    // v437: auto-persiste img_url/img_urls quando o produto já existe. Sem isso,
+    // o professor subia a foto (que ia pro storage), fechava a tela sem clicar
+    // "Salvar", e a URL nunca chegava em produtos.img_url — foto órfã no bucket,
+    // produto continuava sem imagem (aconteceu com KIMONO YAMA no 2026-08-09).
+    if(p && typeof p.id==='string' && p.id.length>=32 && sbProf.salvarProduto){
+      p.img = fotos[0]||null; p.imgs = fotos.slice(1);
+      sbProf.salvarProduto(p).catch(e=>toast('Erro ao salvar foto: '+(e.message||e)));
     }
   };
   body.querySelector('#pr-addtam').onclick=()=>{

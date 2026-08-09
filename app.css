@@ -1954,6 +1954,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .pf-foto .pf-rm{position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(20,20,22,.82);color:#fff;font-size:11px;cursor:pointer;line-height:1;padding:0}
 .pf-foto.capa::before{content:'CAPA';position:absolute;bottom:0;left:0;right:0;background:rgba(20,20,22,.75);color:#fff;font-size:9px;font-weight:800;text-align:center;letter-spacing:.4px;padding:2px 0}
 .pf-add{width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--line);background:transparent;color:var(--muted);font-size:22px;cursor:pointer}
+.pf-add:disabled{opacity:.5;cursor:not-allowed}
+.pf-foto.pf-loading{background:linear-gradient(90deg,var(--field) 0%,var(--hover) 50%,var(--field) 100%);background-size:200% 100%;animation:pfShimmer 1.1s linear infinite;display:flex;align-items:center;justify-content:center}
+.pf-foto.pf-loading::after{content:'';width:22px;height:22px;border:2.5px solid var(--line);border-top-color:var(--red);border-radius:50%;animation:pfSpin .8s linear infinite}
+@keyframes pfShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes pfSpin{to{transform:rotate(360deg)}}
 
 /* Botão discreto de troca de modo (rodapé do Mais) */
 .pro-switch-btn{display:block;margin:20px auto 12px;padding:11px 22px;background:none;border:1.5px dashed var(--line);
