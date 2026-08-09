@@ -9564,37 +9564,47 @@ function profLoja(){
   _ensureLojaAdmin();
   const w = el('<div></div>');
   const prods = DB.loja.produtos;
-  const baixos = prods.filter(p=> p.ativo!==false && _temEstoqueBaixo(p)).length;
-  const ocultos = prods.filter(p=> p.ativo===false).length;
+  // v439: só ativos na lista principal; ocultos vão pra um <details> no fim.
+  // Aviso de "estoque baixo" removido a pedido (2026-08-09).
+  const ativos = prods.filter(p=> p.ativo!==false);
+  const ocultos = prods.filter(p=> p.ativo===false);
   w.innerHTML = `<div class="hello"><div class="date">Loja</div>
-    <div class="greet">${prods.length} produtos${baixos?' · '+baixos+' com estoque baixo':''}${ocultos?' · '+ocultos+' ocultos':''}</div></div>`;
+    <div class="greet">${ativos.length} produto${ativos.length!==1?'s':''} na loja${ocultos.length?' · '+ocultos.length+' oculto'+(ocultos.length!==1?'s':''):''}</div></div>`;
   const pend = _pedidosPendentesN();
   const pedBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
     <span>🧾 Pedidos${pend?` <span class="low-badge" style="background:var(--red);color:#fff">${pend} pendente${pend>1?'s':''}</span>`:''}</span>
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
   pedBtn.onclick=()=>goProf('pedidos');
   w.appendChild(pedBtn);
-  // v345: "Configurações da academia" saiu da Loja — entrada única em Alunos
-  // (🔑 Acesso → ⚙️ Configurações). Estava em dois menus para o mesmo sheet.
   const addBtn = el(`<div class="dt-add-wrap"><button class="btn-cad">＋ Novo produto</button></div>`);
   addBtn.querySelector('button').onclick=()=>abrirProdutoForm(null);
   w.appendChild(addBtn);
-  const list = el('<div class="list"></div>');
-  prods.forEach(p=>{
-    const baixo=_temEstoqueBaixo(p), tot=_estoqueTotal(p);
+  const linha = (p)=>{
+    const tot=_estoqueTotal(p);
     const row=el(`<div class="st-row" style="cursor:pointer">
       <div class="prod-mini${p.img?' has-img':''}" style="background:${safeAttr(p.cor||'var(--field)')}">${safeTxt(p.emoji||'🥋')}</div>
-      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}${p.ativo===false?' <span class="prod-hidden">oculto</span>':''}</div>
+      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}</div>
         <div class="meta"><span style="font-weight:800;color:var(--ink)">${moneyBR(p.preco)}</span>
-          <span style="font-size:11px;color:var(--muted)"> · ${safeTxt(p.cat)} · estoque ${tot}</span>
-          ${baixo&&p.ativo!==false?'<span class="low-badge">estoque baixo</span>':''}</div></div>
+          <span style="font-size:11px;color:var(--muted)"> · ${safeTxt(p.cat)} · estoque ${tot}</span></div></div>
       <div class="st-right" style="color:var(--muted);font-size:18px">›</div>
     </div>`);
-    _mountProdImg(row.querySelector('.prod-mini'), p);   // nó cacheado → sem flash no re-render
+    _mountProdImg(row.querySelector('.prod-mini'), p);
     row.onclick=()=>abrirProdutoForm(p);
-    list.appendChild(row);
-  });
+    return row;
+  };
+  const list = el('<div class="list"></div>');
+  ativos.forEach(p=> list.appendChild(linha(p)));
   w.appendChild(list);
+  if(ocultos.length){
+    const det = el(`<details class="loja-ocultos" style="margin:18px 20px 0">
+      <summary style="cursor:pointer;font-weight:800;color:var(--muted);padding:8px 0">🚫 Ocultos da loja (${ocultos.length})</summary>
+      <div class="sheet-desc" style="margin:4px 0 8px">Não aparecem pro aluno. Abra o produto e troque pra "👁️ Visível" pra reativar.</div>
+    </details>`);
+    const listO = el('<div class="list"></div>');
+    ocultos.forEach(p=> listO.appendChild(linha(p)));
+    det.appendChild(listO);
+    w.appendChild(det);
+  }
   w.appendChild(el(`<div style="height:24px"></div>`));
   return w;
 }
