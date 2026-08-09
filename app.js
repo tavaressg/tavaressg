@@ -4499,6 +4499,8 @@ function setLojaCat(c){ DB.loja.cat=c; render(); }
 // B6: o badge só conta itens de produtos ainda disponíveis (ativos)
 function carrinhoQtd(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return (p && p.ativo!==false) ? s+i.qtd : s; },0); }
 function carrinhoTotal(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return (p && p.ativo!==false) ? s+p.preco*i.qtd : s; },0); }
+// v444: total efetivo a pagar via Pix (cartão × (1 − desconto)). Igual ao cartão se desconto=0.
+function carrinhoTotalPix(){ return _precoPix(carrinhoTotal()); }
 
 /* Foto real do produto (loja/ local ou URL do Storage) sobre o fundo emoji — se a
    imagem falhar, o listener global data-fallback remove o <img> e o emoji reaparece.
@@ -4734,7 +4736,7 @@ function abrirCarrinho(){
     <div class="sheet-grip"></div>
     <div class="sheet-title">Sua sacola</div>
     <div class="cart-items"></div>
-    <div class="cart-total"><span>Total</span><b>${moneyBR(carrinhoTotal())}</b></div>
+    <div class="cart-total"><span>Total no Pix</span><b>${_priceHTML(carrinhoTotal())}</b></div>
     <div class="cart-pickup">📍 Retire na recepção da Yama — sem frete · pague por PIX e o professor confirma</div>
     <button class="btn-save" style="margin-top:6px">Ir para pagamento →</button>
     <button class="sheet-cancel">Continuar comprando</button>
@@ -4763,7 +4765,7 @@ function abrirCarrinho(){
       row.querySelector('.ci-rm').onclick=()=>{ DB.loja.carrinho=DB.loja.carrinho.filter(x=>x!==i); _cartChanged(); };
       itemsWrap.appendChild(row);
     });
-    totalEl.textContent = moneyBR(carrinhoTotal());
+    totalEl.innerHTML = _priceHTML(carrinhoTotal());
   };
   const _cartChanged = ()=>{
     scheduleSave();
@@ -4785,7 +4787,9 @@ function finalizarCompra(){ _abrirConfirmPix(); }
 // a rastreabilidade do mesmo pedido no extrato do banco.
 function _txidAtual(){ if(!DB._checkoutTxid) DB._checkoutTxid = _pixGerarTxid(); return DB._checkoutTxid; }
 function _registrarPedidoJaPago(){
-  const total = carrinhoTotal();
+  // v444: grava o total EFETIVO pago (Pix, com desconto). O cartão nunca chega aqui —
+  // pagamento presencial na academia é outro fluxo.
+  const total = carrinhoTotalPix();
   const txid = _txidAtual();
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined' && sbSync.registrarPedido){
     const itens = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
@@ -4804,7 +4808,10 @@ function _registrarPedidoJaPago(){
    professor colou. Dois botões: copiar (com valor + txid injetados) e "Já paguei"
    (grava pedido + notifica professor por push). Sem WhatsApp, sem Web Share. */
 function _abrirConfirmPix(){
-  const total = carrinhoTotal();
+  // v444: valor da tela e do BR Code já sai com desconto Pix. carrinhoTotal() cartão
+  // aparece só como referência ("de R$ X"), quando há desconto configurado.
+  const totalCartao = carrinhoTotal();
+  const total = carrinhoTotalPix();
   const brRaw = _lojaPixBrCode();
   const brCom = brRaw ? _pixBrCodeComValorTxid(brRaw, total, _txidAtual()) : '';
   const dados = brRaw ? _pixParseBrCode(brRaw) : null;
@@ -4822,9 +4829,13 @@ function _abrirConfirmPix(){
       ${dados ? linha('Recebedor', dados.nome || '—') : ''}
       ${linha('Chave PIX', chaveMostrar || '—')}
       ${dados && dados.cidade ? linha('Cidade', dados.cidade) : ''}
-      <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;font-size:15px">
-        <span style="color:var(--muted);font-weight:700">Valor</span>
-        <b style="color:var(--red-strong);font-size:17px">${moneyBR(total)}</b></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:12px 0;font-size:15px;align-items:center">
+        <span style="color:var(--muted);font-weight:700">Valor no Pix</span>
+        <span style="text-align:right">
+          ${total<totalCartao?`<span style="color:var(--muted);text-decoration:line-through;font-size:12px;display:block">${moneyBR(totalCartao)}</span>`:''}
+          <b style="color:var(--good,#1a9d3f);font-size:17px">${moneyBR(total)}</b>
+          ${total<totalCartao?`<span class="pr-off" style="margin-left:6px">−${_descontoPixPct()}%</span>`:''}
+        </span></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <button id="cp-copy" class="btn-save">📋 Copiar código PIX e pagar</button>
