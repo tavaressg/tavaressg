@@ -1954,6 +1954,19 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .pf-foto .pf-rm{position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(20,20,22,.82);color:#fff;font-size:11px;cursor:pointer;line-height:1;padding:0}
 .pf-foto.capa::before{content:'CAPA';position:absolute;bottom:0;left:0;right:0;background:rgba(20,20,22,.75);color:#fff;font-size:9px;font-weight:800;text-align:center;letter-spacing:.4px;padding:2px 0}
 .pf-add{width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--line);background:transparent;color:var(--muted);font-size:22px;cursor:pointer}
+/* v441: preço dual (cartão + pix) */
+.pr-dual{display:inline-flex;flex-direction:column;gap:2px;line-height:1.15}
+.pr-dual.pr-row{gap:0}
+.pr-cartao{font-weight:800;color:var(--ink);font-size:13px;text-decoration:line-through;opacity:.7}
+.pr-pix{font-size:12px;color:var(--good,#1a9d3f);font-weight:700}
+.pr-pix b{font-weight:900;font-size:14px}
+.pr-off{display:inline-block;margin-left:4px;background:var(--good,#1a9d3f);color:#fff;font-size:10px;font-weight:900;border-radius:4px;padding:1px 5px;vertical-align:middle}
+.pr-single{font-weight:800;color:var(--ink)}
+.pr-note{font-size:12px;color:var(--muted);margin:6px 0 0;padding:6px 10px;background:var(--field);border-radius:8px;display:inline-block}
+/* Barra "Novo produto / Ocultos" no profLoja */
+.loja-actions{display:flex;gap:10px;padding:6px 20px 4px;flex-wrap:wrap}
+.loja-actions .btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--line);border-radius:999px;padding:10px 16px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.loja-actions .btn-ghost .cnt{background:var(--field);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:900;color:var(--ink)}
 .pf-add:disabled{opacity:.5;cursor:not-allowed}
 .pf-foto.pf-loading{background:linear-gradient(90deg,var(--field) 0%,var(--hover) 50%,var(--field) 100%);background-size:200% 100%;animation:pfShimmer 1.1s linear infinite;display:flex;align-items:center;justify-content:center}
 .pf-foto.pf-loading::after{content:'';width:22px;height:22px;border:2.5px solid var(--line);border-top-color:var(--red);border-radius:50%;animation:pfSpin .8s linear infinite}

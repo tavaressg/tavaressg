@@ -102,6 +102,19 @@ function diaRelativo(iso){
 }
 const plural = (n,s,p)=> `${n} ${Math.abs(n)===1?s:p}`;   // 1 semana · 2 semanas
 const moneyBR = (n) => 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+// v441: preço Pix = preço-cartão − X%. X vem de academies.config.descontoPix (global academia).
+// Retorna 0 se não configurado → _priceHTML mostra só o preço único.
+function _descontoPixPct(){ const n = Number((DB.academyConfig||{}).descontoPix||0); return (isFinite(n) && n>0 && n<=90) ? n : 0; }
+function _precoPix(preco){ const d=_descontoPixPct(); return d ? +(preco*(1-d/100)).toFixed(2) : preco; }
+// Renderiza cartão + pix (verde) quando há desconto; senão só o preço único.
+// `size` = 'card' (grid do aluno / sheet) ou 'row' (linha do professor).
+function _priceHTML(preco, size){
+  const d = _descontoPixPct();
+  if(!d) return `<span class="pr-single">${moneyBR(preco)}</span>`;
+  const cls = size==='row' ? 'pr-dual pr-row' : 'pr-dual';
+  return `<div class="${cls}"><span class="pr-cartao">${moneyBR(preco)}</span>
+    <span class="pr-pix"><b>${moneyBR(_precoPix(preco))}</b> no Pix <span class="pr-off">−${d}%</span></span></div>`;
+}
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
 
 // ---- ViaCEP: auto-preenche endereço a partir do CEP (API pública, sem chave) ----
@@ -4629,7 +4642,7 @@ function renderLoja(){
         </div>
         <div class="prod-info">
           <div class="prod-name">${safeTxt(p.nome)}</div>
-          <div class="prod-price">${moneyBR(p.preco)}</div>
+          <div class="prod-price">${_priceHTML(p.preco)}</div>
           ${tamsHTML}
         </div></div>`);
       c.onclick = ()=> abrirProduto(p.id);
@@ -4674,7 +4687,8 @@ function abrirProduto(id){
     <div class="sheet-grip"></div>
     <div class="prod-hero${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
     <div class="prod-sheet-name">${safeTxt(p.nome)}</div>
-    <div class="prod-sheet-price">${moneyBR(p.preco)}</div>
+    <div class="prod-sheet-price">${_priceHTML(p.preco)}</div>
+    ${_descontoPixPct()?`<div class="pr-note">💳 Cartão: pago na academia Yama</div>`:''}
     <div class="prod-sheet-desc">${safeTxt(p.desc)}</div>
     <div class="flbl" style="margin-top:16px">Tamanho</div>
     <div class="chips tam-chips"></div>
@@ -9564,27 +9578,20 @@ function profLoja(){
   _ensureLojaAdmin();
   const w = el('<div></div>');
   const prods = DB.loja.produtos;
-  // v439: só ativos na lista principal; ocultos vão pra um <details> no fim.
-  // Aviso de "estoque baixo" removido a pedido (2026-08-09).
   const ativos = prods.filter(p=> p.ativo!==false);
   const ocultos = prods.filter(p=> p.ativo===false);
-  w.innerHTML = `<div class="hello"><div class="date">Loja</div>
-    <div class="greet">${ativos.length} produto${ativos.length!==1?'s':''} na loja${ocultos.length?' · '+ocultos.length+' oculto'+(ocultos.length!==1?'s':''):''}</div></div>`;
-  const pend = _pedidosPendentesN();
-  const pedBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
-    <span>🧾 Pedidos${pend?` <span class="low-badge" style="background:var(--red);color:#fff">${pend} pendente${pend>1?'s':''}</span>`:''}</span>
-    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  pedBtn.onclick=()=>goProf('pedidos');
-  w.appendChild(pedBtn);
-  const addBtn = el(`<div class="dt-add-wrap"><button class="btn-cad">＋ Novo produto</button></div>`);
-  addBtn.querySelector('button').onclick=()=>abrirProdutoForm(null);
-  w.appendChild(addBtn);
+  const modoOcultos = !!DB.lojaOcultosOpen;
+  const arr = modoOcultos ? ocultos : ativos;
+  w.innerHTML = `<div class="hello"><div class="date">Loja${modoOcultos?' · Ocultos':''}</div>
+    <div class="greet">${modoOcultos
+      ? `${ocultos.length} produto${ocultos.length!==1?'s':''} oculto${ocultos.length!==1?'s':''} · não aparecem pro aluno`
+      : `${ativos.length} produto${ativos.length!==1?'s':''} na loja${ocultos.length?' · '+ocultos.length+' oculto'+(ocultos.length!==1?'s':''):''}`}</div></div>`;
   const linha = (p)=>{
     const tot=_estoqueTotal(p);
     const row=el(`<div class="st-row" style="cursor:pointer">
       <div class="prod-mini${p.img?' has-img':''}" style="background:${safeAttr(p.cor||'var(--field)')}">${safeTxt(p.emoji||'🥋')}</div>
       <div class="st-mid"><div class="nm">${safeTxt(p.nome)}</div>
-        <div class="meta"><span style="font-weight:800;color:var(--ink)">${moneyBR(p.preco)}</span>
+        <div class="meta">${_priceHTML(p.preco,'row')}
           <span style="font-size:11px;color:var(--muted)"> · ${safeTxt(p.cat)} · estoque ${tot}</span></div></div>
       <div class="st-right" style="color:var(--muted);font-size:18px">›</div>
     </div>`);
@@ -9592,19 +9599,35 @@ function profLoja(){
     row.onclick=()=>abrirProdutoForm(p);
     return row;
   };
+  if(modoOcultos){
+    const back = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
+      <span>‹ Voltar pra loja</span></div>`);
+    back.onclick=()=>{ DB.lojaOcultosOpen=false; render(); window.scrollTo(0,0); };
+    w.appendChild(back);
+    const list = el('<div class="list"></div>');
+    if(!ocultos.length) list.appendChild(el(`<div class="empty-line" style="padding:30px 20px">Nenhum produto oculto. 🎉</div>`));
+    ocultos.forEach(p=> list.appendChild(linha(p)));
+    w.appendChild(list);
+    w.appendChild(el(`<div style="height:24px"></div>`));
+    return w;
+  }
+  const pend = _pedidosPendentesN();
+  const pedBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
+    <span>🧾 Pedidos${pend?` <span class="low-badge" style="background:var(--red);color:#fff">${pend} pendente${pend>1?'s':''}</span>`:''}</span>
+    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
+  pedBtn.onclick=()=>goProf('pedidos');
+  w.appendChild(pedBtn);
+  const bar = el(`<div class="loja-actions">
+    <button class="btn-cad" id="lj-add">＋ Novo produto</button>
+    ${ocultos.length?`<button class="btn-ghost" id="lj-oct">🚫 Ocultos <span class="cnt">${ocultos.length}</span></button>`:''}
+  </div>`);
+  bar.querySelector('#lj-add').onclick=()=>abrirProdutoForm(null);
+  const octBtn = bar.querySelector('#lj-oct');
+  if(octBtn) octBtn.onclick=()=>{ DB.lojaOcultosOpen=true; render(); window.scrollTo(0,0); };
+  w.appendChild(bar);
   const list = el('<div class="list"></div>');
   ativos.forEach(p=> list.appendChild(linha(p)));
   w.appendChild(list);
-  if(ocultos.length){
-    const det = el(`<details class="loja-ocultos" style="margin:18px 20px 0">
-      <summary style="cursor:pointer;font-weight:800;color:var(--muted);padding:8px 0">🚫 Ocultos da loja (${ocultos.length})</summary>
-      <div class="sheet-desc" style="margin:4px 0 8px">Não aparecem pro aluno. Abra o produto e troque pra "👁️ Visível" pra reativar.</div>
-    </details>`);
-    const listO = el('<div class="list"></div>');
-    ocultos.forEach(p=> listO.appendChild(linha(p)));
-    det.appendChild(listO);
-    w.appendChild(det);
-  }
   w.appendChild(el(`<div style="height:24px"></div>`));
   return w;
 }
@@ -11335,6 +11358,8 @@ function _dadosAcademiaSheet(){
     <input class="inp" id="da-wa" inputmode="numeric" placeholder="5531999999999" value="${safeAttr(wa)}">
     <label class="flbl" style="margin-top:12px">Chave PIX</label>
     <input class="inp" id="da-pix" placeholder="CPF, telefone, e-mail ou chave aleatória" value="${safeAttr(pix)}">
+    <label class="flbl" style="margin-top:12px">% desconto no Pix <span style="color:var(--muted);font-weight:500">(0–90, 0 = sem desconto; cartão é pago na academia)</span></label>
+    <input class="inp" id="da-descpix" type="number" inputmode="numeric" min="0" max="90" step="1" placeholder="Ex: 5" value="${safeAttr(cfg.descontoPix||'')}">
     <button class="btn-save" id="da-save" style="margin-top:14px">Salvar</button>
     <button class="sheet-cancel" id="da-close">Cancelar</button>
   </div></div>`);
@@ -11347,7 +11372,8 @@ function _dadosAcademiaSheet(){
     if(waN && waN.length<12){ toast('WhatsApp precisa DDI + DDD + número (ex: 5531999999999)'); return; }
     const btn = sheet.querySelector('#da-save');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    _salvarAcademyConfig({ pix: pixN, whatsapp: waN })
+    const descN = Math.max(0, Math.min(90, parseInt(sheet.querySelector('#da-descpix').value)||0));
+    _salvarAcademyConfig({ pix: pixN, whatsapp: waN, descontoPix: descN })
       .then(()=>{ toast('Dados salvos ✔'); close(); render(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };
