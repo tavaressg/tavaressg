@@ -1663,7 +1663,10 @@ function renderBg(){
   // objeto VAZIO — pintar aqui mostra perfil em branco, que é exatamente o flash que
   // o usuário via: o setTimeout de 400ms do _pushBoot chamava renderBg() antes do
   // pullState voltar. O próprio _cloudLogin pinta assim que o dump é aplicado.
-  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin || _hidratando) return;
+  // v438: `produtoFormOpen` entra na guarda. O auto-save da foto (v437) dispara
+  // `onDadosMudaram` → renderBg — sem isto, o refetch varria o form com a foto
+  // recém-carregada logo depois da animação (bug "faz animação e some do nada").
+  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin || DB.produtoFormOpen || _hidratando) return;
   render();
 }
 
