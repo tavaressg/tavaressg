@@ -9612,6 +9612,11 @@ function profLoja(){
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
   pedBtn.onclick=()=>goProf('pedidos');
   w.appendChild(pedBtn);
+  const cfgBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
+    <span>⚙️ Configurações da loja</span>
+    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
+  cfgBtn.onclick=()=>_lojaConfigSheet();
+  w.appendChild(cfgBtn);
   const bar = el(`<div class="loja-actions">
     <button class="btn-cad" id="lj-add">＋ Novo produto</button>
     ${ocultos.length?`<button class="btn-ghost" id="lj-oct">🚫 Ocultos <span class="cnt">${ocultos.length}</span></button>`:''}
@@ -11338,6 +11343,32 @@ function profYama(){
 }
 
 // Sheet: só nome + telefone + PIX (Copia e Cola vai em sheet próprio, senha em outro).
+// v443: config exclusiva da Loja (desconto Pix por enquanto). Vive em academies.config,
+// compartilhada por todos os professores. Fora do "Dados da academia" pra não misturar
+// identidade da academia (nome/WhatsApp/PIX) com regras de loja.
+function _lojaConfigSheet(onSave){
+  const cfg = _acadCfg();
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Configurações da loja">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Configurações da loja</div>
+    <div class="sheet-desc">Regras de pagamento e apresentação de preços. Vale pra toda a academia.</div>
+    <label class="flbl" style="margin-top:12px">% desconto no Pix <span style="color:var(--muted);font-weight:500">(0–90, 0 = sem desconto; cartão é pago na academia)</span></label>
+    <input class="inp" id="lc-descpix" type="number" inputmode="numeric" min="0" max="90" step="1" placeholder="Ex: 5" value="${safeAttr(cfg.descontoPix||'')}">
+    <button class="btn-save" id="lc-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="lc-close">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#lc-close').onclick=close;
+  sheet.querySelector('#lc-save').onclick=()=>{
+    const descN = Math.max(0, Math.min(90, parseInt(sheet.querySelector('#lc-descpix').value)||0));
+    const btn = sheet.querySelector('#lc-save'); btn.disabled=true; btn.textContent='Salvando…';
+    _salvarAcademyConfig({ descontoPix: descN })
+      .then(()=>{ toast('Configurações salvas ✔'); close(); if(onSave) onSave(); else render(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
 function _dadosAcademiaSheet(){
   const cfg = _acadCfg();
   const local = (DB.loja && DB.loja.config) || {};
@@ -11353,8 +11384,6 @@ function _dadosAcademiaSheet(){
     <input class="inp" id="da-wa" inputmode="numeric" placeholder="5531999999999" value="${safeAttr(wa)}">
     <label class="flbl" style="margin-top:12px">Chave PIX</label>
     <input class="inp" id="da-pix" placeholder="CPF, telefone, e-mail ou chave aleatória" value="${safeAttr(pix)}">
-    <label class="flbl" style="margin-top:12px">% desconto no Pix <span style="color:var(--muted);font-weight:500">(0–90, 0 = sem desconto; cartão é pago na academia)</span></label>
-    <input class="inp" id="da-descpix" type="number" inputmode="numeric" min="0" max="90" step="1" placeholder="Ex: 5" value="${safeAttr(cfg.descontoPix||'')}">
     <button class="btn-save" id="da-save" style="margin-top:14px">Salvar</button>
     <button class="sheet-cancel" id="da-close">Cancelar</button>
   </div></div>`);
@@ -11367,8 +11396,7 @@ function _dadosAcademiaSheet(){
     if(waN && waN.length<12){ toast('WhatsApp precisa DDI + DDD + número (ex: 5531999999999)'); return; }
     const btn = sheet.querySelector('#da-save');
     btn.disabled = true; btn.textContent = 'Salvando…';
-    const descN = Math.max(0, Math.min(90, parseInt(sheet.querySelector('#da-descpix').value)||0));
-    _salvarAcademyConfig({ pix: pixN, whatsapp: waN, descontoPix: descN })
+    _salvarAcademyConfig({ pix: pixN, whatsapp: waN })
       .then(()=>{ toast('Dados salvos ✔'); close(); render(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };
