@@ -3807,28 +3807,19 @@ function alunoPerfil(){
     const podeAnimar = _prodsAtivos.length > 1;
     if(podeAnimar) _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
     else track.classList.add('ld-track-single');   // 1 produto só: sem loop, centraliza
+    // v441: marquee via CSS (@keyframes ld-marquee no app.css). Voltou a ser CSS
+    // porque o rAF anterior (v270) morria silenciosamente quando o Chrome jogava
+    // a aba em background (rAF é throttled a 0Hz) — usuário via a vitrine parada.
+    // CSS animation roda sem depender de aba ativa. Duração ~ 3s por card.
+    if(podeAnimar) track.classList.add('ld-marquee');
+    // Pausa no toque: escuta pointerdown/up e alterna .ld-hold no track.
+    const trk = track;
+    trk.addEventListener('pointerdown', ()=>trk.classList.add('ld-hold'), { passive:true });
+    const rel = ()=>trk.classList.remove('ld-hold');
+    trk.addEventListener('pointerup', rel, { passive:true });
+    trk.addEventListener('pointercancel', rel, { passive:true });
+    trk.addEventListener('pointerleave', rel, { passive:true });
     w.appendChild(lojaWrap);
-    // Auto-scroll suave via rAF (substitui a marquee CSS). Pausa só enquanto o
-    // dedo/mouse está PRESSIONADO; retoma imediato ao soltar. Loop: quando passa
-    // da metade (cards duplicados), volta scrollLeft. Respeita reduced-motion.
-    const ticker = lojaWrap.querySelector('.ld-ticker');
-    if(podeAnimar && !matchMedia('(prefers-reduced-motion: reduce)').matches){
-      let held=false;
-      const step = ()=>{
-        if(!held){
-          const half = track.scrollWidth/2;
-          if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
-          else ticker.scrollLeft += 0.4;
-        }
-        requestAnimationFrame(step);
-      };
-      ticker.addEventListener('pointerdown', ()=>{ held=true; }, { passive:true });
-      const rel = ()=>{ held=false; };
-      ticker.addEventListener('pointerup', rel, { passive:true });
-      ticker.addEventListener('pointercancel', rel, { passive:true });
-      ticker.addEventListener('pointerleave', rel, { passive:true });
-      requestAnimationFrame(step);
-    }
   }
 
   // Modo professor — banner grande logo depois da Loja (posição original)
