@@ -1978,8 +1978,6 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .mais-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px}
 .mais-row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--field);border-radius:12px;cursor:pointer}
 .mais-row:active{background:var(--hover)}
-.mais-ic{width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
-.mais-ic svg{width:22px;height:22px}
 .mais-tx{flex:1;min-width:0}
 .mais-lbl{font-weight:800;color:var(--ink);font-size:14px}
 .mais-desc{font-size:12px;color:var(--muted);margin-top:2px}

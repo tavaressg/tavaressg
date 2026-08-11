@@ -10807,11 +10807,11 @@ function tabbarProf(){
 }
 function _profMaisSheet(){
   const linhas = [
-    ['graduacao','🎗️ Graduação','Eventos, retroativa e semear faixas', icoBelt()],
-    ['videos','🎥 Vídeos','Onboarding — vídeos por turma/faixa', icoVideo()],
-    ['loja','🛍️ Loja','Produtos, estoque, pedidos, PIX', icoStore()],
-    ['yama','⚙️ Hub YAMA','Dados da academia, mensagens, push, QR', icoYama()],
-    ['perfil','👤 Meu perfil','Seu diário — o professor também é aluno', icoUsers()],
+    ['graduacao','🎗️ Graduação','Eventos, retroativa e semear faixas'],
+    ['videos','🎥 Vídeos','Onboarding — vídeos por turma/faixa'],
+    ['loja','🛍️ Loja','Produtos, estoque, pedidos, PIX'],
+    ['yama','⚙️ Hub YAMA','Dados da academia, mensagens, push, QR'],
+    ['perfil','👤 Meu perfil','Seu diário — o professor também é aluno'],
   ];
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Mais">
     <div class="sheet-grip"></div>
@@ -10821,9 +10821,8 @@ function _profMaisSheet(){
   </div></div>`);
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   const list = sheet.querySelector('.mais-list');
-  linhas.forEach(([id,lbl,desc,ico])=>{
+  linhas.forEach(([id,lbl,desc])=>{
     const row = el(`<div class="mais-row" role="button" tabindex="0">
-      <div class="mais-ic">${ico||''}</div>
       <div class="mais-tx"><div class="mais-lbl">${safeTxt(lbl)}</div><div class="mais-desc">${safeTxt(desc)}</div></div>
       <div class="mais-go">›</div></div>`);
     row.onclick=()=>{ close(); goProf(id); };
