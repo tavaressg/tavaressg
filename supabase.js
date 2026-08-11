@@ -785,7 +785,7 @@
     // painel do professor. RLS (client_errors_prof_read) limita à academia do caller.
     getErros: wrap(async () => {
       const { data } = await SB.from('client_errors')
-        .select('msg, contexto, app_version, criado_em')
+        .select('msg, ctx, app_version, criado_em')
         .gte('criado_em', new Date(Date.now() - 86400000).toISOString())
         .order('criado_em', { ascending: false }).limit(50);
       return data || [];

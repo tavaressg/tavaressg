@@ -5630,7 +5630,7 @@ function _profErrosSheet(){
       // ctx pode vir como JSON string ou objeto (formatos legados). Extrai src/ln/col/stack
       // pra mostrar file:linha — resolve o caso "Script error." em que a msg vem sanitizada
       // por CORS/SRI mas o browser ainda expoe onde estourou.
-      let ctx = r.contexto;
+      let ctx = r.ctx;
       if(typeof ctx === 'string'){ try{ ctx = JSON.parse(ctx); }catch(_){ ctx = null; } }
       const loc = ctx && (ctx.src || ctx.ln) ? `${safeTxt(ctx.src||'')}${ctx.ln?':'+ctx.ln:''}${ctx.col?':'+ctx.col:''}` : '';
       const stack = ctx && ctx.stack ? safeTxt(String(ctx.stack).slice(0,400)) : '';
