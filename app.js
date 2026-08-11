@@ -6540,8 +6540,7 @@ function profAlunos(){
     <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
     <button class="erp-c erp-c-etaria" data-sort="etaria">Faixa etária</button>
     <div class="erp-c erp-c-turmas">Turmas</div>
-    <button class="erp-c erp-c-pres"   data-sort="pres">Últ. presença</button>
-    <button class="erp-c erp-c-days"   data-sort="diasSem">Dias sem</button>
+    <button class="erp-c erp-c-pres"   data-sort="diasSem">Últ. presença</button>
     <button class="erp-c erp-c-grau"   data-sort="grau" title="Presenças desde o último grau">Grau</button>
     <button class="erp-c erp-c-faixapres" data-sort="faixapres" title="Presenças desde o início da faixa">Faixa</button>
     <button class="erp-c erp-c-aniv"   data-sort="aniv" title="Data de aniversário">Aniv.</button>
@@ -6690,7 +6689,12 @@ function profAlunos(){
       // Sem nome completo cadastrado, cai no apelido — melhor que célula vazia.
       const nomeTx = (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nm || '—';
       const etariaTx = _faixaEtariaLbl(a.nascimento) || '—';
-      const presTx = a.pres ? '✓ '+safeTxt(a.pres) : 'ausente';
+      // v452: coluna "Últ. presença" mostra a DATA da última aula (DD/MM/AA) quando
+      // o aluno não está presente hoje — mais informativo que "ausente" sem contexto.
+      // "Dias sem" removida (era coluna redundante). Ordenação da coluna passou pra diasSem.
+      const _fmtUltPres = (iso)=>{ if(!iso||typeof iso!=='string') return '—';
+        const [y,m,d] = iso.split('-'); return d && m && y ? `${d}/${m}/${y.slice(2)}` : '—'; };
+      const presTx = a.pres ? '✓ '+safeTxt(a.pres) : _fmtUltPres(a.ultimaPres);
       const daysTx = (a.diasSem||0) > 0 ? (a.diasSem+'d') : '—';
       const metaMobile = filtro==='sumidos' ? ((a.diasSem||0)+'d sem treinar') : (a.pres?'✓ '+safeTxt(a.pres):'ausente hoje');
       // v386: turma na visao mobile/tablet — pega a 1a matricula ativa; se +1,
@@ -6706,8 +6710,7 @@ function profAlunos(){
         <div class="erp-c erp-c-belt-cell">${_semGrad(a)?'':beltMini(a.faixa,a.graus)}</div>
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
-        <div class="erp-c erp-c-pres-cell">${presTx}</div>
-        <div class="erp-c erp-c-days-cell${(a.diasSem||0)>=7?' warn':''}">${daysTx}</div>
+        <div class="erp-c erp-c-pres-cell${(a.diasSem||0)>=7?' warn':''}">${presTx}</div>
         <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+PROF_METAS.META_GRAU):'—'}</div>
         <div class="erp-c erp-c-faixapres-cell" title="Presenças desde o início da faixa atual">${(a.aulasNaFaixa!=null)?safeTxt(a.aulasNaFaixa):'—'}</div>
         <div class="erp-c erp-c-aniv-cell" title="Data de aniversário">${a.nascData?safeTxt(String(a.nascData).slice(8,10)+'/'+String(a.nascData).slice(5,7)):'—'}</div>

@@ -707,6 +707,7 @@
         base.turmas = turmasByUser[p.id] || [];   // ids das turmas matriculadas (UI de Turmas usa)
         const a = agg[p.id];
         base.diasSem = (a && a.last) ? Math.max(0, Math.round((new Date(hojeISO) - new Date(a.last)) / 86400000)) : 999;
+        base.ultimaPres = (a && a.last) || null;   // v452: ISO YYYY-MM-DD do último check-in (UI usa em vez de "ausente")
         const diasMes = a ? [...a.dias].filter(d => d.slice(0, 7) === mes).length : 0;
         base.freq = Math.min(100, Math.round(diasMes / _METAS().META_MES * 100));
         // aulas desde o início do grau/faixa atual → apto a graduar (aprox.)

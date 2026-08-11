@@ -1755,7 +1755,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-head{
     display:grid;
     /* v417: +Grau (52px) entre Dias sem e Pgto — presenças desde o último grau */
-    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 56px 52px 74px 44px;
+    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 52px 74px 44px;
     gap:8px;align-items:center;
     margin:0 20px 6px;padding:6px 15px;
     font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;
@@ -1775,7 +1775,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
     display:grid;
     /* v386: coluna Faixa 172->72px (so mini, sem rotulo) libera espaco pro nome */
     /* v417: +Grau (52px) — bate com header */
-    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 56px 52px 74px 44px;
+    grid-template-columns: 40px minmax(140px,1.6fr) 72px 88px 52px 74px 44px;
     gap:8px;align-items:center;
     border-radius:12px;padding:10px 12px;
   }
@@ -1814,7 +1814,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-aniv-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 40px minmax(150px,1.6fr) 72px minmax(110px,.9fr) 92px 56px 52px 52px 74px 44px;
+    grid-template-columns: 40px minmax(150px,1.6fr) 72px minmax(110px,.9fr) 92px 52px 52px 74px 44px;
   }
 }
 /* 1320px+: +Faixa etária +Faixa(presenças na) (v417) */
@@ -1825,7 +1825,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   body[data-role="professor"] .erp-tbl .st-row.dt-row .erp-c-faixapres-cell{display:block !important}
   body[data-role="professor"] .erp-head,
   body[data-role="professor"] .erp-tbl .st-row.dt-row{
-    grid-template-columns: 40px minmax(170px,1.8fr) 74px 92px minmax(130px,1.1fr) 92px 56px 52px 52px 52px 74px 44px;
+    grid-template-columns: 40px minmax(170px,1.8fr) 74px 92px minmax(130px,1.1fr) 92px 52px 52px 52px 74px 44px;
   }
 }
 
