@@ -1947,16 +1947,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .ld-img.has-img .ld-emoji{display:none}
 
 /* ---- Loja Yama · ticker rolante contínuo (aba Mais) ---- */
-.ld-ticker{overflow:hidden;position:relative;margin:6px -12px 0;padding:4px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.ld-ticker{overflow-x:auto;overflow-y:hidden;position:relative;margin:6px -12px 0;padding:4px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.ld-ticker::-webkit-scrollbar{display:none}
 .ld-ticker::-webkit-scrollbar{display:none}
 .ld-track{display:flex;gap:12px;width:max-content;padding:0 12px}
 .ld-track-single{width:100%;justify-content:center}
-/* v441: marquee CSS — desliza -50% (metade dos cards duplicados) em loop infinito.
-   Velocidade escala com nº de cards via var --n definida no elemento inline (fallback 8). */
-.ld-track.ld-marquee{animation:ld-marquee 24s linear infinite;will-change:transform}
-.ld-track.ld-marquee.ld-hold{animation-play-state:paused}
-@keyframes ld-marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-@media (prefers-reduced-motion: reduce){.ld-track.ld-marquee{animation:none}}
 /* upload de fotos do produto (form do professor) */
 .pf-fotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .pf-foto{position:relative;width:72px;height:72px;border-radius:10px;overflow:hidden;background:var(--field);border:1px solid var(--line)}

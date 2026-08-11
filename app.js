@@ -3807,19 +3807,36 @@ function alunoPerfil(){
     const podeAnimar = _prodsAtivos.length > 1;
     if(podeAnimar) _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
     else track.classList.add('ld-track-single');   // 1 produto só: sem loop, centraliza
-    // v441: marquee via CSS (@keyframes ld-marquee no app.css). Voltou a ser CSS
-    // porque o rAF anterior (v270) morria silenciosamente quando o Chrome jogava
-    // a aba em background (rAF é throttled a 0Hz) — usuário via a vitrine parada.
-    // CSS animation roda sem depender de aba ativa. Duração ~ 3s por card.
-    if(podeAnimar) track.classList.add('ld-marquee');
-    // Pausa no toque: escuta pointerdown/up e alterna .ld-hold no track.
-    const trk = track;
-    trk.addEventListener('pointerdown', ()=>trk.classList.add('ld-hold'), { passive:true });
-    const rel = ()=>trk.classList.remove('ld-hold');
-    trk.addEventListener('pointerup', rel, { passive:true });
-    trk.addEventListener('pointercancel', rel, { passive:true });
-    trk.addEventListener('pointerleave', rel, { passive:true });
     w.appendChild(lojaWrap);
+    // v449: auto-scroll via rAF em `scrollLeft` (não em `transform`), pra deixar o
+    // aluno arrastar/rolar manualmente pros lados. A regressão da v442 pra CSS
+    // marquee tirou o `overflow-x:auto` do ticker — pediu pra voltar a poder
+    // "puxar por lado e voltar no que já passou".
+    // Guard do bug antigo do rAF (throttled a 0Hz em aba background): também
+    // escuta `visibilitychange` — quando a aba volta a ficar visível, dispara
+    // rAF de novo (senão continuava parado depois do usuário voltar). Pausa
+    // enquanto o dedo tá pressionado; retoma ao soltar.
+    const ticker = lojaWrap.querySelector('.ld-ticker');
+    if(podeAnimar && !matchMedia('(prefers-reduced-motion: reduce)').matches){
+      let held=false, running=false;
+      const step = ()=>{
+        if(document.hidden){ running=false; return; }
+        if(!held){
+          const half = track.scrollWidth/2;
+          if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
+          else ticker.scrollLeft += 0.4;
+        }
+        requestAnimationFrame(step);
+      };
+      const start = ()=>{ if(running) return; running=true; requestAnimationFrame(step); };
+      ticker.addEventListener('pointerdown', ()=>{ held=true; }, { passive:true });
+      const rel = ()=>{ held=false; };
+      ticker.addEventListener('pointerup', rel, { passive:true });
+      ticker.addEventListener('pointercancel', rel, { passive:true });
+      ticker.addEventListener('pointerleave', rel, { passive:true });
+      document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) start(); });
+      start();
+    }
   }
 
   // Modo professor — banner grande logo depois da Loja (posição original)
