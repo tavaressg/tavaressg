@@ -10764,21 +10764,53 @@ function tabbarProf(){
     ['painel','Painel', icoHome(), false],
     ['alunos','Alunos', icoUsers(), false],
     ['turmas','Turmas', icoCalendar(), false],
-    ['graduacao','Graduação', icoBelt(), true],   // wide-only (mobile fica na "Mais")
+    ['graduacao','Graduação', icoBelt(), true],   // wide-only (mobile abre pela "Mais")
     ['relatorios','Relatórios', icoChart(), false],
-    ['videos','Vídeos', icoVideo(), true],   // wide-only
-    ['loja','Loja', icoStore(), true],       // wide-only
-    ['yama','Yama', icoYama(), true],        // wide-only (mobile acessa pelo botão no header do Painel)
-    ['perfil','Mais', icoMore(), false],
+    ['videos','Vídeos', icoVideo(), true],   // wide-only (mobile abre pela "Mais")
+    ['loja','Loja', icoStore(), true],       // wide-only (mobile abre pela "Mais")
+    ['yama','Yama', icoYama(), true],        // wide-only (mobile abre pela "Mais")
+    ['mais','Mais', icoMore(), false],
   ];
   const bar = el(`<div class="tabbar"></div>`);
   tabs.forEach(([id,label,ico,wideOnly])=>{
     const cls = `tab ${DB.navProf===id?'active':''}${wideOnly?' tab-wide':''}`;
     const t = el(`<div class="${cls}">${ico||icoMore()}<span class="tl">${label}</span></div>`);
-    t.onclick=()=> goProf(id);
+    // v445: "Mais" no mobile abre um sheet com Graduação/Vídeos/Loja/Yama + Meu perfil
+    // (tudo que o desktop mostra na sidebar). Antes navegava direto pra 'perfil', o que
+    // deixava o professor mobile sem acesso a essas áreas sem virar o celular.
+    t.onclick=()=> (id==='mais' ? _profMaisSheet() : goProf(id));
     bar.appendChild(t);
   });
   return bar;
+}
+function _profMaisSheet(){
+  const linhas = [
+    ['graduacao','🎗️ Graduação','Eventos, retroativa e semear faixas', icoBelt()],
+    ['videos','🎥 Vídeos','Onboarding — vídeos por turma/faixa', icoVideo()],
+    ['loja','🛍️ Loja','Produtos, estoque, pedidos, PIX', icoStore()],
+    ['yama','⚙️ Hub YAMA','Dados da academia, mensagens, push, QR', icoYama()],
+    ['perfil','👤 Meu perfil','Seu diário — o professor também é aluno', icoUsers()],
+  ];
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Mais">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Mais</div>
+    <div class="mais-list"></div>
+    <button class="sheet-cancel" id="mm-close">Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  const list = sheet.querySelector('.mais-list');
+  linhas.forEach(([id,lbl,desc,ico])=>{
+    const row = el(`<div class="mais-row" role="button" tabindex="0">
+      <div class="mais-ic">${ico||''}</div>
+      <div class="mais-tx"><div class="mais-lbl">${safeTxt(lbl)}</div><div class="mais-desc">${safeTxt(desc)}</div></div>
+      <div class="mais-go">›</div></div>`);
+    row.onclick=()=>{ close(); goProf(id); };
+    row.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); row.click(); } };
+    list.appendChild(row);
+  });
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#mm-close').onclick=close;
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ---------------- navegação ---------------- */
