@@ -343,11 +343,14 @@
       // e retorna duplicado: true quando o índice único da 0010 rejeita 2×.
       // Sem sessão (turma_id) não chama a RPC — check-in solto foi descontinuado.
       if (!ses || !ses.turmaId) return;
+      // v447: sem hora não bate no RPC (0036 rejeita). Não deveria acontecer
+      // desde v373, mas dump antigo pode chegar aqui — evita 500 e loop de erro.
+      if (!ses.hora || String(ses.hora).trim() === '') return;
       try {
         const { error } = await SB.rpc('checkin_self_registrar', {
           p_turma_id:     ses.turmaId,
           p_data:         HOJE(),
-          p_hora_aula:    ses.hora || null,
+          p_hora_aula:    ses.hora,
           p_hora_checkin: d.checkinHoje.hora,
           p_tipo:         ses.variacao || 'Aula',
         });
