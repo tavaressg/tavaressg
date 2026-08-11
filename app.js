@@ -3818,9 +3818,12 @@ function alunoPerfil(){
     // enquanto o dedo tá pressionado; retoma ao soltar.
     const ticker = lojaWrap.querySelector('.ld-ticker');
     if(podeAnimar && !matchMedia('(prefers-reduced-motion: reduce)').matches){
-      let held=false, running=false;
+      // v450 (fix): sem check de `document.hidden` dentro do step. O browser já
+      // throttla rAF em aba background — e o check manual matava o loop em
+      // situações onde `hidden` ficava true sem `visibilitychange` disparar
+      // (iOS PWA no load, standby curto). rAF simples e reentrante resolve.
+      let held=false;
       const step = ()=>{
-        if(document.hidden){ running=false; return; }
         if(!held){
           const half = track.scrollWidth/2;
           if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
@@ -3828,14 +3831,12 @@ function alunoPerfil(){
         }
         requestAnimationFrame(step);
       };
-      const start = ()=>{ if(running) return; running=true; requestAnimationFrame(step); };
       ticker.addEventListener('pointerdown', ()=>{ held=true; }, { passive:true });
       const rel = ()=>{ held=false; };
       ticker.addEventListener('pointerup', rel, { passive:true });
       ticker.addEventListener('pointercancel', rel, { passive:true });
       ticker.addEventListener('pointerleave', rel, { passive:true });
-      document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) start(); });
-      start();
+      requestAnimationFrame(step);
     }
   }
 
