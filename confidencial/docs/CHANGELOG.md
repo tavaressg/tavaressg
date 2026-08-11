@@ -9,6 +9,91 @@
 
 ## Concluídas ✓
 
+### 0037 — `aulas_por_aluno` reconhece `tipo='inicio'` na âncora do grau (2026-08-11)
+
+Import de presenças legadas gravava `aulas_credito_grau` no evento âncora (adapter
+`importarCreditosPresencas`). Pra alunos com apenas o evento inicial (`tipo='inicio'`, sem
+graduação registrada ainda), o crédito ficava **gravado no banco mas invisível no app**:
+a RPC 0034 procurava `ref_grau` só em `tipo='faixa'` quando `graus=0`, retornava NULL, e o
+`o_credito_grau` caía em 0. **45 alunos afetados em prod**.
+
+**Fix:** ampliar o predicado do `ref_grau` (e do `o_credito_grau`) pra `tipo IN ('faixa','inicio')`
+quando `graus=0`. Mesma regra que `ref_faixa` já usava. `create or replace function`, zero
+downtime. Achado ao investigar por que a importação do Paçoca (Guilherme Sales Jones) não
+aparecia — a linha estava lá, era leitura quebrada.
+
+### v453 — coluna "Últ. presença" mostra DD/MM/AA + coluna "Dias sem" deletada (2026-08-10)
+
+Duas colunas dizendo a mesma coisa: "Últ. presença" mostrava só "ausente"/"✓ hh:mm" e "Dias sem"
+mostrava "999d". Redundante. Agora "Últ. presença" mostra a **data** do último check-in (formato
+`DD/MM/AA`) quando o aluno não está presente hoje; se está, mantém `✓ hh:mm`. Coluna "Dias sem"
+removida em todos os 3 breakpoints (1024/1200/1320px). Sort da coluna agora aponta pra `diasSem`.
+Adapter (`supabase.js`) expõe `base.ultimaPres` (ISO YYYY-MM-DD do último checkin).
+
+### v452 — remove ícones SVG do sheet "Mais" (2026-08-10)
+
+Sheet do "Mais" do professor mobile tinha ícone SVG grande do lado do label ("🎗️ Graduação"). O
+emoji do próprio label já cumpria a função visual — SVG duplicava. Removido `.mais-ic` da linha
+e do CSS. Layout ficou mais limpo, altura da linha caiu.
+
+### v451 — vitrine da Loja Yama: remove `document.hidden` do rAF (2026-08-10)
+
+A v450 tinha `if(document.hidden) { running=false; return; }` como guard "otimização" dentro do
+`step()`. Bug: em iOS PWA logo após load, `document.hidden` fica `true` sem disparar
+`visibilitychange`. O loop morria e nunca reanimava. **Fix:** removido o check manual — rAF é
+throttled naturalmente pelo browser em aba background e retoma sozinho. Ficou minimalista.
+
+### v450 — vitrine da Loja Yama volta a ser arrastável (2026-08-10)
+
+Regressão do v442 (que trocou rAF por CSS marquee): `translateX` no track exige `overflow:hidden`
+no ticker, então o aluno não conseguia mais "puxar por lado e voltar no que já passou". Volta pro
+autoscroll via `scrollLeft` (padrão do v270). Corrige o bug antigo do v270 (aba background trava
+rAF em 0Hz e não retoma): adiciona listener `visibilitychange` que reinicia o rAF quando a aba
+volta a ficar visível.
+
+**Bônus (mesma versão, CSS):** `belt-mini` no mobile virou `flex:none`. Antes o `.st-mid .meta`
+(flex container) apertava a belt e o `overflow:hidden` recortava o lado direito de forma
+DIFERENTE em cada linha (às vezes cortando o end colorido, às vezes o tip preto) — daí a
+sensação de "belts com tamanhos e ponteiras aleatórios". `.meta` também ganhou `flex-wrap:wrap`
+e o `.st-turma-chip` perdeu o `max-width:130px` que truncava "CHIISAI" em "CHIISA…".
+
+### v449 — "meus pedidos" sai do card Loja Yama da home (2026-08-10)
+
+O link "meus pedidos" ficava no header do card da vitrine na home, ao lado de "ver tudo ›" —
+misturava consulta de histórico com a apresentação da loja e confundia. Migrado pra dentro
+da própria Loja aberta, como uma linha `.cfg-row` "🧾 Meus pedidos ›" no topo.
+
+### v448 — RPC de check-in exige `hora_aula` (fim das aulas-fantasma NULL) (2026-08-09)
+
+Aluno via **duas presenças** no mesmo dia na chamada — uma no horário da turma (19:30), outra
+com aula-fantasma (hora=NULL). Bug pré-v429 no cliente que passava `p_hora_aula=null` pra RPC,
+que aceitava e criava aula NULL. O UNIQUE `(user_id, aula_id)` não deduplicava contra a chamada
+do professor (aula_id diferente). Tinha 7 alunos com esse padrão na base.
+
+**Fix em duas camadas:**
+- **Servidor (migration 0036):** `checkin_self_registrar` e `marcar_presenca_lote` passam a
+  rejeitar `p_hora_aula NULL/vazio` com `raise exception 'hora_aula obrigatoria'`. Impossível
+  criar aula-fantasma nova, mesmo com cliente cacheado pré-v429.
+- **Cliente (v448):** `sbSync.pushCheckin` faz early-return se `ses.hora` estiver vazio — não
+  chega no RPC nem gera 500. Defesa contra dump antigo.
+
+Limpeza: deletado o checkin duplicado do Gabriel e a aula-fantasma órfã que sobrou.
+
+### v447 — painel 🐞 volta a listar erros (`contexto` → `ctx`) (2026-08-09)
+
+Três bugs em cascata, todos por nome de coluna errado:
+1. `sbProf.getErros` fazia `.select('msg, contexto, ...')`. A coluna é `ctx`, não `contexto`.
+   PostgREST devolvia erro, adapter engolia com `data || []`, sheet mostrava "Nenhum erro"
+   mesmo com erro real na base.
+2. `_profErrosSheet` lia `r.contexto` no render — mesmo bug.
+3. Trigger `notify_client_error` (migration 0032) tinha `new.contexto`. Coluna inexistente. O
+   `exception when others` engolia o `undefined_column` silenciosamente e a ntfy saía sem o
+   `@ arquivo:linha`. Migration 0035 corrige — bonus: `:0:0` (browser sanitizando cross-origin)
+   agora vira "" e não polui a msg.
+
+Adicionado `crossorigin="anonymous"` em `app.js`/`supabase.js` — libera stack completo pro
+`window.onerror` mesmo em same-origin.
+
 ### v446 — "Mais" do professor no mobile abre sheet com todas as áreas (2026-08-09)
 
 No desktop, a sidebar mostra tudo (Painel/Alunos/Turmas/**Graduação**/Relatórios/**Vídeos**/**Loja**/**Yama**/Perfil). No mobile, o bottom tabbar cabe só 5 tabs — Graduação, Vídeos, Loja e Yama ficavam `tab-wide` (invisíveis) e o professor precisava **virar o celular pra landscape** ou usar o botão ⚙️ do header do Painel pra achar o Hub. E a "Mais" navegava direto pro `perfil`, sem passar por lugar nenhum.
