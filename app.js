@@ -1732,7 +1732,13 @@ function maxGrausDe(faixa){ return faixa==='preta' ? 6 : 4; }
    não dias distintos — mesma regra da RPC, onde 1 check-in = 1 aula. Antes era um Set
    de datas: treinar 2× no mesmo dia valia 1, o que impedia contar as 4 turmas ADULTO
    de um mesmo dia. O caminho de produção não passa por aqui (usa DB._aulasServidor). */
-function _treinoDays(){ return (DB.treinos||[]).map(t=>t.data).filter(Boolean); }
+function _treinoDays(){
+  // v454: união (dedup) das datas de DB.treinos + DB._meusCheckins.
+  const set = new Set();
+  (DB.treinos||[]).forEach(t=>{ if(t.data) set.add(t.data); });
+  (DB._meusCheckins||[]).forEach(c=>{ if(c.data) set.add(c.data); });
+  return [...set];
+}
 function _countSince(arr, sinceISO){ return sinceISO ? arr.filter(d=>d>=sinceISO).length : arr.length; }
 // data em que o grau ATUAL começou (entrada de grau; cai p/ a faixa se grau 0 ou sem registro)
 function _refDataGrauAtual(){
@@ -2026,7 +2032,7 @@ function histItem(t, dateMode){
   const lesao = lesaoAtivaEm(t.data);
   const lesaoBadge = lesao ? `<span class="lesao-flag" title="Lesão ativa: ${safeAttr(lesao.parte)}" aria-label="Treino durante lesão: ${safeAttr(lesao.parte)}">🤕</span>` : '';
   const e = el(`<div class="h-item h-${t.tipo}${lesao?' has-lesao':''}">
-    <div class="h-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
+    <div class="h-ic">${t.tipo==='tecnica'?'🥋':(t.tipo==='presenca'?'✋':'⚡')}</div>
     <div class="h-tx"><div class="t">${safeTxt(t.titulo)}${lesaoBadge}</div><div class="d">${safeTxt(sub)}</div></div>
     <div class="h-right">${right}</div></div>`);
   return e;
@@ -2148,7 +2154,21 @@ function jornadaHistorico(){
     return w;
   }
   const hist = el(`<div class="history"></div>`);
-  let itens = DB.treinos;
+  // v454: mescla treinos locais (com técnica/mood) + presenças do servidor que
+  // ainda não têm treino registrado. Presenças do professor entram aqui como
+  // "Presença · [turma]" (sem técnica) — sem isso a Jornada só mostrava o que
+  // o próprio aluno já havia registrado como treino, ignorando batch do professor.
+  const _presencasServidor = (DB._meusCheckins||[])
+    .filter(c=> !(DB.treinos||[]).some(t=> t.data===c.data))
+    .map(c=>({
+      id: c.id, tipo: 'presenca', data: c.data,
+      titulo: c.turma ? `Presença · ${c.turma}` : 'Presença',
+      tecnica: c.horaAula ? `${c.tipo} · ${c.horaAula}` : (c.tipo||'Aula'),
+      mood: null, feel: null, _servidor: true, _via: c.via,
+    }));
+  const _todosItens = [...(DB.treinos||[]), ..._presencasServidor]
+    .sort((a,b)=> (b.data||'').localeCompare(a.data||''));
+  let itens = _todosItens;
   if (filtro!=='todos') itens = itens.filter(t=> t.tipo===filtro);
   if (hPer){
     const diasMap = {'7d':7,'30d':30,'3m':90,'ano':365};
@@ -2162,7 +2182,7 @@ function jornadaHistorico(){
   if (hRand===true) itens = itens.filter(t=> t.det && t.det.randori===true);
   if (hRand===false) itens = itens.filter(t=> t.det && t.det.randori===false);
   if (filtrosAtivos){
-    w.appendChild(el(`<div class="hist-count">${itens.length} / ${DB.treinos.length} treinos</div>`));
+    w.appendChild(el(`<div class="hist-count">${itens.length} / ${_todosItens.length} treinos</div>`));
   }
   if (!itens.length) hist.appendChild(el(`<div class="empty-line">Nenhum treino com esses filtros.</div>`));
   const PAGE = 20;
@@ -2170,20 +2190,27 @@ function jornadaHistorico(){
   const visivel = itens.slice(0, (page+1)*PAGE);
   visivel.forEach(t=>{
     const item = histItem(t);
-    item.onclick = ()=> abrirTreino(t.id);
-    _attachLongPress(item, { onLongPress: ()=>{
-      _openActionSheet(t.titulo||'Treino', [
-        { icon:'👁️', label:'Abrir detalhes', onClick:()=> abrirTreino(t.id) },
-        { icon:'🗑️', label:'Excluir treino', danger:true, onClick:()=>{
-          const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
-          const snapTecs = _snapTreinoTecs(t);           // M2: guarda o estado das técnicas p/ Desfazer
-          _revertTreinoAgg(t);                           // M2: reverte treinos/dias das técnicas
-          DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
-          render(); scheduleSave();
-          toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); });
-        } },
-      ]);
-    }});
+    // v454: presenças do servidor (marcadas pelo professor) não têm treino local
+    // pra abrir. Toast informativo em vez de tela quebrada; long-press também
+    // esconde "Excluir" (aluno não deleta presença do professor pelo cliente).
+    if (t._servidor){
+      item.onclick = ()=> toast('Presença registrada pelo professor — sem detalhes de treino');
+    } else {
+      item.onclick = ()=> abrirTreino(t.id);
+      _attachLongPress(item, { onLongPress: ()=>{
+        _openActionSheet(t.titulo||'Treino', [
+          { icon:'👁️', label:'Abrir detalhes', onClick:()=> abrirTreino(t.id) },
+          { icon:'🗑️', label:'Excluir treino', danger:true, onClick:()=>{
+            const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
+            const snapTecs = _snapTreinoTecs(t);           // M2: guarda o estado das técnicas p/ Desfazer
+            _revertTreinoAgg(t);                           // M2: reverte treinos/dias das técnicas
+            DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
+            render(); scheduleSave();
+            toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); });
+          } },
+        ]);
+      }});
+    }
     hist.appendChild(item);
   });
   if (visivel.length < itens.length){
@@ -2344,12 +2371,28 @@ function renderRetro(){
 // presença real = só datas com treino completo (Fase 1 + Fase 2 salvas) — memoizado
 let _attSig=null, _attSet=null;
 function _attendedSet(){
-  const sig = (DB.treinos||[]).length + '|' + (DB.treinos[0]?DB.treinos[0].id:'');
-  if (sig!==_attSig){ _attSet=new Set((DB.treinos||[]).map(t=>t.data).filter(Boolean)); _attSig=sig; }
+  // v454: agrega DB.treinos (local, com técnicas) + DB._meusCheckins (servidor, que
+  // inclui presenças marcadas pelo professor). Sem isso, batch do professor não
+  // pintava o heatmap na Jornada do aluno.
+  const nCk = (DB._meusCheckins||[]).length;
+  const sig = (DB.treinos||[]).length + '|' + (DB.treinos[0]?DB.treinos[0].id:'') + '|' + nCk;
+  if (sig!==_attSig){
+    _attSet = new Set();
+    (DB.treinos||[]).forEach(t=>{ if(t.data) _attSet.add(t.data); });
+    (DB._meusCheckins||[]).forEach(c=>{ if(c.data) _attSet.add(c.data); });
+    _attSig = sig;
+  }
   return _attSet;
 }
 // M4: quantos treinos foram registrados num dia (p/ marcador "2×" no heatmap)
-function _treinosNoDia(iso){ return (DB.treinos||[]).filter(t=>t.data===iso).length; }
+// v454: contagem = maior entre local (DB.treinos) e servidor (DB._meusCheckins).
+// Evita duplo count no caso comum (aluno checkin + treino) e mostra presenças
+// múltiplas do dia quando existem só no servidor.
+function _treinosNoDia(iso){
+  const local = (DB.treinos||[]).filter(t=>t.data===iso).length;
+  const server = (DB._meusCheckins||[]).filter(c=>c.data===iso).length;
+  return Math.max(local, server);
+}
 // Texto da meta semanal: dois modos — quantidade ou dias específicos escolhidos pelo aluno
 const _WD_LBL = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 function metaSemanalTxt(){

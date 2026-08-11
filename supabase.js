@@ -238,12 +238,22 @@
     // isso para desviar pro wizard de 1º acesso em vez do onboarding normal.
     pullAll: wrap(async (userId) => {
       const d = DB(); if (!d) return { hasProfile: false };
-      const [prof, grads, lesoes, prog] = await Promise.all([
+      const [prof, grads, lesoes, prog, ck] = await Promise.all([
         SB.from('profiles').select('*').eq('id', userId).maybeSingle(),
         SB.from('graduations').select('*').eq('user_id', userId).order('data'),
         SB.from('lesoes').select('*').eq('user_id', userId).order('data'),
         SB.from('technique_progress').select('*').eq('user_id', userId),
+        // v454: check-ins do próprio aluno — Jornada agora inclui presenças que o
+        // professor marcou (via='professor'), não só as que o aluno mesmo registrou.
+        SB.from('checkins').select('id,data,hora,tipo,via,turmas(nome),aulas(hora)')
+          .eq('user_id', userId).order('data', { ascending: false }).limit(200),
       ]);
+      d._meusCheckins = (ck && ck.data ? ck.data : []).map(c => ({
+        id: 'ck-' + c.id, data: c.data, hora: c.hora,
+        horaAula: (c.aulas && c.aulas.hora) || null,
+        tipo: c.tipo || 'Aula', via: c.via,
+        turma: (c.turmas && c.turmas.nome) || null,
+      }));
       if (prof.data) {
         // 0007: foto_url é PATH — assina p/ exibir (fallback: base64 legado no dump)
         const fotoSigned = await signFoto(prof.data.foto_url);
