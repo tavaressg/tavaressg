@@ -205,6 +205,7 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
    Trocar aqui muda a faixa em todo o app; overrides só mexem em --bm-h e nas 3 vars de largura. */
 .belt-mini{--bm-h:13px;--bm-body:34px;--bm-tip:43.13px;--bm-end:7px;
   display:inline-flex;align-items:stretch;height:var(--bm-h);border-radius:3px;overflow:hidden;
+  flex:none;   /* v450: NUNCA encolhe — antes o flex parent (.meta) clipava end/tip */
   box-shadow:0 1px 2px rgba(0,0,0,.16),inset 0 0 0 1px rgba(0,0,0,.16)}
 .belt-mini .bm-body{width:var(--bm-body);flex:none;background:var(--bc);
   background-image:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 42%,rgba(0,0,0,.14))}
@@ -1098,7 +1099,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .belt-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px}
 .st-mid{flex:1;min-width:0}
 .st-mid .nm{font-size:14.5px;font-weight:700}
-.st-mid .meta{display:flex;align-items:center;gap:8px;margin-top:4px}
+.st-mid .meta{display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;row-gap:4px}
 .st-right{text-align:right;flex:none}
 .pay-badge{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:99px}
 .pay-ok{background:var(--green-tint);color:var(--green)}
@@ -1833,7 +1834,8 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   display:inline-flex;align-items:center;
   font-size:11px;font-weight:700;color:var(--muted);
   background:var(--field);border-radius:8px;padding:2px 8px;
-  max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  max-width:none;   /* v450: era 130px — cortava "CHIISAI" em "CHIISA…". Meta agora tem wrap. */
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 @media (min-width:1024px){
   body[data-role="professor"] .erp-tbl .st-row.dt-row .st-turma-chip{display:none}
