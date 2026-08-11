@@ -245,15 +245,42 @@
         SB.from('technique_progress').select('*').eq('user_id', userId),
         // v454: check-ins do próprio aluno — Jornada agora inclui presenças que o
         // professor marcou (via='professor'), não só as que o aluno mesmo registrou.
-        SB.from('checkins').select('id,data,hora,tipo,via,turmas(nome),aulas(hora)')
+        SB.from('checkins').select('id,data,hora,tipo,via,turma_id,turmas(nome),aulas(hora)')
           .eq('user_id', userId).order('data', { ascending: false }).limit(200),
       ]);
       d._meusCheckins = (ck && ck.data ? ck.data : []).map(c => ({
         id: 'ck-' + c.id, data: c.data, hora: c.hora,
         horaAula: (c.aulas && c.aulas.hora) || null,
         tipo: c.tipo || 'Aula', via: c.via,
+        turmaId: c.turma_id,
         turma: (c.turmas && c.turmas.nome) || null,
       }));
+      // v455: sincroniza treinos placeholder. Cada check-in do servidor sem par
+      // local em DB.treinos vira uma entrada VAZIA e editável — mesmo shape que
+      // um treino registrado pelo aluno, mas com _fonte:'servidor'. Assim a
+      // Home ("últimos treinos") e a Jornada mostram normalmente presenças que
+      // o professor marcou, e o aluno pode enriquecer depois (técnica/mood).
+      // Chave estrita: data + turmaId + horaAula (mesma "aulaKey" usada em
+      // checkinHoje.porTurma). Fallback pra treinos legados sem turmaId/horaAula:
+      // dedup por DATA (1 aula/dia é o caso comum).
+      const _chave = (o) => `${o.data||''}|${o.turmaId||''}|${o.horaAula||''}`;
+      const _jaExistem = new Set((d.treinos||[]).map(_chave));
+      const _legados = new Set((d.treinos||[]).filter(t => !t.turmaId).map(t => t.data));
+      d._meusCheckins.forEach(c => {
+        if (_jaExistem.has(_chave(c))) return;
+        if (_legados.has(c.data)) return;
+        const dow = new Date(c.data + 'T12:00:00').getDay();
+        const _tipo = (dow === 0 || dow === 6) ? 'livre' : 'tecnica';
+        d.treinos.unshift({
+          id: c.id, tipo: _tipo, data: c.data,
+          titulo: _tipo === 'tecnica' ? 'Aula Técnica' : 'Aula Livre',
+          tecnica: '', mood: null, feel: null,
+          det: { renshu: [], nota: '', randori: null },
+          turmaId: c.turmaId, horaAula: c.horaAula,
+          _fonte: 'servidor'
+        });
+      });
+      d.treinos.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
       if (prof.data) {
         // 0007: foto_url é PATH — assina p/ exibir (fallback: base64 legado no dump)
         const fotoSigned = await signFoto(prof.data.foto_url);
