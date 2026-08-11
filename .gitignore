@@ -1,6 +1,10 @@
 # === Perímetro de publicação (ver confidencial/DEPLOY.md) ===
-# Nada abaixo pode ir para o host / GitHub Pages.
-confidencial/
+# Nada abaixo pode ir para o host / GitHub Pages, EXCETO o changelog (histórico
+# de versões público — solicitado pelo dono em 2026-08-09).
+confidencial/*
+!confidencial/docs/
+confidencial/docs/*
+!confidencial/docs/CHANGELOG.md
 CLAUDE.md
 .claude/
 
