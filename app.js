@@ -3780,10 +3780,7 @@ function alunoPerfil(){
   if(_prodsAtivos.length){
     const lojaWrap = el(`<div class="loja-destaque">
       <div class="ld-head"><span class="ld-t" role="button" tabindex="0" aria-label="Abrir Loja Yama">🛍️ Loja Yama<span class="ld-t-arrow">›</span></span>
-        <span style="display:flex;gap:12px">
-          <a class="ld-pedidos-link" style="font-size:12.5px;font-weight:700;color:var(--muted)">meus pedidos</a>
-          <a class="ld-link">ver tudo ›</a>
-        </span>
+        <a class="ld-link">ver tudo ›</a>
       </div>
       <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
@@ -3792,7 +3789,6 @@ function alunoPerfil(){
     const _ldT = lojaWrap.querySelector('.ld-t');
     _ldT.onclick = ()=> openLoja();
     _ldT.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openLoja(); } };
-    lojaWrap.querySelector('.ld-pedidos-link').onclick = ()=> openMeusPedidos();
     const track = lojaWrap.querySelector('.ld-track');
     // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.
     // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
@@ -4596,6 +4592,14 @@ function renderLoja(){
     <div class="cart-btn" data-click="abrirCarrinho">🛍️${carrinhoQtd()?`<span class="cart-badge">${carrinhoQtd()}</span>`:''}</div>
   </div>`;
   const body = el(`<div></div>`);
+  // v449: "Meus pedidos" saiu do card Loja Yama da Home (confundia com a vitrine) e virou
+  // um botão dedicado dentro da própria loja aberta, no topo.
+  const pedRow = el(`<div class="cfg-row" style="margin:8px 20px 6px" role="button" tabindex="0">
+    <span>🧾 Meus pedidos</span>
+    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
+  pedRow.onclick = openMeusPedidos;
+  pedRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openMeusPedidos(); } };
+  body.appendChild(pedRow);
 
   // busca por nome (filtra a grade in-place, sem re-render → preserva o foco do input)
   const search = el(`<div class="loja-search"><span class="ls-ic">🔍</span>
