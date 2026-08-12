@@ -2026,7 +2026,11 @@ function lesaoAtivaEm(dataISO){
   }) || null;
 }
 function histItem(t, dateMode){
-  const sub = dateMode ? dataLabel(t) : t.tecnica;
+  // v456: horário da aula (`horaAula` — carimbado pelo check-in ou vindo do server)
+  // aparece como prefixo do subtítulo. Se não tem, cai só na técnica como antes.
+  const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
+  const _sub = [_hora, t.tecnica].filter(Boolean).join(' · ');
+  const sub = dateMode ? dataLabel(t) : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
   const lesao = lesaoAtivaEm(t.data);
