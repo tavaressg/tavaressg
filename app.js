@@ -2027,10 +2027,13 @@ function lesaoAtivaEm(dataISO){
 }
 function histItem(t, dateMode){
   // v456: horário da aula (`horaAula` — carimbado pelo check-in ou vindo do server)
-  // aparece como prefixo do subtítulo. Se não tem, cai só na técnica como antes.
+  // aparece como prefixo do subtítulo. Se não tem, cai só na técnica/data como antes.
+  // v457: dateMode (Home "Últimos treinos") também mostra hora — aluno com múltiplas
+  // aulas no mesmo dia precisa diferenciar os cards ("Ter, 11 ago" sozinho não diz).
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
   const _sub = [_hora, t.tecnica].filter(Boolean).join(' · ');
-  const sub = dateMode ? dataLabel(t) : _sub;
+  const _dateSub = [_hora, dataLabel(t)].filter(Boolean).join(' · ');
+  const sub = dateMode ? _dateSub : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
   const lesao = lesaoAtivaEm(t.data);
