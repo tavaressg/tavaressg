@@ -1305,6 +1305,18 @@
     confirmarPedido: wrap(async (id) => { const { error } = await SB.rpc('confirmar_pedido', { p_id: id }); if (error) throw error; }),
     // Cancela o pedido (sem baixa).
     cancelarPedido: wrap(async (id) => { const { error } = await SB.rpc('cancelar_pedido', { p_id: id }); if (error) throw error; }),
+    // v460 (0038): venda presencial iniciada pela gestão. Cliente pode ser aluno
+    // (userId) OU avulso (nome livre). Grava pedido 'concluido' + baixa estoque
+    // + audita numa transação. Retorna pedido_id.
+    registrarVendaPresencial: wrap(async ({ userId, clienteAvulso, itens, total, forma }) => {
+      const { data, error } = await SB.rpc('registrar_venda_presencial', {
+        p_user_id: userId || null,
+        p_avulso_nome: clienteAvulso || null,
+        p_itens: itens, p_total: total, p_forma: forma,
+      });
+      if (error) throw error;
+      return data;
+    }),
   };
 
   // Toda MUTAÇÃO (tudo que não é get*) invalida os memos e avisa a UI.

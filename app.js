@@ -9534,6 +9534,214 @@ function _vendasAgg(){
   return { receitaMes, top, tams, clientes, nConc:conc.length };
 }
 const _PED_STATUS = { pendente:['Pendente','var(--red-strong)','red'], concluido:['Concluído','#0d9488','green'], cancelado:['Cancelado','var(--muted)',''] };
+// v460: sheet da venda presencial (dono/professor). Cliente pode ser aluno
+// da academia (busca por nome) ou avulso (nome livre pra não-cadastrado).
+// Itens vêm da loja ativa; cada linha = produto + tamanho + qtd. Total
+// pré-preenchido pela soma × qtd, mas EDITÁVEL (permite desconto negociado).
+// Pagamento: dinheiro | cartão | pix. Confirma → RPC atômica cria pedido
+// concluído + baixa estoque + audita em stock_movements.
+function _vendaPresencialSheet(onDone){
+  _ensureLojaAdmin();
+  let selUser=null, selNome='', avulso=false, itens=[], forma='dinheiro', totalManual=null;
+  const prods = (DB.loja.produtos||[]).filter(p=> p.ativo!==false);
+  const alunos = _profAlunosArr().filter(a=> !a._self);
+
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova venda presencial" style="max-height:92vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">＋ Nova venda presencial</div>
+    <div class="sheet-desc">Cliente pagou aqui. Grava pedido concluído + baixa estoque.</div>
+    <div class="flbl" style="margin-top:14px">Cliente</div>
+    <div id="vp-cli"></div>
+    <div class="flbl" style="margin-top:14px">Itens</div>
+    <div id="vp-itens" class="list" style="margin:6px 0"></div>
+    <button class="btn-cad ghost" id="vp-add-item" type="button" style="width:100%;margin-top:4px">＋ Adicionar item</button>
+    <div class="flbl" style="margin-top:14px">Forma de pagamento</div>
+    <div id="vp-forma" class="filter-seg" style="margin:6px 0">
+      <button class="active" data-f="dinheiro">💵 Dinheiro</button>
+      <button data-f="cartao">💳 Cartão</button>
+      <button data-f="pix">📱 Pix</button>
+    </div>
+    <div class="flbl" style="margin-top:14px">Total <span style="color:var(--muted);font-weight:500">(editável)</span></div>
+    <input class="inp" id="vp-total" type="text" inputmode="decimal" placeholder="0,00">
+    <button class="btn-save" id="vp-go" style="margin-top:16px" disabled>Fechar venda</button>
+    <button class="sheet-cancel" id="vp-cancel">Cancelar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#vp-cancel').onclick=close;
+
+  const cliEl = sheet.querySelector('#vp-cli');
+  const itensEl = sheet.querySelector('#vp-itens');
+  const totalEl = sheet.querySelector('#vp-total');
+  const goBtn = sheet.querySelector('#vp-go');
+
+  const totalCalculado = ()=> itens.reduce((s,i)=> s + (i.preco||0)*i.qtd, 0);
+  const validar = ()=>{
+    const t = totalManual!=null ? totalManual : totalCalculado();
+    goBtn.disabled = !((selUser || (avulso && selNome.trim())) && itens.length && t>=0 && forma);
+  };
+  const pintaTotal = ()=>{ if(totalManual==null) totalEl.value = totalCalculado().toFixed(2).replace('.',','); validar(); };
+  totalEl.oninput = ()=>{
+    const v = parseFloat(String(totalEl.value).replace(',','.'));
+    totalManual = isFinite(v) && v>=0 ? v : null;
+    validar();
+  };
+
+  // --- cliente picker ---
+  const pintaCli = ()=>{
+    if(selUser){
+      cliEl.innerHTML = `<div class="cfg-row" style="cursor:default">
+        <span>👤 ${safeTxt(selNome)}</span>
+        <button class="btn-cad ghost" style="padding:6px 12px;margin-left:auto" id="vp-cli-x">Trocar</button></div>`;
+      cliEl.querySelector('#vp-cli-x').onclick=()=>{ selUser=null; selNome=''; avulso=false; pintaCli(); validar(); };
+    } else if(avulso){
+      cliEl.innerHTML = `<input class="inp" id="vp-avulso" placeholder="Nome do cliente avulso" value="${safeAttr(selNome)}">
+        <button class="btn-cad ghost" style="width:100%;margin-top:6px" id="vp-avulso-x">← Buscar aluno</button>`;
+      const inp = cliEl.querySelector('#vp-avulso');
+      inp.oninput = ()=>{ selNome = inp.value; validar(); };
+      cliEl.querySelector('#vp-avulso-x').onclick=()=>{ avulso=false; selNome=''; pintaCli(); validar(); };
+      inp.focus();
+    } else {
+      cliEl.innerHTML = `<input class="inp" id="vp-busca" placeholder="Buscar aluno por nome…">
+        <div id="vp-cli-list" style="max-height:180px;overflow-y:auto;margin-top:6px"></div>
+        <button class="btn-cad ghost" style="width:100%;margin-top:8px" id="vp-avulso-on">Cliente avulso (sem cadastro)</button>`;
+      const busca = cliEl.querySelector('#vp-busca');
+      const listEl = cliEl.querySelector('#vp-cli-list');
+      const filtra = ()=>{
+        const q = busca.value.trim().toLowerCase();
+        listEl.innerHTML='';
+        if(!q){ return; }
+        alunos.filter(a=> (_nomeInst(a)||'').toLowerCase().includes(q)).slice(0,8).forEach(a=>{
+          const nm = _nomeInst(a);
+          const it = el(`<div class="cfg-row" role="button" tabindex="0" style="margin-top:4px"><span>${safeTxt(nm)}</span></div>`);
+          it.onclick=()=>{ selUser=a.id; selNome=nm; avulso=false; pintaCli(); validar(); };
+          listEl.appendChild(it);
+        });
+      };
+      busca.oninput = filtra;
+      cliEl.querySelector('#vp-avulso-on').onclick=()=>{ avulso=true; selNome=''; pintaCli(); validar(); };
+    }
+  };
+  pintaCli();
+
+  // --- itens ---
+  const pintaItens = ()=>{
+    itensEl.innerHTML = '';
+    if(!itens.length){ itensEl.appendChild(el('<div class="empty-line" style="padding:10px">Nenhum item ainda.</div>')); return; }
+    itens.forEach((it, idx)=>{
+      const row = el(`<div class="cfg-row" style="cursor:default">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${safeTxt(it.nome)} · ${safeTxt(it.tam)} · ×${it.qtd}</span>
+        <span style="color:var(--muted);font-weight:700;margin:0 10px">${moneyBR(it.preco*it.qtd)}</span>
+        <button class="btn-cad ghost" style="padding:4px 10px" data-i="${idx}">Remover</button>
+      </div>`);
+      row.querySelector('button').onclick=()=>{ itens.splice(idx,1); totalManual=null; pintaItens(); pintaTotal(); };
+      itensEl.appendChild(row);
+    });
+  };
+  pintaItens();
+
+  sheet.querySelector('#vp-add-item').onclick = ()=>{
+    _vendaPickItem(prods, (item)=>{ if(!item) return; itens.push(item); totalManual=null; pintaItens(); pintaTotal(); });
+  };
+
+  // --- forma pagamento ---
+  sheet.querySelectorAll('#vp-forma button').forEach(b=>{
+    b.onclick = ()=>{ forma = b.dataset.f;
+      sheet.querySelectorAll('#vp-forma button').forEach(x=> x.classList.remove('active'));
+      b.classList.add('active'); validar(); };
+  });
+
+  // --- confirmar ---
+  goBtn.onclick = async ()=>{
+    goBtn.disabled=true; goBtn.textContent='Fechando…';
+    try{
+      const totalFinal = totalManual!=null ? totalManual : totalCalculado();
+      const payload = {
+        userId: selUser || null,
+        clienteAvulso: selUser ? null : selNome.trim(),
+        itens: itens.map(i=>({ produto_id:i.produto_id, nome:i.nome, tam:i.tam, qtd:i.qtd, preco:i.preco })),
+        total: totalFinal, forma,
+      };
+      await sbProf.registrarVendaPresencial(payload);
+      toast('✅ Venda registrada · estoque atualizado');
+      close(); if(onDone) onDone();
+    }catch(e){
+      goBtn.disabled=false; goBtn.textContent='Fechar venda';
+      toast('Erro: '+(e.message||e));
+    }
+  };
+
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+// Sub-sheet: escolhe 1 produto + 1 tamanho + quantidade (respeita estoque).
+function _vendaPickItem(prods, cb){
+  let selProd=null, selTam=null, qtd=1;
+  const sheet = el(`<div class="sheet-overlay" style="z-index:1200"><div class="sheet" role="dialog" style="max-height:80vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Adicionar item</div>
+    <div class="flbl" style="margin-top:12px">Produto</div>
+    <div id="vpi-prods" class="list" style="max-height:220px;overflow-y:auto;margin:6px 0"></div>
+    <div id="vpi-detail" style="display:none">
+      <div class="flbl" style="margin-top:12px">Tamanho <span style="color:var(--muted);font-weight:500">(clique num com estoque)</span></div>
+      <div id="vpi-tams" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0"></div>
+      <div class="flbl" style="margin-top:12px">Quantidade</div>
+      <div class="qty" style="justify-content:flex-start">
+        <button class="qbtn" id="vpi-minus">−</button>
+        <span class="qv" id="vpi-qtd">1</span>
+        <button class="qbtn" id="vpi-plus">+</button>
+      </div>
+    </div>
+    <button class="btn-save" id="vpi-go" style="margin-top:14px" disabled>Adicionar</button>
+    <button class="sheet-cancel" id="vpi-x">Cancelar</button>
+  </div></div>`);
+  const close=(item)=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); cb(item||null); };
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#vpi-x').onclick=()=>close();
+
+  const prodsEl = sheet.querySelector('#vpi-prods');
+  const detail = sheet.querySelector('#vpi-detail');
+  const tamsEl = sheet.querySelector('#vpi-tams');
+  const qtdEl = sheet.querySelector('#vpi-qtd');
+  const goBtn = sheet.querySelector('#vpi-go');
+  const validar = ()=>{ goBtn.disabled = !(selProd && selTam && qtd>0); };
+  prods.forEach(p=>{
+    const tot=_estoqueTotal(p);
+    const r = el(`<div class="cfg-row" role="button" tabindex="0"><span>${safeTxt(p.emoji||'🥋')} ${safeTxt(p.nome)}</span>
+      <span style="margin-left:auto;color:var(--muted);font-size:11px">estoque ${tot} · ${moneyBR(p.preco)}</span></div>`);
+    r.onclick=()=>{
+      selProd=p; selTam=null; qtd=1; qtdEl.textContent='1';
+      detail.style.display='block';
+      tamsEl.innerHTML='';
+      (p.tam||[]).forEach(t=>{
+        const est = p.estoque ? (p.estoque[t]??0) : 0;
+        const btn = el(`<button class="seg-tam" ${est<=0?'disabled':''} style="padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:${est<=0?'not-allowed':'pointer'};opacity:${est<=0?'.4':'1'}">${safeTxt(t)} <span style="font-size:10px;color:var(--muted)">(${est})</span></button>`);
+        btn.onclick = ()=>{ if(est<=0) return;
+          selTam=t;
+          tamsEl.querySelectorAll('button').forEach(x=>x.style.background='var(--card)');
+          btn.style.background='var(--hover)';
+          validar();
+        };
+        tamsEl.appendChild(btn);
+      });
+      validar();
+    };
+    prodsEl.appendChild(r);
+  });
+  sheet.querySelector('#vpi-minus').onclick=()=>{ if(qtd>1){ qtd--; qtdEl.textContent=qtd; validar(); } };
+  sheet.querySelector('#vpi-plus').onclick=()=>{
+    if(!selProd || !selTam) return;
+    const est = selProd.estoque ? (selProd.estoque[selTam]??0) : 0;
+    if(qtd>=est) return;
+    qtd++; qtdEl.textContent=qtd; validar();
+  };
+  goBtn.onclick=()=>{
+    close({ produto_id:selProd.id, nome:selProd.nome, tam:selTam, qtd, preco:selProd.preco });
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 function profPedidos(){
   _loadPedidos();
   const w = el('<div></div>');
@@ -9541,6 +9749,11 @@ function profPedidos(){
     <div class="greet">Confirme o recebimento para baixar o estoque</div></div>`;
   const back = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0"><span>‹ Voltar à Loja</span></div>`);
   back.onclick=()=>goProf('loja'); w.appendChild(back);
+  // v460: venda presencial iniciada pela gestão (0038). Dono/professor registra
+  // venda paga na hora — grava pedido concluído + baixa estoque numa transação.
+  const novaBtn = el(`<div class="dt-add-wrap"><button class="btn-cad primary">＋ Nova venda presencial</button></div>`);
+  novaBtn.querySelector('button').onclick = ()=> _vendaPresencialSheet(()=>{ _loadPedidos(true); render(); });
+  w.appendChild(novaBtn);
   if(!_pedidosData){ w.appendChild(el('<div class="loading-center">Carregando…</div>')); return w; }
   const arr = _pedidosArr();
   let filtro = 'pendente';
