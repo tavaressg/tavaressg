@@ -4675,7 +4675,7 @@ function renderLoja(){
         return `<span style="${st};border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:700" title="${sold?'Esgotado':'Disponível'}">${safeTxt(t)}</span>`;
       }).join('') + '</div>' : '';
       const c = el(`<div class="prod-card${allSold?' sold-out':''}" data-nm="${safeAttr((p.nome||'').toLowerCase())}">
-        <div class="prod-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}
+        <div class="prod-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${p.img?'':safeTxt(p.emoji)}
           ${allSold?'<span class="prod-sold-badge">Esgotado</span>':''}
         </div>
         <div class="prod-info">
@@ -4723,7 +4723,7 @@ function abrirProduto(id){
   let tam = (p.tam.find(t=>!_esgotado(t))) || p.tam[0], qtd = 1;
   const sheet = el(`<div class="sheet-overlay"><div class="sheet prod-sheet">
     <div class="sheet-grip"></div>
-    <div class="prod-hero${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
+    <div class="prod-hero${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${p.img?'':safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
     <div class="prod-sheet-name">${safeTxt(p.nome)}</div>
     <div class="prod-sheet-price">${_priceHTML(p.preco)}</div>
     ${_descontoPixPct()?`<div class="pr-note">💳 Cartão: pago na academia Yama</div>`:''}
@@ -4792,7 +4792,7 @@ function abrirCarrinho(){
       const p = DB.loja.produtos.find(x=>x.id===i.id); if(!p) return;
       const est = p.estoque ? p.estoque[i.tam] : null;
       const row = el(`<div class="cart-item">
-        <div class="ci-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
+        <div class="ci-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${p.img?'':safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
         <div class="ci-tx">
           <div class="ci-n">${safeTxt(p.nome)}</div>
           <div class="ci-s">Tam ${safeTxt(i.tam)}</div>
