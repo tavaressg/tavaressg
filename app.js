@@ -2031,18 +2031,14 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  // v463/v465: dois badges independentes pra placeholder vindo do servidor sem
-  // enriquecimento do aluno:
-  //   • origem "Presença por Yama" — só quando via='professor' (academia registrou).
-  //   • nudge "👉 Complete o diário" — sempre que placeholder vazio, mesmo via='app'
-  //     (aluno deu check-in via QR mas não voltou pra registrar técnica/mood).
-  // Ambos somem assim que aluno registra qualquer campo do treino.
+  // v463/v465/v466: badge único e mutuamente exclusivo pra placeholder vazio
+  // (mais que 2 badges cortavam a subtitle no mobile). "Presença por Yama" já
+  // implica "não é seu diário", então nudge separado só pra via='app' vazio.
   const _enriq = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
   const _isVazio = t._fonte==='servidor' && !_enriq;
-  const _profMark = (_isVazio && t._via==='professor') ? 'Presença por Yama' : '';
-  const _nudge = _isVazio ? '👉 Complete o diário' : '';
-  const _sub = [_hora, _profMark, t.tecnica, _nudge].filter(Boolean).join(' · ');
-  const _dateSub = [_hora, dataLabel(t), _profMark, _nudge].filter(Boolean).join(' · ');
+  const _badge = !_isVazio ? '' : (t._via==='professor' ? 'Presença por Yama' : '👉 Complete o diário');
+  const _sub = [_hora, _badge, t.tecnica].filter(Boolean).join(' · ');
+  const _dateSub = [_hora, dataLabel(t), _badge].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
