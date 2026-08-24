@@ -9,6 +9,20 @@
 
 ## Concluídas ✓
 
+### v461 — venda presencial: total sugerido já aplica desconto Pix (2026-08-11)
+
+Fluxo de venda presencial (v460) pré-preenchia o total com preço-cartão cheio, mesmo
+quando o dono escolhia dinheiro ou pix. Ele tinha que aplicar o desconto de cabeça toda
+venda. Agora:
+
+- **💵 Dinheiro** e **📱 Pix** → total sugerido = `preço × qtd × (1 − descontoPix)`
+- **💳 Cartão** → total cheio, sem desconto (mantém a regra de "cartão pago na academia").
+- Campo **editável** em qualquer forma — dono pode negociar por cima do sugerido.
+- Trocar forma **descarta** o ajuste manual e re-sugere pelo novo default (evita ambiguidade
+  do "R$ 100 continua no cartão porque digitei antes").
+- Badge **−X%** aparece ao lado de "Total" quando o desconto está sendo aplicado (dinheiro
+  ou pix, com `academies.config.descontoPix > 0`).
+
 ### v460 + migration 0038 — venda presencial iniciada pela gestão (2026-08-11)
 
 Até aqui, toda venda partia do aluno (`registrarPedido` no cliente, status='pendente' →
