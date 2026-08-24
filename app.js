@@ -2031,8 +2031,11 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  const _acadNm = (DB.academia && DB.academia.nome) || 'academia';
-  const _profMark = (t._fonte==='servidor' && t._via==='professor') ? `Presença por ${_acadNm}` : '';
+  // v463: badge só aparece pra placeholder vindo do batch do professor E ainda sem
+  // enriquecimento do aluno. Se ele já registrou técnica/mood/randori/nota, o placeholder
+  // "deixou de ser vazio" — some. Nome "Yama" é fixo (academia.nome completo cortava).
+  const _enriq = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
+  const _profMark = (t._fonte==='servidor' && t._via==='professor' && !_enriq) ? 'Presença por Yama' : '';
   const _sub = [_hora, _profMark, t.tecnica].filter(Boolean).join(' · ');
   const _dateSub = [_hora, dataLabel(t), _profMark].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
@@ -2574,9 +2577,8 @@ function renderTreinoDetalhe(){
   if (t._fonte==='servidor' && t._via==='professor'){
     const enriquecido = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
     if (!enriquecido){
-      const _nm = (DB.academia && DB.academia.nome) || 'academia';
       body.appendChild(el(`<div class="det-nota" style="border-left:3px solid var(--red);margin-top:12px">
-        <b>Presença por ${safeTxt(_nm)}.</b><br>
+        <b>Presença por Yama.</b><br>
         <span style="color:var(--muted);font-size:13px">Toque em "Editar treino" abaixo pra registrar o que você fez — técnica, sensação, se teve randori.</span>
       </div>`));
     }
