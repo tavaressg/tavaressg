@@ -264,10 +264,19 @@
       // checkinHoje.porTurma). Fallback pra treinos legados sem turmaId/horaAula:
       // dedup por DATA (1 aula/dia é o caso comum).
       const _chave = (o) => `${o.data||''}|${o.turmaId||''}|${o.horaAula||''}`;
-      const _jaExistem = new Set((d.treinos||[]).map(_chave));
+      const _byChave = new Map((d.treinos||[]).map(t => [_chave(t), t]));
       const _legados = new Set((d.treinos||[]).filter(t => !t.turmaId).map(t => t.data));
       d._meusCheckins.forEach(c => {
-        if (_jaExistem.has(_chave(c))) return;
+        const chv = _chave(c);
+        const existente = _byChave.get(chv);
+        if (existente){
+          // v462: backfill do `_via` em placeholders antigos (pré-v462) que já estavam no
+          // dump sem esse campo. Sem isso o UI de "presença da professora" nunca aparecia
+          // pra dado velho — só pra checkin novo. Só carimba em placeholder servidor
+          // (nunca sobrescreve treino do próprio aluno).
+          if (existente._fonte === 'servidor' && !existente._via) existente._via = c.via;
+          return;
+        }
         if (_legados.has(c.data)) return;
         const dow = new Date(c.data + 'T12:00:00').getDay();
         const _tipo = (dow === 0 || dow === 6) ? 'livre' : 'tecnica';
