@@ -2476,9 +2476,19 @@ function heatmapCard(){
     const weeks=[]; let curr=[];
     data.forEach(cell=>{ curr.push(cell); if ((cell.date.getDay()+6)%7===6){ weeks.push(curr); curr=[]; } });
     if(curr.length){ while(curr.length<7) curr.push(null); weeks.push(curr); }
-    // mês de cada coluna: a que tem o dia 1; a primeira coluna herda seu mês de início
-    const colMonth = weeks.map(wk=>{ for(const c of wk){ if(c && c.date.getDate()===1) return c.date.getMonth(); } return null; });
-    if(colMonth[0]==null){ const f=weeks[0].find(c=>c); if(f) colMonth[0]=f.date.getMonth(); }
+    // v468: rótulo do mês vai na primeira semana cuja MAIORIA dos dias (>=4/7) pertence
+    // àquele mês. Antes ia na semana que contém o dia 1 — quando o mês começava sex/sáb,
+    // o "ago" (por ex.) ficava sobre uma coluna que era visualmente 5 dias de julho + 2 de
+    // agosto, dando a percepção de que os números de agosto estavam desalinhados.
+    // Também não repete o rótulo em semanas seguidas do mesmo mês (evita "ago ago ago…").
+    const majMonth = weeks.map(wk=>{
+      const cnt = {}; for(const c of wk){ if(c){ cnt[c.date.getMonth()] = (cnt[c.date.getMonth()]||0) + 1; } }
+      let best=null, bestN=3;
+      for(const m in cnt){ if(cnt[m] > bestN){ best = +m; bestN = cnt[m]; } }
+      return best;
+    });
+    const colMonth = majMonth.map((m,i)=> (m!=null && m!==majMonth[i-1]) ? m : null);
+    if(colMonth[0]==null && majMonth[0]!=null) colMonth[0] = majMonth[0];
     const cols = weeks.map((wk,wi)=>{
       // v466: 7 células por coluna (Seg–Dom). Antes eram 6 — domingo era pintado
       // como treinado no `total` do rodapé mas nunca aparecia visualmente.
