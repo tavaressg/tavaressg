@@ -2031,7 +2031,8 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  const _profMark = (t._fonte==='servidor' && t._via==='professor') ? '👨‍🏫 Presença da professora' : '';
+  const _acadNm = (DB.academia && DB.academia.nome) || 'academia';
+  const _profMark = (t._fonte==='servidor' && t._via==='professor') ? `Presença por ${_acadNm}` : '';
   const _sub = [_hora, _profMark, t.tecnica].filter(Boolean).join(' · ');
   const _dateSub = [_hora, dataLabel(t), _profMark].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
@@ -2573,8 +2574,9 @@ function renderTreinoDetalhe(){
   if (t._fonte==='servidor' && t._via==='professor'){
     const enriquecido = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
     if (!enriquecido){
+      const _nm = (DB.academia && DB.academia.nome) || 'academia';
       body.appendChild(el(`<div class="det-nota" style="border-left:3px solid var(--red);margin-top:12px">
-        <b>👨‍🏫 Presença marcada pela professora.</b><br>
+        <b>Presença por ${safeTxt(_nm)}.</b><br>
         <span style="color:var(--muted);font-size:13px">Toque em "Editar treino" abaixo pra registrar o que você fez — técnica, sensação, se teve randori.</span>
       </div>`));
     }
