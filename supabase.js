@@ -277,7 +277,7 @@
           tecnica: '', mood: null, feel: null,
           det: { renshu: [], nota: '', randori: null },
           turmaId: c.turmaId, horaAula: c.horaAula,
-          _fonte: 'servidor'
+          _fonte: 'servidor', _via: c.via   // v462: preserva origem ('app'=aluno / 'professor'=chamada) pro UI diferenciar
         });
       });
       d.treinos.sort((a, b) => (b.data || '').localeCompare(a.data || ''));

@@ -2026,13 +2026,14 @@ function lesaoAtivaEm(dataISO){
   }) || null;
 }
 function histItem(t, dateMode){
-  // v456: horário da aula (`horaAula` — carimbado pelo check-in ou vindo do server)
-  // aparece como prefixo do subtítulo. Se não tem, cai só na técnica/data como antes.
-  // v457: dateMode (Home "Últimos treinos") também mostra hora — aluno com múltiplas
-  // aulas no mesmo dia precisa diferenciar os cards ("Ter, 11 ago" sozinho não diz).
+  // v456: horário da aula (`horaAula`) aparece como prefixo do subtítulo.
+  // v457: dateMode (Home) também mostra hora — multi-aula/dia precisa diferenciar.
+  // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
+  // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  const _sub = [_hora, t.tecnica].filter(Boolean).join(' · ');
-  const _dateSub = [_hora, dataLabel(t)].filter(Boolean).join(' · ');
+  const _profMark = (t._fonte==='servidor' && t._via==='professor') ? '👨‍🏫 Presença da professora' : '';
+  const _sub = [_hora, _profMark, t.tecnica].filter(Boolean).join(' · ');
+  const _dateSub = [_hora, dataLabel(t), _profMark].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
@@ -2566,6 +2567,18 @@ function renderTreinoDetalhe(){
     <div class="dh-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
     <div class="dh-tx"><div class="dh-t">${safeTxt(t.tecnica)}</div>
       <div class="dh-mood">${sensTxt}</div></div></div>`));
+  // v462: presença marcada pela professora + ainda sem enriquecimento do aluno →
+  // mostra card informativo em vez de tela vazia. Some quando aluno já registrou
+  // técnica/mood/randori/nota (fica implícito que ele viu e completou).
+  if (t._fonte==='servidor' && t._via==='professor'){
+    const enriquecido = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
+    if (!enriquecido){
+      body.appendChild(el(`<div class="det-nota" style="border-left:3px solid var(--red);margin-top:12px">
+        <b>👨‍🏫 Presença marcada pela professora.</b><br>
+        <span style="color:var(--muted);font-size:13px">Toque em "Editar treino" abaixo pra registrar o que você fez — técnica, sensação, se teve randori.</span>
+      </div>`));
+    }
+  }
   const btnShare = el(`<button class="share-btn">📲 Compartilhar treino</button>`);
   btnShare.onclick = ()=> abrirShare(t.id);
   body.appendChild(btnShare);
