@@ -9561,7 +9561,7 @@ function _vendaPresencialSheet(onDone){
       <button data-f="cartao">💳 Cartão</button>
       <button data-f="pix">📱 Pix</button>
     </div>
-    <div class="flbl" style="margin-top:14px">Total <span style="color:var(--muted);font-weight:500">(editável)</span></div>
+    <div class="flbl" style="margin-top:14px" id="vp-total-lbl">Total <span style="color:var(--muted);font-weight:500">(editável)</span></div>
     <input class="inp" id="vp-total" type="text" inputmode="decimal" placeholder="0,00">
     <button class="btn-save" id="vp-go" style="margin-top:16px" disabled>Fechar venda</button>
     <button class="sheet-cancel" id="vp-cancel">Cancelar</button>
@@ -9575,12 +9575,26 @@ function _vendaPresencialSheet(onDone){
   const totalEl = sheet.querySelector('#vp-total');
   const goBtn = sheet.querySelector('#vp-go');
 
-  const totalCalculado = ()=> itens.reduce((s,i)=> s + (i.preco||0)*i.qtd, 0);
+  // v461: total sugerido já aplica desconto Pix pra dinheiro E pix — cartão paga cheio.
+  // Presencial no dinheiro sai igual ao Pix na prática (mesma logística pro caixa), então
+  // o desconto vale. Cartão fica no preço-lista. Total continua editável em qualquer forma.
+  const _bruto = ()=> itens.reduce((s,i)=> s + (i.preco||0)*i.qtd, 0);
+  const totalCalculado = ()=> (forma==='cartao') ? _bruto() : _precoPix(_bruto());
   const validar = ()=>{
     const t = totalManual!=null ? totalManual : totalCalculado();
     goBtn.disabled = !((selUser || (avulso && selNome.trim())) && itens.length && t>=0 && forma);
   };
-  const pintaTotal = ()=>{ if(totalManual==null) totalEl.value = totalCalculado().toFixed(2).replace('.',','); validar(); };
+  const pintaTotal = ()=>{
+    if(totalManual==null) totalEl.value = totalCalculado().toFixed(2).replace('.',',');
+    // v461: label mostra "−X%" quando o desconto Pix está sendo aplicado (dinheiro ou pix
+    // com config > 0). Cartão sempre paga cheio, sem badge.
+    const lbl = sheet.querySelector('#vp-total-lbl'); if(lbl){
+      const d = _descontoPixPct();
+      const aplicado = d>0 && forma!=='cartao';
+      lbl.innerHTML = `Total <span style="color:var(--muted);font-weight:500">(editável)</span>${aplicado?` <span class="pr-off">−${d}%</span>`:''}`;
+    }
+    validar();
+  };
   totalEl.oninput = ()=>{
     const v = parseFloat(String(totalEl.value).replace(',','.'));
     totalManual = isFinite(v) && v>=0 ? v : null;
@@ -9648,7 +9662,12 @@ function _vendaPresencialSheet(onDone){
   sheet.querySelectorAll('#vp-forma button').forEach(b=>{
     b.onclick = ()=>{ forma = b.dataset.f;
       sheet.querySelectorAll('#vp-forma button').forEach(x=> x.classList.remove('active'));
-      b.classList.add('active'); validar(); };
+      b.classList.add('active');
+      // v461: trocar forma repropõe o total (cartão=cheio; pix/dinheiro=com desconto).
+      // Se o dono ajustou manualmente, o ajuste é descartado ao trocar — clareza vale
+      // mais que preservar edição num campo cujo valor default acaba de mudar.
+      totalManual = null; pintaTotal();
+    };
   });
 
   // --- confirmar ---
