@@ -4587,9 +4587,19 @@ function _buildHeroGallery(heroEl, p){
     frag.innerHTML = `<div class="hero-slides">${slides}</div><div class="hero-dots">${dots}</div>`;
     while(frag.firstChild) heroEl.appendChild(frag.firstChild);
     const slidesEl = heroEl.querySelector('.hero-slides');
+    // v459: força alinhamento inicial no slide 0 — iOS PWA às vezes deixa scroll
+    // fora do snap quando conteúdo é montado dinamicamente. Sem isso o carrossel
+    // pode nascer em posição intermediária (bug do print: dot 2 aceso, foto meio a meio).
+    requestAnimationFrame(()=>{ slidesEl.scrollTo({ left: 0, behavior: 'auto' }); });
+    // v459: dot só reflete slide quando scroll está "quase snapped" (tolerância 10%).
+    // Evita flip prematuro do dot no meio do gesto — Math.round(0.5)=1 antes do snap
+    // completar acendia o dot 2 com só metade da foto 2 visível.
     slidesEl.addEventListener('scroll', ()=>{
-      const i = Math.round(slidesEl.scrollLeft / (slidesEl.clientWidth||1));
-      heroEl.querySelectorAll('.hero-dots span').forEach((d,j)=> d.classList.toggle('on', j===i));
+      const raw = slidesEl.scrollLeft / (slidesEl.clientWidth||1);
+      const i = Math.round(raw);
+      if (Math.abs(raw - i) < 0.1){
+        heroEl.querySelectorAll('.hero-dots span').forEach((d,j)=> d.classList.toggle('on', j===i));
+      }
     }, { passive:true });
   };
   candidatas.forEach((u,i)=>{
