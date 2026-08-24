@@ -9,6 +9,77 @@
 
 ## Concluídas ✓
 
+### v459 — carrossel do hero: snap inicial forçado + dot conservador (2026-08-11)
+
+Sheet de produto abria com carrossel em posição intermediária no iOS PWA: a foto ficava
+"meio a meio" e o dot 2 acendia mesmo com a foto 2 só metade visível. Duas causas
+independentes fechadas na mesma versão:
+
+- **Snap não completava:** `scroll-snap-type: x mandatory` tem bug conhecido no iOS Safari
+  standalone quando conteúdo é montado dinamicamente (o `_buildHeroGallery` roda ~200ms
+  depois do sheet abrir, esperando os probes das fotos). Fix: `requestAnimationFrame` +
+  `scrollTo({left:0, behavior:'auto'})` logo após o append — garante estado inicial exato.
+- **Dot flip prematuro:** o handler usava `Math.round(scrollLeft/width)`, que acende o dot
+  2 assim que `scrollLeft ≥ 50%`. No meio do gesto, dot mudava antes do snap completar.
+  Fix: só reflete quando `|raw − round(raw)| < 0.1` (tolerância 10%) — dots ficam parados
+  no último snap conhecido durante o gesto.
+
+### v458 — emoji do produto para de vazar atrás da foto (2026-08-11)
+
+`.prod-hero`, `.prod-img` e `.ci-img` (sheet, grade e carrinho) tinham o emoji fallback
+como text node solto — CSS não consegue mirar text node pra esconder. Quando a foto tinha
+transparência ou o carrossel montava dinamicamente, o emoji 👕 aparecia atrás. `.ld-img`
+já resolvia via wrapper `<span class="ld-emoji">` escondido por `.has-img .ld-emoji`.
+
+Fix mínimo (3 lugares): no template, se `p.img` existe, nem emite a emoji — `${p.img?'':safeTxt(p.emoji)}`.
+Sem text node, nada pra vazar em nenhum estado. Se um dia o produto ficar sem foto, a
+emoji volta como fallback normal.
+
+### v457 — horário da aula nos cards da Home (2026-08-11)
+
+Home "Últimos treinos" mostrava só "Ter, 11 ago" — se aluno tem duas aulas no mesmo dia,
+dois cards idênticos, sem forma de distinguir. Agora mostra "🕐 19:30 · Ter, 11 ago".
+`histItem` em `dateMode=true` também prefixa com hora. Fallback preservado pra treinos
+legados sem `horaAula`.
+
+### v456 — horário da aula no subtítulo da Jornada (2026-08-11)
+
+Card do treino na Jornada agora mostra "🕐 19:30 · Renshū · De La Riva" (ou só "🕐 19:30"
+pra placeholder da chamada do professor, sem enriquecimento). Prefixa `horaAula` no subtítulo
+do `histItem` — treinos legados sem `horaAula` seguem mostrando só a técnica.
+
+### v455 — presença marcada pelo professor vira treino placeholder editável (2026-08-11)
+
+**Reescrita da v454.** O modelo de "card read-only separado" mostrado no `_meusCheckins` era
+inconsistente com o resto da UX (aluno não conseguia enriquecer, e a Home "últimos treinos"
+não incluía). Reescrito pra **injetar em `DB.treinos`** direto no adapter.
+
+`sbSync.pullAll` agora: pra cada check-in do servidor sem par em `DB.treinos` (chave estrita
+`data + turmaId + horaAula`, fallback DATE-only pra treinos legados sem `turmaId`), injeta
+um placeholder com `_fonte:'servidor'`, `tecnica:''`, `mood:null`. O placeholder vira parte
+do dump privado do aluno — a chave estrita garante idempotência entre boots e aparelhos.
+
+**Consequências:**
+- Home "Últimos treinos" e Jornada mostram o card como qualquer treino próprio.
+- Clique abre `renderTreinoDetalhe`, editável — aluno enriquece Renshū/mood/randori depois.
+- Long-press esconde "Excluir" pra `_fonte:'servidor'` — presença é do servidor; aluno
+  pede pro professor apagar se for erro.
+- `_finalizarCheckin` agora também carimba `turmaId + horaAula` no treino local — sem isso,
+  o próximo `pullAll` criaria placeholder duplicado.
+
+Reverti as mudanças da v454 em `_attendedSet`, `_treinosNoDia`, `_treinoDays` e
+`jornadaHistorico` — `DB.treinos` já é o merge agora.
+
+### v454 — Jornada do aluno inclui presenças do professor (estratégia intermediária) (2026-08-10)
+
+Adicionou `sbSync.pullAll` puxando `checkins` do próprio aluno para `DB._meusCheckins`
+(memo, não persistido). `_attendedSet`, `_treinosNoDia`, `_treinoDays` e `jornadaHistorico`
+mergiam ao renderizar. **Substituída pela v455**, que mudou a estratégia pra injetar
+placeholders em `DB.treinos` direto (permite editabilidade, elimina merges espalhados).
+
+CI falhou nesta versão (`_meusCheckins` afetava assertions do selfTest headless). Corrigido
+implicitamente pela v455 ao reverter os merges.
+
 ### 0037 — `aulas_por_aluno` reconhece `tipo='inicio'` na âncora do grau (2026-08-11)
 
 Import de presenças legadas gravava `aulas_credito_grau` no evento âncora (adapter
