@@ -9,6 +9,32 @@
 
 ## Concluídas ✓
 
+### v460 + migration 0038 — venda presencial iniciada pela gestão (2026-08-11)
+
+Até aqui, toda venda partia do aluno (`registrarPedido` no cliente, status='pendente' →
+professor confirma → status='concluido' + baixa estoque). Se o aluno pegava algo direto na
+academia ("me vê aquela rashguard aí"), o dono tinha duas opções ruins: (a) forçar o aluno
+a comprar pelo app (atrito absurdo pro presencial), (b) baixar estoque manualmente e
+perder rastreamento de venda.
+
+**Terceira via:** botão **＋ Nova venda presencial** em Loja → Pedidos. Dono/professor
+seleciona cliente (aluno por busca ou "avulso" com nome livre), adiciona itens (produto +
+tamanho + qtd respeitando estoque), escolhe forma de pagamento (💵 Dinheiro · 💳 Cartão ·
+📱 Pix), ajusta total se quiser (pré-preenchido pela soma × qtd, editável pra desconto
+negociado). Confirma → RPC atômica cria pedido `concluido` + baixa estoque + audita em
+`stock_movements` com `motivo='venda_presencial'`.
+
+**Migration 0038 (aplicada):** adiciona `pedidos.forma_pagamento` (`dinheiro`/`cartao`/`pix`)
+e `pedidos.cliente_avulso` (nome livre pra não-cadastrado). `pedidos.user_id` passa a
+aceitar NULL. Nova RPC `registrar_venda_presencial(user_id, avulso_nome, itens, total,
+forma)` — segurança na RPC: valida `is_professor()`, forma válida, ao menos 1 item, aluno
+da mesma academia, cliente definido (user OU avulso).
+
+**Setup pra relatório futuro:** cada venda vira uma linha em `pedidos` com `canal='presencial'`
++ `forma_pagamento` + `cliente_avulso`/`user_id` + snapshot dos itens em jsonb. SELECTs
+padrão já cobrem "top clientes / top produtos / top tamanhos / faturamento por forma" sem
+schema novo.
+
 ### v459 — carrossel do hero: snap inicial forçado + dot conservador (2026-08-11)
 
 Sheet de produto abria com carrossel em posição intermediária no iOS PWA: a foto ficava
