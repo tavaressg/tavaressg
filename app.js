@@ -2492,9 +2492,18 @@ function heatmapCard(){
     const cols = weeks.map((wk,wi)=>{
       // v466: 7 células por coluna (Seg–Dom). Antes eram 6 — domingo era pintado
       // como treinado no `total` do rodapé mas nunca aparecia visualmente.
-      let cells=''; for(let r=0;r<7;r++){ const cell=wk[r]; const dn=cell?cell.date.getDate():''; cells+=`<span class="${cell?hmCellClass(cell):'hm-cell hm-empty'}">${dn}</span>`; }
+      // v469-A: coluna que começa um novo mês (majMonth diferente da anterior) ganha
+      // .hm-col-new — separador vertical + espaço extra à esquerda pra delimitar visualmente.
+      // v469-B: célula do dia 1 de cada mês ganha .hm-day1 — anel sutil no contorno pra
+      // marcar o começo dentro da própria célula (independente do rótulo do topo).
+      let cells=''; for(let r=0;r<7;r++){
+        const cell=wk[r]; const dn=cell?cell.date.getDate():'';
+        const extra = (cell && cell.date.getDate()===1) ? ' hm-day1' : '';
+        cells += `<span class="${cell?hmCellClass(cell):'hm-cell hm-empty'}${extra}">${dn}</span>`;
+      }
       const lbl = colMonth[wi]!=null ? meses[colMonth[wi]] : '';
-      return `<div class="hm-col"><span class="hm-clbl">${lbl}</span>${cells}</div>`;
+      const nova = (wi>0 && majMonth[wi]!=null && majMonth[wi]!==majMonth[wi-1]) ? ' hm-col-new' : '';
+      return `<div class="hm-col${nova}"><span class="hm-clbl">${lbl}</span>${cells}</div>`;
     }).join('');
     const days=['S','T','Q','Q','S','S','D'];
     card.appendChild(el(`<div class="hm-body">
