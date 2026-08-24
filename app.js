@@ -2480,11 +2480,13 @@ function heatmapCard(){
     const colMonth = weeks.map(wk=>{ for(const c of wk){ if(c && c.date.getDate()===1) return c.date.getMonth(); } return null; });
     if(colMonth[0]==null){ const f=weeks[0].find(c=>c); if(f) colMonth[0]=f.date.getMonth(); }
     const cols = weeks.map((wk,wi)=>{
-      let cells=''; for(let r=0;r<6;r++){ const cell=wk[r]; const dn=cell?cell.date.getDate():''; cells+=`<span class="${cell?hmCellClass(cell):'hm-cell hm-empty'}">${dn}</span>`; }
+      // v466: 7 células por coluna (Seg–Dom). Antes eram 6 — domingo era pintado
+      // como treinado no `total` do rodapé mas nunca aparecia visualmente.
+      let cells=''; for(let r=0;r<7;r++){ const cell=wk[r]; const dn=cell?cell.date.getDate():''; cells+=`<span class="${cell?hmCellClass(cell):'hm-cell hm-empty'}">${dn}</span>`; }
       const lbl = colMonth[wi]!=null ? meses[colMonth[wi]] : '';
       return `<div class="hm-col"><span class="hm-clbl">${lbl}</span>${cells}</div>`;
     }).join('');
-    const days=['S','T','Q','Q','S','S'];
+    const days=['S','T','Q','Q','S','S','D'];
     card.appendChild(el(`<div class="hm-body">
       <div class="hm-days">${days.map(d=>`<span>${d}</span>`).join('')}</div>
       <div class="hm-scroll"><div class="hm-grid">${cols}</div></div>

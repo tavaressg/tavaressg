@@ -9,6 +9,55 @@
 
 ## Concluídas ✓
 
+### v467 — heatmap "Ano" volta a mostrar domingos (2026-08-11)
+
+Bug histórico do v270: a view "Ano" da Jornada renderizava só 6 linhas por coluna
+(Seg–Sáb), pulando domingo. Se aluno treinava num domingo, o dia contava no `10 treinos`
+do rodapé (que filtra o array inteiro) mas NÃO aparecia colorido no grid — inconsistência
+visual silenciosa. Passou despercebido por ~200 versões porque poucos alunos treinam
+domingo com frequência.
+
+Fix: `for(r=0;r<7)` no loop de células + `['S','T','Q','Q','S','S','D']` nos labels.
+Views "Semana" e "Mês" já estavam corretas com 7 dias — só o Ano estava fora do padrão.
+
+### v466 — cards de placeholder: badge único e mutuamente exclusivo (2026-08-11)
+
+v465 tinha 2 badges sobrepostos no subtítulo ("Presença por Yama · 👉 Complete o diário"),
+o que estourava a linha no mobile e cortava o texto. Como "Presença por Yama" já implica
+"não é seu diário registrado — pode completar", os dois eram redundantes. Torno mutuamente
+exclusivos: `via='professor'` vazio → só "Presença por Yama"; `via='app'` vazio → só
+"👉 Complete o diário"; enriquecido → nenhum.
+
+### v465 — nudge "Complete o diário" pra self-checkin sem treino (2026-08-11)
+
+Aluno que dava check-in via QR e não voltava pra registrar técnica/mood ficava com card
+vazio silencioso na Jornada. Adicionado nudge visual persistente enquanto ele não preencher,
+mesmo pro placeholder `via='app'` (self-checkin). Cutuca sem obrigar — some assim que
+qualquer campo do treino (técnica/mood/randori/nota) é registrado.
+
+### v464 — "Presença por Yama" fixo + esconde ao enriquecer (2026-08-11)
+
+v463 puxava `DB.academia.nome` completo ("Yama Jiu-Jitsu") — cortava no mobile. Fixo
+como "Yama". Também: badge some do card quando aluno registra técnica/mood/randori/nota
+(mesmo critério do card informativo no detalhe). "Deixou de ser vazio, deixa de ser
+sinalizado como incompleto".
+
+### v463 — badge "Presença por [nome academia]" no lugar de "professora" (2026-08-11)
+
+Ajuste de tom: origem indicada pela academia, não pelo papel humano ("professora"/"professor").
+Puxa `DB.academia.nome` (ainda ia ser encurtado no v464).
+
+### v462 — placeholder da presença marca origem "professora" no card e no detalhe (2026-08-11)
+
+v455 criava placeholders editáveis mas indistinguíveis dos treinos próprios. Aluno abria
+card do professor e via tela vazia sem contexto. Agora:
+- Subtítulo do card na Home + Jornada mostra "👨‍🏫 Presença da professora" quando
+  `_fonte='servidor' && _via='professor'`.
+- Detalhe do treino mostra card vermelho informativo enquanto o aluno não enriquecer,
+  explicando que a presença veio da chamada e como completar o diário.
+- Adapter agora preserva `_via` no shape do placeholder + faz **backfill** em placeholders
+  antigos (pré-v462) que já estavam no dump — sem isso, dados velhos nunca ganhariam o badge.
+
 ### v461 — venda presencial: total sugerido já aplica desconto Pix (2026-08-11)
 
 Fluxo de venda presencial (v460) pré-preenchia o total com preço-cartão cheio, mesmo
