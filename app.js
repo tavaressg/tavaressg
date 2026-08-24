@@ -2031,13 +2031,18 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  // v463: badge só aparece pra placeholder vindo do batch do professor E ainda sem
-  // enriquecimento do aluno. Se ele já registrou técnica/mood/randori/nota, o placeholder
-  // "deixou de ser vazio" — some. Nome "Yama" é fixo (academia.nome completo cortava).
+  // v463/v465: dois badges independentes pra placeholder vindo do servidor sem
+  // enriquecimento do aluno:
+  //   • origem "Presença por Yama" — só quando via='professor' (academia registrou).
+  //   • nudge "👉 Complete o diário" — sempre que placeholder vazio, mesmo via='app'
+  //     (aluno deu check-in via QR mas não voltou pra registrar técnica/mood).
+  // Ambos somem assim que aluno registra qualquer campo do treino.
   const _enriq = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
-  const _profMark = (t._fonte==='servidor' && t._via==='professor' && !_enriq) ? 'Presença por Yama' : '';
-  const _sub = [_hora, _profMark, t.tecnica].filter(Boolean).join(' · ');
-  const _dateSub = [_hora, dataLabel(t), _profMark].filter(Boolean).join(' · ');
+  const _isVazio = t._fonte==='servidor' && !_enriq;
+  const _profMark = (_isVazio && t._via==='professor') ? 'Presença por Yama' : '';
+  const _nudge = _isVazio ? '👉 Complete o diário' : '';
+  const _sub = [_hora, _profMark, t.tecnica, _nudge].filter(Boolean).join(' · ');
+  const _dateSub = [_hora, dataLabel(t), _profMark, _nudge].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
@@ -2571,14 +2576,15 @@ function renderTreinoDetalhe(){
     <div class="dh-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
     <div class="dh-tx"><div class="dh-t">${safeTxt(t.tecnica)}</div>
       <div class="dh-mood">${sensTxt}</div></div></div>`));
-  // v462: presença marcada pela professora + ainda sem enriquecimento do aluno →
-  // mostra card informativo em vez de tela vazia. Some quando aluno já registrou
-  // técnica/mood/randori/nota (fica implícito que ele viu e completou).
-  if (t._fonte==='servidor' && t._via==='professor'){
+  // v462/v465: placeholder do servidor ainda sem enriquecimento → card informativo.
+  // Se veio de batch da professora, headline "Presença por Yama"; se foi check-in do
+  // aluno (via='app') sem registrar treino, headline "Complete o diário".
+  if (t._fonte==='servidor'){
     const enriquecido = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
     if (!enriquecido){
+      const _head = t._via==='professor' ? 'Presença por Yama.' : '👉 Complete o diário deste treino.';
       body.appendChild(el(`<div class="det-nota" style="border-left:3px solid var(--red);margin-top:12px">
-        <b>Presença por Yama.</b><br>
+        <b>${_head}</b><br>
         <span style="color:var(--muted);font-size:13px">Toque em "Editar treino" abaixo pra registrar o que você fez — técnica, sensação, se teve randori.</span>
       </div>`));
     }
