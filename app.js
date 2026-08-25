@@ -7199,13 +7199,9 @@ function renderCadastroAluno(){
       <input class="inp" id="ca-nome" placeholder="Ex: Gabriel Tavares de Jesus">
       <label class="flbl" style="margin-top:12px">E-mail</label>
       <input class="inp" id="ca-email" type="email" inputmode="email" placeholder="aluno@email.com">
-      <div class="cad-row" style="margin-top:12px">
-        <div style="flex:1"><label class="flbl">Telefone / WhatsApp</label>
-          <input class="inp" id="ca-tel" type="tel" inputmode="tel" placeholder="(31) 99999-9999"></div>
-        <div style="width:120px"><label class="flbl">Nascimento</label>
-          <input class="inp" id="ca-nasc" type="number" inputmode="numeric" placeholder="1998" min="1920" max="${hoje.getFullYear()}"></div>
-      </div>
-      <label class="flbl" style="margin-top:12px">Data de nascimento completa <span class="ca-opt">(opcional — habilita aniversariantes)</span></label>
+      <label class="flbl" style="margin-top:12px">Telefone / WhatsApp</label>
+      <input class="inp" id="ca-tel" type="tel" inputmode="tel" placeholder="(31) 99999-9999">
+      <label class="flbl" style="margin-top:12px">Data de nascimento</label>
       ${dateBRField('ca-nascdata','')}
       <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(opcional — o aluno pode definir depois)</span></label>
       <input class="inp" id="ca-apelido" placeholder="Ex: Tavares">
@@ -7285,8 +7281,6 @@ function renderCadastroAluno(){
       if(!val('ca-nome')){ toast('Informe o nome completo'); return false; }
       const email=val('ca-email').toLowerCase();
       if(!email || !email.includes('@')){ toast('Informe um e-mail válido (será o login do aluno)'); return false; }
-      const nv=val('ca-nasc');
-      if(nv && !(parseInt(nv)>=1920 && parseInt(nv)<=hoje.getFullYear())){ toast('Ano de nascimento inválido'); return false; }
     }
     return true;
   };
@@ -7297,9 +7291,9 @@ function renderCadastroAluno(){
     const nome=val('ca-nome');
     const apelido=val('ca-apelido') || (nome.split(/\s+/)[0]||'');
     const email=val('ca-email').toLowerCase();
-    const nascVal=parseInt(val('ca-nasc'));
-    const nascimento=(nascVal>=1920 && nascVal<=hoje.getFullYear())?nascVal:null;
     const nascData=dateBRRead(sheet.querySelector('#ca-nascdata'))||null;
+    // v472: ano derivado da data completa — não pede mais "ano de nascimento" separado.
+    const nascimento = nascData ? parseInt(String(nascData).slice(0,4)) : null;
     const telefone=_normTelBR(val('ca-tel'));
     const cep=val('ca-cep'), logradouro=val('ca-logr'), numero=val('ca-num'), bairro=val('ca-bairro'), cidade=val('ca-cidade'), uf=val('ca-uf').toUpperCase();
     const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
@@ -11523,7 +11517,7 @@ function editarFotoPerfil(){
 // ---- Editar perfil ----
 function abrirEditarPerfil(){
   const me = DB.eu;
-  let faixa = me.faixa, graus = me.graus, nascimento = me.nascimento;
+  let faixa = me.faixa, graus = me.graus;
   const maxGraus = (f)=> f==='preta'?6:4;
   // Conta provisionada pelo professor: faixa/grau são controlados pela graduação do professor (read-only aqui).
   const editaGrad = !me.provisionedByProf;
@@ -11544,8 +11538,6 @@ function abrirEditarPerfil(){
     <input class="inp" id="ep-apelido" value="${safeAttr(me.apelido)}">
     <label class="flbl" style="margin-top:12px">Nome completo</label>
     <div class="ep-belt-ro">${safeTxt(me.nomeCompleto||'—')}<span class="ep-ro-note">definido no cadastro — peça ao professor pra corrigir</span></div>
-    <label class="flbl" style="margin-top:12px">Ano de nascimento</label>
-    <input class="inp" id="ep-nasc" type="number" inputmode="numeric" placeholder="Ex: 1998" value="${nascimento||''}" min="1920" max="${hoje.getFullYear()}">
     ${gradBlock}
     </div>
     <button class="btn-save" id="ep-save" style="margin-top:16px">Salvar</button>
@@ -11560,16 +11552,14 @@ function abrirEditarPerfil(){
         x.onclick=()=>{ graus=g; gs.querySelectorAll('button').forEach(y=>y.classList.remove('active')); x.classList.add('active'); }; gs.appendChild(x); }
     };
     const bs=sheet.querySelector('#ep-belt');
-    const epNasc=sheet.querySelector('#ep-nasc');
-    // faixas filtradas por idade (CBJJ) — reconstrói ao mudar o ano de nascimento
+    // v472: idade removida do "editar perfil" (data completa vem do cadastro do professor).
+    // v193 já removeu o filtro por idade nas faixas — aqui só monta a lista completa.
     const _rebuildBeltsPerfil=()=>{
-      const nv=parseInt(epNasc.value); const idade=(nv>=1920&&nv<=hoje.getFullYear())?idadeCBJJ(nv):null;
-      const lista = CBJJ_CHAIN.slice();   // v193: perfil também sem filtro por idade
+      const lista = CBJJ_CHAIN.slice();
       if(!lista.includes(faixa)) faixa = lista[0];
       renderBeltField(bs, lista, faixa, (b)=>{ faixa=b; _rebuildBeltsPerfil(); });
       _rebuildGraus();
     };
-    if(epNasc) epNasc.addEventListener('input', _rebuildBeltsPerfil);
     _rebuildBeltsPerfil();
     const dataFaixaAtual = (DB.graduacoes||[]).find(g=>g.tipo==='faixa'&&g.faixa===me.faixa);
     if(dataFaixaAtual && epDataFaixa) epDataFaixa.value = dataFaixaAtual.data;
@@ -11584,7 +11574,7 @@ function abrirEditarPerfil(){
     const base = (me.nomeCompleto||me.apelido||'').trim();
     me.nome = base.split(' ').slice(0,2).join(' ') || me.apelido;
     me.iniciais = (base.split(/\s+/).map(s=>s[0]).slice(0,2).join('') || (me.apelido||'A')[0]).toUpperCase();
-    const nv=parseInt(sheet.querySelector('#ep-nasc').value); me.nascimento=(nv>=1920&&nv<=hoje.getFullYear())?nv:me.nascimento;
+    // v472: aluno não edita mais o ano de nascimento — vem do cadastro do professor (data completa).
     // faixa/grau só são editáveis quando NÃO provisionado pelo professor
     if(editaGrad){
       const novaData = (epDataFaixa && epDataFaixa.value) || HOJE_ISO;
