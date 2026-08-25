@@ -9,6 +9,39 @@
 
 ## Concluídas ✓
 
+### v470 — heatmap "Ano": mantém só o anel no dia 1, remove o separador (2026-08-11)
+
+Após teste visual, o separador vertical entre meses (v469-A) deixou a leitura pesada —
+os "blocos" cercados poluíam mais do que ajudavam. Removido. O anel na célula do dia 1
+(v469-B) fica — marca discreta e suficiente pra ancorar o início de cada mês dentro da
+grid, complementando o rótulo do topo.
+
+### v469 — heatmap "Ano": separador vertical (A) + anel na célula do dia 1 (B) (2026-08-11)
+
+Rótulos do topo (v468, "majoria dos dias") melhoraram a leitura mas ainda ficaram
+"flutuando" sobre múltiplas colunas do mesmo mês, sem delimitação clara. Duas camadas
+adicionadas de uma vez:
+
+- **A) Separador vertical**: coluna que abre um novo mês (`majMonth[i] !== majMonth[i-1]`)
+  recebe `.hm-col-new` — traço fino à esquerda + gap extra. Cria "blocos" mês por mês.
+- **B) Anel na célula do dia 1**: célula do primeiro dia de cada mês recebe `.hm-day1`
+  → `inset box-shadow`. Anel escuro sobre células neutras/vazias, claro sobre células
+  coloridas (tec/liv) pra manter contraste.
+
+A parte A foi rejeitada no teste seguinte; a B ficou (v470).
+
+### v468 — heatmap "Ano": rótulo do mês vai onde a MAIORIA dos dias é daquele mês (2026-08-11)
+
+Antes: rótulo ia na coluna que contém o dia 1 do mês. Se o mês começava sex/sáb, a
+coluna era 5 dias do mês anterior + 2 do novo → "ago" ficava sobre uma coluna
+visualmente 5/7 de julho. Percepção: números desalinhados.
+
+Nova regra: rótulo aparece na primeira semana cuja MAIORIA dos dias (≥4/7) pertence
+ao mês. Não repete em semanas seguidas do mesmo mês (evita "ago ago ago ago").
+Rótulo passa a ficar sobre semanas cheias — alinhamento visual consistente com o
+que o olho lê. Cobre parcialmente o problema; combinado com v469-B (anel no dia 1)
+resolve a ancoragem visual do início do mês.
+
 ### v467 — heatmap "Ano" volta a mostrar domingos (2026-08-11)
 
 Bug histórico do v270: a view "Ano" da Jornada renderizava só 6 linhas por coluna
