@@ -6612,7 +6612,6 @@ function profAlunos(){
     <button class="erp-c erp-c-grau"   data-sort="grau" title="Presenças desde o último grau">Grau</button>
     <button class="erp-c erp-c-faixapres" data-sort="faixapres" title="Presenças desde o início da faixa">Faixa</button>
     <button class="erp-c erp-c-aniv"   data-sort="aniv" title="Data de aniversário">Aniv.</button>
-    <div class="erp-c erp-c-pay">Pgto</div>
     <div class="erp-c erp-c-wa" aria-hidden="true"></div>
   </div>`);
   const list = el('<div class="list erp-tbl"></div>');
@@ -6750,8 +6749,6 @@ function profAlunos(){
     if(!arr.length){ list.appendChild(el(`<div class="empty-line">Nenhum aluno encontrado.</div>`)); return; }
     const totalN = arr.length;
     arr.slice(0, shown).forEach(a=>{
-      const payMap={ok:['pay-ok','Em dia'],late:['pay-late','Vencido'],soon:['pay-soon','A vencer']};
-      const [cls,txt]=payMap[a.pago]||['pay-ok','—'];
       const turmasTx = (a.turmas||[]).map(id=>turmaMap[id]).filter(Boolean).join(', ') || '—';
       // Nome COMPLETO na coluna (o apelido é o rótulo curto usado no resto do app).
       // Sem nome completo cadastrado, cai no apelido — melhor que célula vazia.
@@ -6782,7 +6779,6 @@ function profAlunos(){
         <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+PROF_METAS.META_GRAU):'—'}</div>
         <div class="erp-c erp-c-faixapres-cell" title="Presenças desde o início da faixa atual">${(a.aulasNaFaixa!=null)?safeTxt(a.aulasNaFaixa):'—'}</div>
         <div class="erp-c erp-c-aniv-cell" title="Data de aniversário">${a.nascData?safeTxt(String(a.nascData).slice(8,10)+'/'+String(a.nascData).slice(5,7)):'—'}</div>
-        <div class="st-right"><span class="pay-badge ${cls}">${txt}</span></div>
         <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="Mandar WhatsApp">💬</button>
       </div>`);
       const waBtn = row.querySelector('.wa-ico');
