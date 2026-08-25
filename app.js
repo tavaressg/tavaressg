@@ -2502,8 +2502,7 @@ function heatmapCard(){
         cells += `<span class="${cell?hmCellClass(cell):'hm-cell hm-empty'}${extra}">${dn}</span>`;
       }
       const lbl = colMonth[wi]!=null ? meses[colMonth[wi]] : '';
-      const nova = (wi>0 && majMonth[wi]!=null && majMonth[wi]!==majMonth[wi-1]) ? ' hm-col-new' : '';
-      return `<div class="hm-col${nova}"><span class="hm-clbl">${lbl}</span>${cells}</div>`;
+      return `<div class="hm-col"><span class="hm-clbl">${lbl}</span>${cells}</div>`;
     }).join('');
     const days=['S','T','Q','Q','S','S','D'];
     card.appendChild(el(`<div class="hm-body">
