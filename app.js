@@ -6776,7 +6776,7 @@ function profAlunos(){
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
         <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
         <div class="erp-c erp-c-pres-cell${(a.diasSem||0)>=7?' warn':''}">${presTx}</div>
-        <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+PROF_METAS.META_GRAU):'—'}</div>
+        <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+_metaAulasFaixa(a.faixa)):'—'}</div>
         <div class="erp-c erp-c-faixapres-cell" title="Presenças desde o início da faixa atual">${(a.aulasNaFaixa!=null)?safeTxt(a.aulasNaFaixa):'—'}</div>
         <div class="erp-c erp-c-aniv-cell" title="Data de aniversário">${a.nascData?safeTxt(String(a.nascData).slice(8,10)+'/'+String(a.nascData).slice(5,7)):'—'}</div>
         <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="Mandar WhatsApp">💬</button>
