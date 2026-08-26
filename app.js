@@ -2042,14 +2042,16 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  // v463/v465/v466: badge único e mutuamente exclusivo pra placeholder vazio
-  // (mais que 2 badges cortavam a subtitle no mobile). "Presença por Yama" já
-  // implica "não é seu diário", então nudge separado só pra via='app' vazio.
+  // v463/v465/v466: badge único e mutuamente exclusivo pra placeholder vazio.
+  // v475: badge sai do subtítulo (que era single-line com ellipsis e cortava
+  // "Presença por Yama") e vira chip separado abaixo — com estilo próprio.
   const _enriq = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
   const _isVazio = t._fonte==='servidor' && !_enriq;
   const _badge = !_isVazio ? '' : (t._via==='professor' ? 'Presença por Yama' : '👉 Complete o diário');
-  const _sub = [_hora, _badge, t.tecnica].filter(Boolean).join(' · ');
-  const _dateSub = [_hora, dataLabel(t), _badge].filter(Boolean).join(' · ');
+  const _badgeHTML = _badge ? `<span class="h-badge${t._via==='professor'?' h-badge-prof':''}">${safeTxt(_badge)}</span>` : '';
+  // v475: badge sai do subtítulo (renderizado abaixo como chip). Aqui só hora + info do treino.
+  const _sub = [_hora, t.tecnica].filter(Boolean).join(' · ');
+  const _dateSub = [_hora, dataLabel(t)].filter(Boolean).join(' · ');
   const sub = dateMode ? _dateSub : _sub;
   const right = dateMode ? feelBadge(t)
                          : `<div class="day">${diaRelativo(t.data)}</div>${feelBadge(t)}`;
@@ -2057,7 +2059,7 @@ function histItem(t, dateMode){
   const lesaoBadge = lesao ? `<span class="lesao-flag" title="Lesão ativa: ${safeAttr(lesao.parte)}" aria-label="Treino durante lesão: ${safeAttr(lesao.parte)}">🤕</span>` : '';
   const e = el(`<div class="h-item h-${t.tipo}${lesao?' has-lesao':''}">
     <div class="h-ic">${t.tipo==='tecnica'?'🥋':'⚡'}</div>
-    <div class="h-tx"><div class="t">${safeTxt(t.titulo)}${lesaoBadge}</div><div class="d">${safeTxt(sub)}</div></div>
+    <div class="h-tx"><div class="t">${safeTxt(t.titulo)}${lesaoBadge}</div><div class="d">${safeTxt(sub)}</div>${_badgeHTML}</div>
     <div class="h-right">${right}</div></div>`);
   return e;
 }

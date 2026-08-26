@@ -983,6 +983,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .h-tx{flex:1;min-width:0}
 .h-tx .t{font-size:14.5px;font-weight:700}
 .h-tx .d{font-size:12.5px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* v475: chip separado abaixo do subtítulo — placeholder do servidor sem enriquecimento.
+   .h-badge-prof (Presença por Yama) = accent vermelho; padrão (Complete o diário) = cinza. */
+.h-badge{display:inline-block;margin-top:6px;font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:99px;background:var(--field);color:var(--muted);letter-spacing:.2px}
+.h-badge.h-badge-prof{background:rgba(230,57,70,.12);color:var(--red-strong)}
+[data-theme="dark"] .h-badge.h-badge-prof{background:rgba(230,57,70,.22);color:#ff7a80}
 .h-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .h-right .day{font-size:12px;color:var(--muted);font-weight:700}
 .h-item .lesao-flag{font-size:13px;margin-left:6px;opacity:.9;vertical-align:-1px}
