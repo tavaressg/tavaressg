@@ -2042,13 +2042,19 @@ function histItem(t, dateMode){
   // v462: marca "presença da professora" no subtítulo quando o placeholder veio de
   // batch do professor (via='professor'). Ajuda o aluno a diferenciar sem abrir.
   const _hora = t.horaAula ? `🕐 ${t.horaAula}` : '';
-  // v463/v465/v466: badge único e mutuamente exclusivo pra placeholder vazio.
-  // v475: badge sai do subtítulo (que era single-line com ellipsis e cortava
-  // "Presença por Yama") e vira chip separado abaixo — com estilo próprio.
+  // v463-v476: badge pra placeholder vazio. v476: mesmo estilo/fonte do subtítulo
+  // (12.5px muted, sem accent vermelho, sem fundo). Duas linhas quando é presença
+  // do professor: identifica a origem + cutuca pra enriquecer.
   const _enriq = !!(t.tecnica || t.feel!=null || (t.det && (t.det.randori!=null || (t.det.renshu||[]).length || t.det.nota)));
   const _isVazio = t._fonte==='servidor' && !_enriq;
-  const _badge = !_isVazio ? '' : (t._via==='professor' ? 'Presença por Yama' : '👉 Complete o diário');
-  const _badgeHTML = _badge ? `<span class="h-badge${t._via==='professor'?' h-badge-prof':''}">${safeTxt(_badge)}</span>` : '';
+  let _badgeHTML = '';
+  if(_isVazio){
+    if(t._via==='professor'){
+      _badgeHTML = `<div class="h-badge">Presença por Yama<br><span class="h-badge-hint">Enriqueça o diário</span></div>`;
+    } else {
+      _badgeHTML = `<div class="h-badge">👉 Complete o diário</div>`;
+    }
+  }
   // v475: badge sai do subtítulo (renderizado abaixo como chip). Aqui só hora + info do treino.
   const _sub = [_hora, t.tecnica].filter(Boolean).join(' · ');
   const _dateSub = [_hora, dataLabel(t)].filter(Boolean).join(' · ');
