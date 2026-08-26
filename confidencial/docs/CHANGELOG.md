@@ -9,6 +9,52 @@
 
 ## Concluídas ✓
 
+### v474 — campo CEP: cursor conta dígitos e compensa o hífen (2026-08-26)
+
+Digitar o 6º dígito do CEP dava a sensação de que "comia" o dígito — a máscara
+inseria o hífen mas o cursor voltava pra posição 6 (entre "-" e "6") em vez de 7
+(depois do "6"). O próximo dígito entrava no lugar errado, embaralhando a ordem.
+
+Fix: cursor recalculado por contagem de DÍGITOS antes da posição original,
+compensando +1 quando passou de 5 (o hífen na posição 5). Resolve digitação,
+delete/backspace e paste (com ou sem hífen).
+
+### v473 — coluna GRAU na lista de Alunos usa meta por faixa (2026-08-26)
+
+Célula da linha mostrava `X/40` (`PROF_METAS.META_GRAU`) hard-coded, ignorando a
+config de meta por faixa (`academies.config.metaAulas[faixa]`). Se você configurou
+branca=30, azul=45, etc., aparecia "/40" mesmo assim.
+
+Fix: célula passa a chamar `_metaAulasFaixa(a.faixa)` — mesma função que a tela de
+Graduação já usa. Cai no default global (40) só quando não há config específica.
+Todas as outras vias que usam a meta (`_prontidaoGrad`, semáforo, aptidão) já
+estavam corretas — só a UI da célula estava fora do padrão.
+
+### v472 — remove "Ano de nascimento" do editar perfil e do cadastro (2026-08-26)
+
+Aluno tinha campo "Ano de nascimento" no editar perfil próprio (podia sobrescrever
+o que o professor cadastrou). Removido — nascimento vem do cadastro da academia,
+imutável pro aluno (mesmo padrão de nome completo).
+
+Cadastro do professor tinha DOIS campos redundantes: "Nascimento" (só ano) e
+"Data de nascimento completa" (dia/mês/ano). Removido o de ano — ele é derivado
+automaticamente do `slice(0,4)` da data completa. Menos redundância + telefone
+agora ocupa a linha inteira em vez do input pequeno de "1998" ao lado.
+
+### v471 — remove coluna PGTO da lista de Alunos + uniformiza espaçamento (2026-08-11)
+
+Lista de Alunos (v453 removeu "Dias sem") ainda tinha a coluna PGTO ocupando 74px
+no grid. Removida — mensalidade fora do escopo por ora. Junto:
+
+- **Colunas numéricas uniformes em 60px** — Grau, Faixa (presenças), Aniv.
+  antes tinham 52/52/52 misturado com 74. Agora todas 60, "Últ. presença"
+  92→96 pra caber "DD/MM/AA" folgado.
+- **`gap: 8→12px`** — mais respiro entre colunas. A percepção de "espaçamento
+  desigual" vinha de larguras adjacentes muito diferentes (88, 52, 74) fazendo
+  alguns pares parecerem colados.
+
+Cleanup: `payMap/cls/txt` viraram código morto após remoção da coluna, deletados.
+
 ### v470 — heatmap "Ano": mantém só o anel no dia 1, remove o separador (2026-08-11)
 
 Após teste visual, o separador vertical entre meses (v469-A) deixou a leitura pesada —
