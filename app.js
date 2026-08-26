@@ -2050,7 +2050,8 @@ function histItem(t, dateMode){
   let _badgeHTML = '';
   if(_isVazio){
     if(t._via==='professor'){
-      _badgeHTML = `<div class="h-badge">Presença por Yama<br><span class="h-badge-hint">Enriqueça o diário</span></div>`;
+      // v477: mesma linha separada por "·"; sem nowrap, o browser quebra sozinho quando não couber.
+      _badgeHTML = `<div class="h-badge">Presença por Yama · <span class="h-badge-hint">Enriqueça o diário</span></div>`;
     } else {
       _badgeHTML = `<div class="h-badge">👉 Complete o diário</div>`;
     }
