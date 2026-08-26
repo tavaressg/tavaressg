@@ -120,6 +120,27 @@ function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('sh
 // ---- ViaCEP: auto-preenche endereço a partir do CEP (API pública, sem chave) ----
 // Uso: bindViaCEP(cepInput, {logr, bairro, cidade, uf, num}) — busca no blur/enter.
 function _maskCEP(v){ const d=String(v||'').replace(/\D/g,'').slice(0,8); return d.length>5?d.slice(0,5)+'-'+d.slice(5):d; }
+// v479: máscara CPF (XXX.XXX.XXX-XX). Mesma lógica do CEP: 11 dígitos, insere . e -.
+function _maskCPF(v){
+  const d = String(v||'').replace(/\D/g,'').slice(0,11);
+  if(d.length <= 3) return d;
+  if(d.length <= 6) return d.slice(0,3)+'.'+d.slice(3);
+  if(d.length <= 9) return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6);
+  return d.slice(0,3)+'.'+d.slice(3,6)+'.'+d.slice(6,9)+'-'+d.slice(9);
+}
+// Bind da máscara CPF num input — recalcula cursor por # de dígitos (mesmo padrão do CEP v474).
+function bindCPF(inp){
+  if(!inp) return;
+  inp.addEventListener('input', ()=>{
+    const raw = inp.value;
+    const digitsBefore = raw.slice(0, inp.selectionStart).replace(/\D/g,'').length;
+    inp.value = _maskCPF(raw);
+    // Contagem de separadores adicionados antes do cursor: 1 se >3, 2 se >6, 3 se >9.
+    const seps = (digitsBefore>3?1:0) + (digitsBefore>6?1:0) + (digitsBefore>9?1:0);
+    const newPos = digitsBefore + seps;
+    try{ inp.setSelectionRange(newPos, newPos); }catch(_){}
+  });
+}
 // Campo de data em pt-BR sem picker do OS. Guarda no atributo data-iso pra facilitar leitura.
 // Uso: dateBRField(id, isoValue, {placeholder?}) → HTML string; dateBRRead(el) → 'YYYY-MM-DD' ou ''.
 function _isoToBR(iso){ if(!iso||typeof iso!=='string') return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[3]}/${m[2]}/${m[1]}`:''; }
@@ -7219,6 +7240,8 @@ function renderCadastroAluno(){
       <input class="inp" id="ca-tel" type="tel" inputmode="tel" placeholder="(31) 99999-9999">
       <label class="flbl" style="margin-top:12px">Data de nascimento</label>
       ${dateBRField('ca-nascdata','')}
+      <label class="flbl" style="margin-top:12px">CPF <span class="ca-opt">(opcional)</span></label>
+      <input class="inp" id="ca-cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
       <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(opcional — o aluno pode definir depois)</span></label>
       <input class="inp" id="ca-apelido" placeholder="Ex: Tavares">
     </div>
@@ -7247,6 +7270,8 @@ function renderCadastroAluno(){
         <div style="flex:1"><label class="flbl">Telefone</label><input class="inp" id="ca-rtel" type="tel" inputmode="tel" placeholder="(31) 99999-9999"></div>
         <div style="width:130px"><label class="flbl">Parentesco</label><input class="inp" id="ca-rpar" placeholder="Mãe, cônjuge…"></div>
       </div>
+      <label class="flbl" style="margin-top:12px">CPF do responsável <span class="ca-opt">(opcional)</span></label>
+      <input class="inp" id="ca-rcpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
     </div>
 
     <div class="cad-nav">
@@ -7272,6 +7297,8 @@ function renderCadastroAluno(){
     num:    sheet.querySelector('#ca-num'),
   });
   bindDateBR(sheet);
+  bindCPF(sheet.querySelector('#ca-cpf'));
+  bindCPF(sheet.querySelector('#ca-rcpf'));
   // wizard: uma etapa por vez (Dados → Endereço → Responsável → Graduação)
   const stepsEl=sheet.querySelector('#ca-steps');
   const backBtn=sheet.querySelector('#ca-back');
@@ -7313,6 +7340,9 @@ function renderCadastroAluno(){
     const telefone=_normTelBR(val('ca-tel'));
     const cep=val('ca-cep'), logradouro=val('ca-logr'), numero=val('ca-num'), bairro=val('ca-bairro'), cidade=val('ca-cidade'), uf=val('ca-uf').toUpperCase();
     const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
+    // v479: CPF do aluno + CPF do responsável (opcionais). Guarda só dígitos.
+    const cpf = val('ca-cpf').replace(/\D/g,'');
+    const resp_cpf = val('ca-rcpf').replace(/\D/g,'');
     // v296: início = hoje, sem obs, faixa/grau default (branca/0). Ajusta na ficha.
     const data_inicio=HOJE_ISO, observacoes='';
     // v437: senha do cadastro individual = senha padrão da academia. Antes gerava
@@ -7321,7 +7351,8 @@ function renderCadastroAluno(){
     const senha=_senhaPadrao()||_gerarSenhaProvisoria();
     const dados={ nome_completo:nome, apelido, email, faixa:selFaixa, graus:selGraus, nascimento, desde:HOJE_ISO.slice(0,7),
       telefone, cep, logradouro, numero, bairro, cidade, uf,
-      resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes, senha };
+      resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes, senha,
+      cpf, resp_cpf };
     if(!DEMO && typeof sbProf!=='undefined'){
       try{ const r=await sbProf.criarAluno(dados);
         const novoId=(r&&(r.user_id||r.id))||null;
@@ -7597,9 +7628,11 @@ function _erpFicha(a, c, paint, refresh){
       linha('Apelido', a.nm||'') +
       linha('Nascimento', nascComp) +
       linha('Telefone', c?c.telefone:'') +
+      linha('CPF', c?_maskCPF(c.cpf||''):'') +
       linha('E-mail', c?c.email:'') +
       linha('Endereço', endTxt.trim().replace(/^·\s*/,'')) +
       linha('Responsável', r.nome?`${r.nome}${r.parentesco?' ('+r.parentesco+')':''}${r.telefone?' · '+r.telefone:''}`:'') +
+      linha('CPF do responsável', _maskCPF(r.cpf||'')) +
       linha('Início na academia', _inicioAcademia(a) ? _isoToBR(_inicioAcademia(a)) : '') +
       linha('Recebe mensagens', c ? (c.aceitaContato?'Sim':'Não') : '') +
       `<div class="erp-fld"><label>Turmas</label><div class="erp-fld-v">${turmasHtml}</div></div>` +
@@ -7621,6 +7654,7 @@ function _erpFicha(a, c, paint, refresh){
     // criavam divergência (ano 1999 com data 23/03/2001 e ninguém sabia qual valia).
     dateInp('fc-nascdata','Data de nascimento', a.nascData||'') +
     inp('fc-tel','Telefone', c?c.telefone:'', 'tel', '(11) 99999-0000') +
+    inp('fc-cpf','CPF', c?_maskCPF(c.cpf||''):'', 'text', '000.000.000-00') +
     inp('fc-email','E-mail', c?c.email:'', 'email') +
     inp('fc-cep','CEP', e.cep, 'text', '00000-000') +
     inp('fc-log','Logradouro', e.logradouro) +
@@ -7631,6 +7665,7 @@ function _erpFicha(a, c, paint, refresh){
     inp('fc-rnm','Responsável (nome)', r.nome) +
     inp('fc-rtel','Responsável (telefone)', r.telefone, 'tel') +
     inp('fc-rpar','Responsável (parentesco)', r.parentesco, 'text', 'Mãe, cônjuge…') +
+    inp('fc-rcpf','Responsável (CPF)', _maskCPF(r.cpf||''), 'text', '000.000.000-00') +
     // v344: "Início na academia" saiu da ficha — a fonte única é o evento `inicio`
     // da linha do tempo de graduação (aba Graduação → + Novo evento).
     `<div class="erp-fld"><label>Início na academia</label><div class="erp-fld-v">${
@@ -7651,6 +7686,8 @@ function _erpFicha(a, c, paint, refresh){
     logr: form.querySelector('#fc-log'), bairro: form.querySelector('#fc-bairro'),
     cidade: form.querySelector('#fc-cid'), uf: form.querySelector('#fc-uf'), num: form.querySelector('#fc-num'),
   });
+  bindCPF(form.querySelector('#fc-cpf'));
+  bindCPF(form.querySelector('#fc-rcpf'));
   box.querySelector('#fc-toggle').onclick=()=>{ DB._alunoFichaEdit=false; paint(); };
   box.querySelector('#fc-save').onclick=()=>{
     const g=(id)=> form.querySelector('#'+id).value.trim();
@@ -7664,8 +7701,9 @@ function _erpFicha(a, c, paint, refresh){
     a.cad.nomeCompleto = nomeCompleto;
     a.cad.nascimento = nascimento;
     a.cad.telefone = _normTelBR(g('fc-tel')); a.cad.email = g('fc-email');
+    a.cad.cpf = g('fc-cpf').replace(/\D/g,'');
     a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf').toUpperCase() };
-    a.cad.responsavel = { nome:g('fc-rnm'), telefone:_normTelBR(g('fc-rtel')), parentesco:g('fc-rpar') };
+    a.cad.responsavel = { nome:g('fc-rnm'), telefone:_normTelBR(g('fc-rtel')), parentesco:g('fc-rpar'), cpf:g('fc-rcpf').replace(/\D/g,'') };
     a.cad.dataInicio = dataInicio; a.cad.obs = g('fc-obs');
     a.cad.aceitaContato = form.querySelector('#fc-contato').value === '1';
     if(apelidoNovo){ a.nm = apelidoNovo; a.ini = _iniciaisDe(apelidoNovo); }
@@ -8085,9 +8123,9 @@ function _profExcluirAlunoSheet(a, refresh){
 // mapeia a ficha (cad) para as colunas snake_case do profiles (backend)
 function _cadToDB(cad){
   const e=cad.endereco||{}, r=cad.responsavel||{};
-  return { telefone:cad.telefone, cep:e.cep, logradouro:e.logradouro, numero:e.numero, bairro:e.bairro, cidade:e.cidade, uf:e.uf,
-    resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, data_inicio:cad.dataInicio||null, observacoes:cad.obs,
-    aceita_contato:!!cad.aceitaContato };
+  return { telefone:cad.telefone, cpf:cad.cpf||null, cep:e.cep, logradouro:e.logradouro, numero:e.numero, bairro:e.bairro, cidade:e.cidade, uf:e.uf,
+    resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, resp_cpf:r.cpf||null,
+    data_inicio:cad.dataInicio||null, observacoes:cad.obs, aceita_contato:!!cad.aceitaContato };
 }
 /* ============================================================
    PROFESSOR — Relatórios + Inteligência (Fase 1 / §7.1)
@@ -11406,7 +11444,7 @@ function abrirPolitica(){
       <h4>Beta</h4>
       <p>App em teste: pode ter falhas e mudanças. Sem garantias. O backup exportável continua disponível como segurança extra.</p>
       <h4>Governança</h4>
-      <p>Controlador: <b>Academia Yama Jiu-Jitsu</b>. Operador: Supabase (hospedagem do banco de dados). Coletamos o mínimo (sem CPF ou dados de saúde além do que você registrar em Lesões). Não há decisões automatizadas sobre você. Os dados ficam até você apagar.</p>
+      <p>Controlador: <b>Academia Yama Jiu-Jitsu</b>. Operador: Supabase (hospedagem do banco de dados). Coletamos o mínimo necessário: dados de contato, CPF (para contrato/recibo — opcional), e o que você registrar em Lesões. Não há decisões automatizadas sobre você. Os dados ficam até você apagar.</p>
       <h4>Contato</h4>
       <p>Dúvidas ou exclusão de dados: fale com a equipe pelo botão <b>Enviar feedback</b> em Config.</p>
     </div>
