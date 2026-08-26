@@ -9,6 +9,54 @@
 
 ## Concluídas ✓
 
+### v479 + migration 0039 — CPF do aluno e do responsável (2026-08-26)
+
+A 0001 documentou "sem CPF/RG (LGPD: coletamos o mínimo)". Decisão revertida pelo
+dono em 2026-08-26 — academia precisa do CPF do aluno e do responsável (contrato,
+recibo). Colunas novas em `profiles`: `cpf` + `resp_cpf` (text, nullable, sem CHECK
+de formato — aceita `999.888.777-66`, `99988877766` ou vazio; app grava só dígitos).
+
+**No app:**
+- Cadastro do aluno — 2 campos opcionais (`CPF` no passo 1, `CPF do responsável`
+  no passo 3), com máscara `XXX.XXX.XXX-XX` via `bindCPF()` (cursor conta dígitos,
+  compensa separadores, mesmo padrão da v474 do CEP).
+- Ficha (visualização e edição) — duas linhas novas com CPF formatado.
+- Edge Function `create-student` aceita `cpf`/`resp_cpf` no body e insere na profiles.
+- `_cadToDB` e `cadFromProfile` propagam os campos entre client e server.
+- Aviso de privacidade atualizado: "CPF (para contrato/recibo — opcional)" no lugar
+  de "sem CPF".
+
+### v476-v478 — badge "Presença por Yama" sai do subtítulo e vira duas linhas suaves (2026-08-11)
+
+Iterações no visual do badge do placeholder de presença marcada pela professora:
+
+- **v475** — badge (era dentro do subtítulo, single-line com ellipsis) vira chip
+  separado abaixo do subtítulo, com background vermelho suave (`h-badge-prof`).
+- **v476-v477** — fonte/cor viram idênticas ao subtítulo (12.5px muted), sem pill,
+  sem accent. Adicionada segunda linha "Enriqueça o diário" pra cutucar o aluno.
+- **v478** — as duas linhas viram uma só separada por `·`, mas sem `white-space:
+  nowrap` (diferente do subtítulo) — browser quebra sozinho quando não coube,
+  sem risco de corte. Cor uniforme (`h-badge-hint opacity` removido).
+
+Placeholder self-checkin (`via='app'` vazio) continua com uma única linha "👉 Complete o diário".
+
+### v476 — editar treino: técnicas em foco viram counters direto + "rolê" → "randori" (2026-08-11)
+
+Ao editar um placeholder e marcar "Fiz randori", as técnicas em foco apareciam como
+lista clicável "toque para incluir" — aluno tinha que tocar em cada uma antes de
+poder registrar acertos/erros. Agora **todas as técnicas em foco entram automaticamente
+com counters** (✓0 ✗0 + botões +/-); aluno só ajusta o que fez em cada. Técnicas sem
+tentativa (t=0) são filtradas no save — não polui o treino salvo.
+
+Junto: "rolê" trocado por "randori" em 4 lugares (editar treino, retro, detalhe do
+treino, canvas do compartilhar) — nomenclatura consistente com o resto do app.
+
+### v475 — chip separado abaixo do subtítulo (evita corte de "Presença por Yama") (2026-08-11)
+
+Iteração intermediária: badge sai do subtítulo (single-line com ellipsis) e vira
+chip separado abaixo, com background vermelho suave. Substituída pela v476-v478
+depois que o dono pediu visual mais discreto (mesma fonte/cor do subtítulo).
+
 ### v474 — campo CEP: cursor conta dígitos e compensa o hífen (2026-08-26)
 
 Digitar o 6º dígito do CEP dava a sensação de que "comia" o dígito — a máscara
