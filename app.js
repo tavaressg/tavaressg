@@ -1472,7 +1472,7 @@ function registroBody(){
         <div class="rz-head"><span class="rz-lab">Em treino · ${focos.length}</span><span class="rz-avg">${avg}% acerto médio</span></div>
         ${focos.map(t=>{const{p}=totaisTec(t);return `<div class="rz-item"><span class="rz-nm">${safeTxt(t.jp)}</span><div class="rz-bar"><span style="width:${p}%;background:${corPct(p)}"></span></div><span class="rz-pct" style="color:${corPct(p)}">${p}%</span></div>`;}).join('')}
       </div>`));
-      wrap.appendChild(el(`<div class="fsec-title"><span class="ico">🎯</span> O que deu certo no rolê?</div>`));
+      wrap.appendChild(el(`<div class="fsec-title"><span class="ico">🎯</span> O que deu certo no randori?</div>`));
       focos.forEach(t=> wrap.appendChild(tecnicaFocoCard(t)));
     } else {
       wrap.appendChild(el(`<div class="rs-empty-foco">Você ainda não tem técnicas em foco.<br>Escolha as que vai treinar para acompanhar sua evolução.</div>`));
@@ -2631,9 +2631,9 @@ function renderTreinoDetalhe(){
     if (det.rounds) metaBits.push(`🔄 ${det.rounds} round${det.rounds>1?'s':''}`);
     if (det.intensidade) metaBits.push(`💪 ${INTENS[det.intensidade]||det.intensidade}`);
     if (metaBits.length) body.appendChild(el(`<div class="det-meta">${metaBits.map(b=>`<span class="dm-pill">${b}</span>`).join('')}</div>`));
-    // Renshū do rolê: acerto por técnica praticada
+    // Renshū do randori: acerto por técnica praticada
     if (det.renshu && det.renshu.length){
-      body.appendChild(el(`<div class="fsec-title" style="margin-top:6px"><span class="ico">🎯</span> No rolê de hoje</div>`));
+      body.appendChild(el(`<div class="fsec-title" style="margin-top:6px"><span class="ico">🎯</span> No randori de hoje</div>`));
       const rl = el(`<div class="det-renshu" style="padding:0 20px"></div>`);
       det.renshu.forEach(x=>{ const p=_pctAT(x.a,x.t);
         rl.appendChild(el(`<div class="dr-item"><span class="dr-nm">${safeTxt(x.jp)}</span>
@@ -2703,8 +2703,15 @@ function abrirEditarTreino(t){
       b.onclick=()=>{ randori=v; rebuildBody(); }; randSeg.appendChild(b); });
     bodyEl.appendChild(randSeg);
     if(randori===true){
+      // v475: se ainda não tem nenhum renshū registrado, pré-popula com as técnicas em foco
+      // (a=0, t=0). Aluno já vê os counters de acertos/erros por técnica — muito mais rápido
+      // que ter que tocar em cada uma pra "incluir". Técnicas sem tentativas (t=0) são
+      // removidas no save — aluno não precisa "cancelar" a que não praticou.
+      if(!renshuEdits.length){
+        focoTecnicas().forEach(ft=> renshuEdits.push({id:ft.id||ft.jp, jp:ft.jp, a:0, t:0}));
+      }
       if(renshuEdits.length){
-        bodyEl.appendChild(el(`<div class="fsec-title" style="margin-top:12px"><span class="ico">🎯</span> Renshū — acertos no rolê</div>`));
+        bodyEl.appendChild(el(`<div class="fsec-title" style="margin-top:12px"><span class="ico">🎯</span> Renshū — acertos no randori</div>`));
         renshuEdits.forEach(r=>{
           const errou = r.t - r.a;
           const row = el(`<div class="et-renshu-row">
@@ -2726,18 +2733,6 @@ function abrirEditarTreino(t){
           row.querySelector('[data-d="e-"]').onclick=()=>{ if(r.t>r.a) r.t--; rebuildBody(); };
           bodyEl.appendChild(row);
         });
-      } else {
-        const focos = focoTecnicas();
-        if(focos.length){
-          bodyEl.appendChild(el(`<div class="fsec-title" style="margin-top:12px"><span class="ico">🎯</span> Adicionar Renshū retroativo</div>`));
-          bodyEl.appendChild(el(`<div class="sheet-desc" style="margin:0 0 8px;font-size:12px">Técnicas em foco — toque para incluir no treino</div>`));
-          focos.forEach(ft=>{
-            const btn = el(`<button class="rs-pick" style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px;margin-bottom:4px;border:1.5px solid var(--line);border-radius:10px;background:var(--field);cursor:pointer">
-              <span style="font-size:13px;font-weight:700">${safeTxt(ft.jp)}</span><span style="color:var(--good);font-weight:800">＋</span></button>`);
-            btn.onclick=()=>{ renshuEdits.push({id:ft.id||ft.jp, jp:ft.jp, a:0, t:0}); rebuildBody(); };
-            bodyEl.appendChild(btn);
-          });
-        }
       }
     }
     bodyEl.appendChild(el(`<label class="flbl" style="margin-top:14px">📝 Anotações</label>`));
@@ -2761,7 +2756,8 @@ function abrirEditarTreino(t){
     const renshuBefore = t.det.renshu || [];   // M2: base p/ o delta dos agregados
     t.det.randori=randori;
     t.det.nota=sheet.querySelector('#et-nota').value.trim();
-    if(randori && renshuEdits.length) t.det.renshu=renshuEdits;
+    // v475: filtra técnicas sem tentativa (t=0) — aluno não praticou aquela, some do treino.
+    if(randori && renshuEdits.length) t.det.renshu = renshuEdits.filter(r=> (r.t||0) > 0);
     else if(!randori) t.det.renshu=[];
     _applyRenshuDelta(t, renshuBefore, t.det.renshu||[]);   // M2: técnicas acompanham a edição
     const reps = (t.det.renshu||[]);
@@ -2859,7 +2855,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg){
     ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.font=`800 22px ${SF}`; ctx.fillText(t.titulo,ix,cy-24);
     if(acerto!=null){
       ctx.fillStyle=RED; ctx.font=`900 140px ${SF}`; ctx.fillText(acerto+'%',ix,cy+118);
-      ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`800 18px ${SF}`; ctx.fillText('de acerto no rolê',ix,cy+150);
+      ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`800 18px ${SF}`; ctx.fillText('de acerto no randori',ix,cy+150);
     } else {
       ctx.fillStyle=RED; ctx.font=`900 64px ${SF}`; ctx.fillText(det.randori?'RANDORI':'PRESENÇA',ix,cy+64);
       ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`700 17px ${SF}`; ctx.fillText('no tatame',ix,cy+94);
