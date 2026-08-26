@@ -143,7 +143,18 @@ function bindDateBR(root){
 function dateBRRead(elem){ return _brToIso(elem?elem.value:''); }
 function bindViaCEP(cepInp, fields){
   if(!cepInp) return;
-  cepInp.addEventListener('input', ()=>{ const p=cepInp.selectionStart; cepInp.value=_maskCEP(cepInp.value); try{ cepInp.setSelectionRange(p,p); }catch(_){}});
+  cepInp.addEventListener('input', ()=>{
+    // v474: cursor conta DÍGITOS antes da posição original — depois soma +1 se
+    // passou de 5 (o hífen inserido). Sem isso, digitar o 6º dígito deixava o
+    // cursor entre "-" e "6" (posição 6) em vez de após o "6" (posição 7), e o
+    // próximo dígito era inserido no lugar errado, dando a sensação de que
+    // o dígito foi comido/embaralhado.
+    const raw = cepInp.value;
+    const digitsBefore = raw.slice(0, cepInp.selectionStart).replace(/\D/g,'').length;
+    cepInp.value = _maskCEP(raw);
+    const newPos = digitsBefore > 5 ? digitsBefore + 1 : digitsBefore;
+    try{ cepInp.setSelectionRange(newPos, newPos); }catch(_){}
+  });
   const doFetch = async ()=>{
     const cep = cepInp.value.replace(/\D/g,'');
     if(cep.length !== 8) return;
