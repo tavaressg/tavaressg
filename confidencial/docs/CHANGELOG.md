@@ -9,6 +9,116 @@
 
 ## Concluídas ✓
 
+### v481 + migration 0042 — Financeiro V2: planos, contratos, cobranças, despesas (2026-08-27)
+
+Menu Financeiro completo do professor. Reforma grande da tela `profFinanceiro()`
+com 4 sub-abas — **Cobranças · Despesas · Planos · Contratos** — e 6 tabelas
+novas no banco. Só visão do professor (RLS `is_professor()` em tudo — aluno não
+lê financeiro). ADR travado nesta fase: **o app NÃO faz transação financeira**
+(sem gateway, sem cartão salvo, sem PIX real). O que existia no Kanri via
+Stripe ("Assinaturas Recorrentes") sai; o app registra o que aconteceu fora
+dele — professor marca "aluno pagou R$ 220 em dinheiro na aula" e pronto.
+Reduz raio de estrago, elimina PCI-DSS. Schema já preparado pra integrar gateway
+depois (V4) — colunas `provider/provider_ref/link_pagamento/payload_webhook` em
+`mensalidades` ficam null até alguém ligar Asaas/InfinitePay/MP/Stripe.
+
+**Novo modelo de dados (0042):**
+- `planos` — catálogo por academia (Adulto/Mensal · R$ 220, Kids/Anual · R$ 160,
+  PLANO FAMÍLIA). Aluno tem FK. Mudar preço em massa = 1 clique.
+- `aluno_plano` — matrícula ativa (1 por aluno) com `valor_negociado` sobrescreve
+  valor do plano em bolsa/desconto.
+- `contratos` — documento de prazo (planos anuais). Status
+  `aguardando_aceite → ativo → expirado|cancelado`. Numeração sequencial por
+  academia (trigger `contratos_set_numero` com advisory lock). Aceite manual V1
+  (professor marca quando aluno entrega PDF assinado via gov.br); schema aceita
+  provedor futuro (`aceite_provedor='govbr'|'clicksign'|'d4sign'`).
+- `categorias_financeiro` — "Tipo de Lançamento" (Mensalidade, Uniforme,
+  Aluguel…). **Sem seed** — criação inline pela tela.
+- `mensalidades` — expandida com `data_pagamento`, `forma_pagamento`, `marcado_por/em`,
+  `categoria_id`, `contrato_id`, **`pedido_id`** (pedido da Loja concluído sem
+  pagamento na hora vira cobrança pendente), + `provider/provider_ref/link_pagamento/payload_webhook`
+  pro V4. Status migrado: `ok→pago`, `soon→pendente`, `late→atrasado`. Novo
+  CHECK: status='pago' exige `data_pagamento`.
+- `despesas` + `despesas_recorrentes` — IPTU 12x, seguro anual etc.
+  Cadastro-mãe + parcelas geradas mensalmente pelo cron. Idempotência via
+  UNIQUE parcial `(despesa_recorrente_id, parcela_num)`.
+
+**Cron diário `financeiro_diario()`** (`0 3 * * *`) faz 5 tarefas:
+1. Expira contratos vencidos ontem (`status='ativo' AND fim < today` → `expirado`)
+2. Se dia 1: gera cobranças mensais pra cada aluno com `aluno_plano` ativo
+3. Se dia 1: gera parcela do mês de cada `despesa_recorrente` ativa
+4. Push + sino 30 dias antes de contrato vencer (`aviso_30d_em` idempotência)
+5. Push + sino no dia do expirar (`aviso_expirado_em` idempotência)
+
+Plano anual gera 12 linhas mensais (cron roda 12x/ano) — contrato = compromisso
+legal, cobrança segue mensal. Aluno isento gera linha com status `isento` (mantém
+consistência no histórico).
+
+**Wellhub/Gympass/Totalpass:** 2 planos no catálogo — "Wellhub" (isento, R$ 0,
+não gera cobrança) e "Wellhub + Taxa" (valor da taxa complementar cobrada do
+aluno). Cron gera cobrança só do híbrido. Categorias `Taxa Wellhub` (receita do
+aluno) e `Receita Wellhub` (repasse mensal em lump) somam no KPI. Rendimento
+total por aluno híbrido (Taxa + share proporcional do lump) fica pra V5.
+
+**Wellhub API, Clicksign/D4Sign, gov.br API, gateway V4** todos adiados; schema
+preparado pra qualquer um sem migration nova.
+
+**Telas do professor:**
+- `Financeiro › Cobranças` — filtros Vencidas/A vencer/Pagas/Isentas; sheet
+  "Marcar paga" com data + forma **obrigatórias**; badge 🛍 pra pedidos.
+- `Financeiro › Despesas` — filtros A pagar/Pagas; "+ Nova despesa" com forma
+  inline; "+ Nova categoria" no dropdown.
+- `Financeiro › Planos` — CRUD do catálogo (nome, frequência, valor, dia venc,
+  forma padrão, exige contrato, ativo).
+- `Financeiro › Contratos` — filtros Ativos/Aguardando/Expirados/Cancelados;
+  banner ⚠️ topo com contagem de vencendo em 30d + expirados; badge "vence em Xd"
+  no card; "Marcar aceite" (manual V1) e "Cancelar contrato".
+- Ficha do aluno ganha bloco **Financeiro** — plano atual + últimas 3 cobranças
+  + botão "Trocar plano".
+
+**Compat:** `setMensalidade` (legado) traduz `ok→pago` (+data_pagamento=hoje),
+`soon→pendente`, `late→atrasado`. `mapAluno` no adapter traduz status novo→antigo
+(`a.pago === 'late'` continua funcionando em outras telas).
+
+**Migração dos 114 alunos:** manual — professor abre a ficha e define plano em
+cada. Cron pula alunos sem `aluno_plano` (sem risco de cobrança errada).
+
+### v480 + migration 0041 — "aulas p/ próxima faixa" real + VAPID novo (2026-08-27)
+
+Dois bugs correlatos no card **Progresso por aulas** da Jornada.
+
+**Bug 1 — RPC 0034 lia crédito no evento errado.** A 0029 grava
+`aulas_credito_grau/faixa` no evento MAIS RECENTE do aluno na faixa atual, mas
+a `aulas_por_aluno()` procurava no evento com `data = ref_faixa` (ou
+`ref_grau`). Quando o crédito ficou num evento posterior à âncora, a RPC
+devolvia 0 e a tela inflava o "restantes". Caso real do Tavares (azul 1º grau
+importado do Kanri): evento âncora da faixa em 2025-11-29 com crédito 0, e
+todo o crédito de 105 aulas gravado no evento de grau em 2026-02-02. Card
+mostrava ~144 aulas p/ próxima faixa, real era ~447. Migration `0041`:
+crédito passa a vir do último evento do aluno na faixa
+(`order by data desc limit 1`) — bate com onde a 0029 grava.
+
+**Bug 2 — `me.aulasGraduacao` era 160 hardcoded pra todas as faixas.**
+Ignorava `metaAulas` da academia e quantos graus faltam até virar de faixa.
+`aulasStats()` passa a calcular `restantes = (maxGraus − graus + 1) × meta − atual` —
+aluno no 1º grau da azul (Yama: 130 aulas/grau, 4 graus) vê 447 em vez de 39.
+Junto: card mostra projeção **"~X anos/meses no ritmo"** (`restantes / paceSemanal / 52`)
+pra dar significado ao "2,5/sem" que sozinho era um número solto.
+
+Cleanup: `refFaixa`/`evFaixa`/`creditoFaixa`/`naFaixa` no fallback local
+saem — o cálculo por graus×meta não precisa contar aulas na faixa.
+
+**VAPID novo (mesmo dia):** push de teste voltava `sent:N, removed:0` mas
+nenhum aparelho recebia — 3 pessoas, 5 aparelhos, todos silenciosos. Descoberto
+que a chave pública no `supabase.js:1421` e a `VAPID_PUBLIC_KEY` do secret da
+Edge não formavam par válido (foram geradas em rodadas separadas em 2026-07-26).
+Apple aceitava o payload assinado pela privada Y mas o SW rejeitava
+silenciosamente porque a sub tinha sido feita com pública X. Novo par gerado
+com `web-push generate-vapid-keys`, `supabase.js` atualizado, secrets
+re-setados, Edge re-deployada, `push_subscriptions` limpo (todas as 5 subs
+antigas ancoradas na chave velha — impossíveis de entregar). Todo aparelho
+precisa reativar avisos.
+
 ### v479 + migration 0039 — CPF do aluno e do responsável (2026-08-26)
 
 A 0001 documentou "sem CPF/RG (LGPD: coletamos o mínimo)". Decisão revertida pelo

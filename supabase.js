@@ -645,7 +645,17 @@
       nascimento: p.nascimento ?? (p.nascimento_data ? +String(p.nascimento_data).slice(0, 4) : null),
       nascData: p.nascimento_data || null,   // data completa (opcional, migration 0002) — aniversariantes
       pres: presHoraById[p.id] || null,
-      pago: mens ? mens.status : 'ok',
+      // v481 (0042): status novo é 'pendente'|'pago'|'atrasado'|'isento'|'cancelado'.
+      // O resto do app espera 'ok'|'soon'|'late' — traduz aqui, sem quebrar callers.
+      // 'pendente' pode ser soon OU late dependendo do vencimento — decide pela data.
+      pago: mens
+        ? (mens.status === 'pago' || mens.status === 'isento' || mens.status === 'cancelado' ? 'ok'
+           : mens.status === 'atrasado' ? 'late'
+           : mens.status === 'pendente' ? (mens.venc && mens.venc < HOJE() ? 'late' : 'soon')
+           // status legado ('ok'/'soon'/'late') ainda pode aparecer entre boot e primeiro getAlunos
+           : (mens.status === 'ok' || mens.status === 'soon' || mens.status === 'late' ? mens.status : 'ok'))
+        : 'ok',
+      mensStatus: mens ? mens.status : null,   // status cru v2 (pra telas novas do Financeiro)
       mensValor: mens ? Number(mens.valor) : 0,
       mensVenc: mens && mens.venc ? mens.venc.slice(8, 10) + '/' + mens.venc.slice(5, 7) : '—',
       desde: p.desde || '—',
@@ -1001,7 +1011,14 @@
     }),
 
     setMensalidade: wrap(async (id, status) => {
-      const { error } = await SB.from('mensalidades').upsert({ user_id: id, status, mes: mesAtual() }, { onConflict: 'user_id,mes' });
+      // v481 (0042): 'ok'|'soon'|'late' viraram legado. Traduz p/ o CHECK novo.
+      // Callers antigos passavam 'ok' pra "está pago" — o CHECK do 'pago' exige
+      // data_pagamento, então força hoje quando vier 'ok'.
+      const map = { ok: 'pago', soon: 'pendente', late: 'atrasado' };
+      const st = map[status] || status;
+      const row = { user_id: id, status: st, mes: mesAtual() };
+      if (st === 'pago') row.data_pagamento = HOJE();
+      const { error } = await SB.from('mensalidades').upsert(row, { onConflict: 'user_id,mes' });
       if (error) throw error;
     }),
 
@@ -1327,6 +1344,268 @@
       if (error) throw error;
       return data;
     }),
+
+    /* ============================================================
+       Financeiro V2 (0042) — Planos · Contratos · Cobranças · Despesas
+       Todas RLS is_professor() + academy_id = my_academy_id().
+       ============================================================ */
+
+    // -- Planos (catálogo) --
+    getPlanos: wrap(async () => {
+      const { data, error } = await SB.from('planos')
+        .select('*').order('ordem').order('nome');
+      if (error) throw error;
+      return data || [];
+    }),
+    salvarPlano: wrap(async (p) => {
+      const acad = await myAcademyId();
+      const row = {
+        academy_id: acad,
+        nome: p.nome, descricao: p.descricao || null,
+        frequencia: p.frequencia, valor: p.valor || 0,
+        forma_padrao: p.forma_padrao || null,
+        dia_vencimento: p.dia_vencimento || 10,
+        tem_contrato: !!p.tem_contrato,
+        ativo: p.ativo !== false,
+        ordem: p.ordem || 0,
+      };
+      if (p.id) {
+        const { error } = await SB.from('planos').update(row).eq('id', p.id);
+        if (error) throw error;
+        return p.id;
+      }
+      const { data, error } = await SB.from('planos').insert(row).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }),
+
+    // -- Matrícula (aluno_plano) --
+    getAlunoPlano: wrap(async (userId) => {
+      const { data, error } = await SB.from('aluno_plano')
+        .select('*, planos(*)').eq('user_id', userId).maybeSingle();
+      if (error) throw error;
+      return data;
+    }),
+    salvarAlunoPlano: wrap(async (ap) => {
+      const u = (await SB.auth.getUser()).data.user;
+      const row = {
+        user_id: ap.user_id,
+        plano_id: ap.plano_id,
+        valor_negociado: ap.valor_negociado != null ? Number(ap.valor_negociado) : null,
+        isento: !!ap.isento,
+        isento_motivo: ap.isento_motivo || null,
+        inicio: ap.inicio || HOJE(),
+        fim: ap.fim || null,
+        obs: ap.obs || null,
+        atualizado_em: new Date().toISOString(),
+        atualizado_por: u ? u.id : null,
+      };
+      const { error } = await SB.from('aluno_plano').upsert(row, { onConflict: 'user_id' });
+      if (error) throw error;
+    }),
+
+    // -- Contratos --
+    getContratos: wrap(async (filtros) => {
+      let q = SB.from('contratos').select('*, profiles(id,apelido,nome_completo), planos(nome,frequencia)')
+        .order('criado_em', { ascending: false });
+      if (filtros && filtros.status) q = q.eq('status', filtros.status);
+      if (filtros && filtros.user_id) q = q.eq('user_id', filtros.user_id);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    }),
+    salvarContrato: wrap(async (c) => {
+      const u = (await SB.auth.getUser()).data.user;
+      const acad = await myAcademyId();
+      // Congela valor e frequência do plano no momento da criação.
+      const { data: pl } = await SB.from('planos').select('valor,frequencia').eq('id', c.plano_id).single();
+      const row = {
+        user_id: c.user_id,
+        plano_id: c.plano_id,
+        academy_id: acad,
+        status: c.status || 'aguardando_aceite',
+        inicio: c.inicio,
+        fim: c.fim,
+        valor_congelado: c.valor_congelado != null ? c.valor_congelado : (pl ? pl.valor : 0),
+        frequencia_congelada: c.frequencia_congelada || (pl ? pl.frequencia : 'mensal'),
+        obs: c.obs || null,
+        criado_por: u ? u.id : null,
+      };
+      if (c.id) {
+        const { error } = await SB.from('contratos').update(row).eq('id', c.id);
+        if (error) throw error;
+        return c.id;
+      }
+      const { data, error } = await SB.from('contratos').insert(row).select('id,numero').single();
+      if (error) throw error;
+      return data;
+    }),
+    marcarAceiteContrato: wrap(async (id, { data_aceite, arquivo_url } = {}) => {
+      const row = {
+        status: 'ativo',
+        aceite_em: new Date(data_aceite || HOJE()).toISOString(),
+        aceite_provedor: 'manual',
+      };
+      if (arquivo_url) row.arquivo_url = arquivo_url;
+      const { error } = await SB.from('contratos').update(row).eq('id', id);
+      if (error) throw error;
+    }),
+    cancelarContrato: wrap(async (id, motivo) => {
+      const { error } = await SB.from('contratos').update({
+        status: 'cancelado', obs: motivo || null,
+      }).eq('id', id);
+      if (error) throw error;
+    }),
+
+    // -- Categorias (Tipo de Lançamento) --
+    getCategorias: wrap(async (tipo) => {
+      let q = SB.from('categorias_financeiro').select('*').eq('ativo', true).order('nome');
+      if (tipo) q = q.eq('tipo', tipo);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    }),
+    salvarCategoria: wrap(async (c) => {
+      const acad = await myAcademyId();
+      const row = { academy_id: acad, nome: c.nome, tipo: c.tipo, ativo: c.ativo !== false };
+      if (c.id) {
+        const { error } = await SB.from('categorias_financeiro').update(row).eq('id', c.id);
+        if (error) throw error;
+        return c.id;
+      }
+      const { data, error } = await SB.from('categorias_financeiro').insert(row).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }),
+
+    // -- Cobranças (mensalidades v2) --
+    getCobrancas: wrap(async (filtros) => {
+      let q = SB.from('mensalidades')
+        .select('*, profiles(id,apelido,nome_completo,foto_url), pedidos(id,total)')
+        .order('venc', { ascending: true });
+      if (filtros && filtros.mes) q = q.eq('mes', filtros.mes);
+      if (filtros && filtros.status) q = q.eq('status', filtros.status);
+      if (filtros && filtros.user_id) q = q.eq('user_id', filtros.user_id);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    }),
+    marcarCobrancaPaga: wrap(async (id, { data_pagamento, forma_pagamento, obs }) => {
+      if (!data_pagamento) throw new Error('Data de pagamento obrigatória');
+      if (!forma_pagamento) throw new Error('Forma de pagamento obrigatória');
+      const u = (await SB.auth.getUser()).data.user;
+      const { error } = await SB.from('mensalidades').update({
+        status: 'pago',
+        data_pagamento, forma_pagamento,
+        marcado_por: u ? u.id : null,
+        marcado_em: new Date().toISOString(),
+        obs: obs || null,
+      }).eq('id', id);
+      if (error) throw error;
+    }),
+    marcarCobrancaIsenta: wrap(async (id, motivo) => {
+      const { error } = await SB.from('mensalidades').update({
+        status: 'isento', obs: motivo || null,
+      }).eq('id', id);
+      if (error) throw error;
+    }),
+    // Cobrança avulsa (uniforme, exame de faixa, taxa extra). NÃO cai em mensalidade
+    // recorrente — vai como uma linha de cobrança extra do mês.
+    criarCobrancaAvulsa: wrap(async ({ user_id, valor, venc, categoria_id, obs, pedido_id, contrato_id }) => {
+      const mes = (venc || HOJE()).slice(0, 7);
+      const { data, error } = await SB.from('mensalidades').insert({
+        user_id, mes, valor, venc, status: 'pendente',
+        categoria_id: categoria_id || null,
+        pedido_id: pedido_id || null,
+        contrato_id: contrato_id || null,
+        obs: obs || null,
+      }).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }),
+
+    // -- Despesas --
+    getDespesas: wrap(async (filtros) => {
+      let q = SB.from('despesas')
+        .select('*, categorias_financeiro(nome), despesas_recorrentes(descricao,parcelas_total)')
+        .order('data_lancamento', { ascending: false });
+      if (filtros && filtros.status) q = q.eq('status', filtros.status);
+      if (filtros && filtros.categoria_id) q = q.eq('categoria_id', filtros.categoria_id);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data || [];
+    }),
+    salvarDespesa: wrap(async (d) => {
+      const u = (await SB.auth.getUser()).data.user;
+      const acad = await myAcademyId();
+      const row = {
+        academy_id: acad,
+        categoria_id: d.categoria_id || null,
+        descricao: d.descricao,
+        valor: d.valor,
+        data_lancamento: d.data_lancamento || HOJE(),
+        data_pagamento: d.data_pagamento || null,
+        forma_pagamento: d.forma_pagamento || null,
+        status: d.status || 'a_pagar',
+        obs: d.obs || null,
+        criado_por: u ? u.id : null,
+      };
+      if (d.id) {
+        const { error } = await SB.from('despesas').update(row).eq('id', d.id);
+        if (error) throw error;
+        return d.id;
+      }
+      const { data, error } = await SB.from('despesas').insert(row).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }),
+    marcarDespesaPaga: wrap(async (id, { data_pagamento, forma_pagamento, obs }) => {
+      if (!data_pagamento) throw new Error('Data de pagamento obrigatória');
+      if (!forma_pagamento) throw new Error('Forma de pagamento obrigatória');
+      const { error } = await SB.from('despesas').update({
+        status: 'pago', data_pagamento, forma_pagamento, obs: obs || null,
+      }).eq('id', id);
+      if (error) throw error;
+    }),
+
+    // -- Despesas recorrentes (IPTU 12x etc) --
+    getDespesasRecorrentes: wrap(async () => {
+      const { data, error } = await SB.from('despesas_recorrentes')
+        .select('*, categorias_financeiro(nome)').order('criado_em', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }),
+    salvarDespesaRecorrente: wrap(async (r) => {
+      const u = (await SB.auth.getUser()).data.user;
+      const acad = await myAcademyId();
+      const row = {
+        academy_id: acad,
+        descricao: r.descricao,
+        categoria_id: r.categoria_id || null,
+        valor_parcela: r.valor_parcela,
+        dia_venc: r.dia_venc || 10,
+        inicio: r.inicio, fim: r.fim,
+        parcelas_total: r.parcelas_total,
+        ativo: r.ativo !== false,
+        obs: r.obs || null,
+        criado_por: u ? u.id : null,
+      };
+      if (r.id) {
+        const { error } = await SB.from('despesas_recorrentes').update(row).eq('id', r.id);
+        if (error) throw error;
+        return r.id;
+      }
+      const { data, error } = await SB.from('despesas_recorrentes').insert(row).select('id').single();
+      if (error) throw error;
+      return data.id;
+    }),
+
+    // Rodar o cron sob demanda (dev/reconciliação). Retorna o jsonb com contagens.
+    rodarFinanceiroDiario: wrap(async () => {
+      const { data, error } = await SB.rpc('financeiro_diario');
+      if (error) throw error;
+      return data;
+    }),
   };
 
   // Toda MUTAÇÃO (tudo que não é get*) invalida os memos e avisa a UI.
@@ -1418,7 +1697,7 @@
   const sbPush = {
     // Chave pública VAPID — pública por definição (vai no cliente).
     // Trocar aqui invalida todas as subscriptions existentes.
-    VAPID_PUBLIC: 'BK-Bqte0ZY6fKKz_Y9wN0bp1e1g7SbgCjuzqnSoPgzQptnqTBccwHMvVPZ3WgPwKrsH1s_wgterUwsBZ6s_ItUE',
+    VAPID_PUBLIC: 'BESL6p6fts5loZYY5hAKhNX-hpK1zn-8CPO8OiBnYORDCVF-ILEI3m1ZWgP1FN2bpFSszPLjHCxw-fvlac4jCqM',
 
     suportado() {
       return typeof navigator !== 'undefined' && 'serviceWorker' in navigator &&

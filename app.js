@@ -1797,9 +1797,15 @@ function aulasStats(){
   const cfgFaixa = (DB.academyConfig && DB.academyConfig.metaAulas && DB.academyConfig.metaAulas[me.faixa]) || 0;
   const meta = cfgFaixa || (me.aulasGrau && me.aulasGrau.meta) || 40;
   const base=(me.aulasGrau&&me.aulasGrau.base)||0;
+  // v480: restantes = (graus faltando pra virar de faixa) × meta − progresso do grau atual.
+  // Antes: hardcoded 160, sem relação com metaAulas nem com quantos graus faltam. Aluno
+  // no 1º grau da azul via ~144 (errado) quando o real são ~447 (3 graus × 130 + faltando).
+  // Fórmula: precisa de (maxGraus − graus + 1) transições até a próxima faixa, cada uma
+  // custa `meta` aulas; subtrai `atual` que já foi feito no grau corrente.
+  const restantesTotal = (atual)=> Math.max(0, (maxGrausDe(me.faixa) - me.graus + 1) * meta - atual);
   if(DEMO){ const atual=me.aulasGrau.atual||0;
-    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:me.aulasGraduacao||0 }; }
-  // 0034: com backend, o número vem do SERVIDOR — a MESMA RPC que o painel do
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) }; }
+  // 0034/0041: com backend, o número vem do SERVIDOR — a MESMA RPC que o painel do
   // professor usa. Fim das duas contagens em JS que divergiam (o aluno via um
   // número na Jornada, o professor via outro na lista). O crédito da 0029 já vem
   // somado. `base` local legado continua entrando: é dado do app antigo que só
@@ -1807,12 +1813,10 @@ function aulasStats(){
   const srv = DB._aulasServidor;
   if(srv){
     const atual = srv.grau + base;
-    const restantes = Math.max(0, (me.aulasGraduacao||160) - (srv.faixa + base));
-    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) };
   }
   const dias=_treinoDays();
   const refGrau  = _refDataGrauAtual();
-  const refFaixa = _refDataFaixaAtual();
   // 0029: credito de presencas importado do app antigo. Cada credito mora no
   // evento-ancora correspondente (grau atual / faixa atual). O `base` local
   // legado continua respeitado como fallback pra nao perder dado antigo.
@@ -1822,14 +1826,9 @@ function aulasStats(){
     ? gs.find(g=> g.tipo==='grau' && g.faixa===me.faixa && g.graus===me.graus && g.data===refGrau)
     : gs.find(g=> g.tipo==='faixa' && g.faixa===me.faixa && g.data===refGrau);
   const creditoGrau = (evGrau && +evGrau.aulas_credito_grau) || 0;
-  // Ancora da faixa: casa pela data + faixa. Cobre faixa | inicio | grau (o fallback do _faixaDesde).
-  const evFaixa = refFaixa ? gs.find(g=> g.data===refFaixa && g.faixa===me.faixa) : null;
-  const creditoFaixa = (evFaixa && +evFaixa.aulas_credito_faixa) || 0;
   const noGrau  = creditoGrau  + base + _countSince(dias, refGrau);   // aulas no grau atual
   const atual   = noGrau;
-  const naFaixa = creditoFaixa + base + _countSince(dias, refFaixa);  // aulas na faixa atual (estimativa p/ próxima faixa)
-  const restantes=Math.max(0, (me.aulasGraduacao||160) - naFaixa);
-  return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes };
+  return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) };
 }
 
 function alunoInicio(){
@@ -3475,6 +3474,12 @@ function evoluirGraduacao(){
     const ag = aulasStats();
     const paceSem = DEMO ? 3 : Math.round(paceSemanal()*10)/10;
     const grauLbl = (me.graus >= maxGrausDe(me.faixa)) ? 'p/ proxima faixa' : 'p/ proximo grau';
+    // v480: projeção "no ritmo". 2,5/sem sozinho não diz nada — traduz pra tempo real.
+    // < 2 anos mostra meses (mais legível); ≥ 2 anos mostra anos com 1 casa.
+    const anos = paceSem > 0 ? ag.restantes / paceSem / 52 : 0;
+    const ritmoTxt = anos > 0
+      ? ' · ~' + (anos < 2 ? Math.round(anos*12)+' meses' : anos.toFixed(1)+' anos') + ' no ritmo'
+      : '';
     w.appendChild(el(`<div class="mod-card aulas-card">
       <div class="mod-title" style="font-size:13px">Progresso por aulas</div>
       <div class="mod-grid">
@@ -3482,7 +3487,7 @@ function evoluirGraduacao(){
           <div class="lbl">${ag.atual>=ag.meta?aptoMsg(me, me.graus>=maxGrausDe(me.faixa), ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' '+grauLbl}</div>
           <div class="mini-bar"><span style="width:${ag.pct}%"></span></div></div>
         <div class="mc bd"><div class="big" style="font-size:18px">~${ag.restantes}</div>
-          <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem</div></div>
+          <div class="lbl">aulas p/ proxima faixa · ${paceSem}/sem${ritmoTxt}</div></div>
       </div>
     </div>`));
   }
@@ -7596,12 +7601,112 @@ function _erpKpis(a){
 /* --- ERP: coluna central (varia por aba) --- */
 function _erpMain(a, tab, refresh, paint, c, hora){
   const box=el('<div></div>');
-  if(tab==='ficha'){ box.appendChild(_erpFicha(a, c, paint, refresh)); }
+  if(tab==='ficha'){
+    box.appendChild(_erpFicha(a, c, paint, refresh));
+    // v481: bloco Financeiro (plano + últimas cobranças) só pra professor, quando
+    // backend ligado e não for o próprio prof/dono.
+    if(!a._self && !DEMO && typeof sbProf!=='undefined' && sbProf.getAlunoPlano){
+      box.appendChild(_erpFinanceiroAluno(a, refresh));
+    }
+  }
   else if(tab==='grad'){ box.appendChild(_erpTimelineGrad(a, paint)); }
   else if(tab==='les'){ box.appendChild(_lesoesPanelNode(a.lesoes||[])); }
   else if(tab==='tec'){ box.appendChild(_progressoPanelNode(a.progresso||[])); }
   else if(tab==='pres'){ box.appendChild(_erpPresencas(a.frequencia||[], a, refresh, paint)); }
   return box;
+}
+
+/* --- Bloco Financeiro do aluno (dentro da ficha) --- */
+function _erpFinanceiroAluno(a, refresh){
+  const box = el('<div class="erp-card" style="margin-top:12px"></div>');
+  box.appendChild(el('<div class="erp-card-h">Financeiro</div>'));
+  const body = el('<div class="loading-center" style="padding:12px">Carregando…</div>');
+  box.appendChild(body);
+  Promise.all([
+    sbProf.getAlunoPlano(a.id),
+    sbProf.getCobrancas({ user_id: a.id }),
+  ]).then(([ap, cobs])=>{
+    body.innerHTML='';
+    if(ap && ap.planos){
+      const p = ap.planos;
+      const val = ap.valor_negociado != null ? ap.valor_negociado : p.valor;
+      const negBadge = ap.valor_negociado != null ? ' <span style="font-size:10.5px;color:var(--muted)">(negociado)</span>' : '';
+      const isBadge = ap.isento ? ' <span style="font-size:10.5px;color:var(--good)">(isento)</span>' : '';
+      body.appendChild(el(`<div class="ficha-r"><span>📋 Plano</span><b>${safeTxt(p.nome)}${isBadge}</b></div>`));
+      body.appendChild(el(`<div class="ficha-r"><span>💰 Valor</span><b>${moneyBR(val)}${negBadge}</b></div>`));
+      body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${p.dia_vencimento}</b></div>`));
+    } else {
+      body.appendChild(el('<div style="padding:8px;color:var(--muted);font-size:13px">Sem plano cadastrado. Toque em "Definir plano" para matricular.</div>'));
+    }
+    const btn = el('<button class="erp-btn sm" style="margin-top:8px">' + (ap ? 'Trocar plano' : 'Definir plano') + '</button>');
+    btn.onclick = ()=> _finAlunoPlanoSheet(a, ()=> refresh());
+    body.appendChild(btn);
+
+    // Últimas 3 cobranças
+    if(cobs && cobs.length){
+      body.appendChild(el('<div class="sec-title" style="margin:12px 0 6px;font-size:11px">Últimas cobranças</div>'));
+      cobs.slice(0,3).forEach(c=>{
+        const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)+'/'+c.venc.slice(0,4)) : '—';
+        const row = el(`<div class="ficha-r" style="cursor:pointer">
+          <span>${c.mes} · ${vencTxt}</span>
+          <b>${moneyBR(c.valor)} · ${safeTxt(c.status)}</b>
+        </div>`);
+        row.onclick = ()=> _finCobrancaSheet(c);
+        body.appendChild(row);
+      });
+    }
+  }).catch(e=>{ body.innerHTML='<div style="padding:8px;color:var(--red);font-size:12.5px">Erro: '+safeTxt(e.message||e)+'</div>'; });
+  return box;
+}
+
+/* --- Sheet: matricular aluno num plano --- */
+function _finAlunoPlanoSheet(a, onDone){
+  Promise.all([ sbProf.getPlanos(), sbProf.getAlunoPlano(a.id) ]).then(([planos, ap])=>{
+    ap = ap || {};
+    const ativos = planos.filter(p=>p.ativo!==false);
+    const opts = ativos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
+    const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano do aluno">
+      <div class="sheet-grip"></div>
+      <div class="sheet-title">Plano · ${safeTxt(_nomeInst(a))}</div>
+      <label class="flbl">Plano</label>
+      <select class="inp" id="ap-plano">
+        <option value="">—</option>
+        ${opts}
+      </select>
+      <label class="flbl" style="margin-top:10px">Valor negociado (opcional, R$)</label>
+      <input class="inp" id="ap-valor" type="number" step="0.01" min="0" placeholder="Herda do plano se em branco" value="${ap.valor_negociado||''}">
+      <label class="flbl" style="margin-top:10px"><input type="checkbox" id="ap-isento" ${ap.isento?'checked':''}> Aluno isento (não gera cobrança)</label>
+      <label class="flbl" style="margin-top:10px">Motivo isenção</label>
+      <input class="inp" id="ap-motivo" maxlength="200" value="${safeAttr(ap.isento_motivo||'')}">
+      <label class="flbl" style="margin-top:10px">Início do plano</label>
+      <input class="inp" id="ap-inicio" type="date" value="${ap.inicio||HOJE_ISO}">
+      <label class="flbl" style="margin-top:10px">Observação</label>
+      <input class="inp" id="ap-obs" maxlength="200" value="${safeAttr(ap.obs||'')}">
+      <button class="btn-save" id="ap-save" style="margin-top:14px">Salvar</button>
+      <button class="sheet-cancel" id="ap-close">Cancelar</button>
+    </div></div>`);
+    if(ap.plano_id) sheet.querySelector('#ap-plano').value = ap.plano_id;
+    const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+    sheet.querySelector('#ap-close').onclick = close;
+    sheet.onclick = e=>{ if(e.target===sheet) close(); };
+    const btn = sheet.querySelector('#ap-save');
+    btn.onclick = ()=>{
+      const plano_id = sheet.querySelector('#ap-plano').value;
+      if(!plano_id){ toast('Escolha um plano'); return; }
+      const valorTxt = sheet.querySelector('#ap-valor').value.trim();
+      btn.disabled=true; btn.textContent='Salvando…';
+      sbProf.salvarAlunoPlano({
+        user_id: a.id, plano_id,
+        valor_negociado: valorTxt ? parseFloat(valorTxt) : null,
+        isento: sheet.querySelector('#ap-isento').checked,
+        isento_motivo: sheet.querySelector('#ap-motivo').value.trim() || null,
+        inicio: sheet.querySelector('#ap-inicio').value,
+        obs: sheet.querySelector('#ap-obs').value.trim() || null,
+      }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+    };
+    document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  }).catch(e=>toast('Erro: '+(e.message||e)));
 }
 
 /* --- ERP: Ficha cadastral com edição inline (view/edit toggle) --- */
@@ -9501,65 +9606,587 @@ function _produtoVendasSheet(nomeProd){
   openSheet(sheet, '.sheet-cancel');
 }
 
+/* ============================================================
+   PROFESSOR — Financeiro V2 (v481, migration 0042)
+   Sub-abas: Cobranças · Despesas · Planos · Contratos.
+   Sem transação no app (ADR). Cron `financeiro_diario` gera cobranças
+   mensais e parcelas de despesas recorrentes; app só registra o que
+   aconteceu. Aluno NÃO lê financeiro (RLS is_professor).
+   ============================================================ */
+let _finTab = 'cobrancas';
+let _finPlanos = null, _finContratos = null, _finDespesas = null;
+let _finCobrancas = null, _finCategorias = null, _finRec = null;
+let _finTs = 0;
+let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
+let _finDespFiltro = 'a_pagar';
+let _finContrFiltro = 'ativo';
+
+function _finReload(force){
+  if(force) _finTs = 0;
+  if(DEMO || typeof sbProf==='undefined' || !sbProf.getCobrancas) return Promise.resolve();
+  if(!force && Date.now() - _finTs < 15000) return Promise.resolve();
+  _finTs = Date.now();
+  const mes = HOJE_ISO.slice(0,7);
+  return Promise.all([
+    sbProf.getCobrancas({ mes }).then(r=>{ _finCobrancas = r; }).catch(()=>{}),
+    sbProf.getDespesas().then(r=>{ _finDespesas = r; }).catch(()=>{}),
+    sbProf.getPlanos().then(r=>{ _finPlanos = r; }).catch(()=>{}),
+    sbProf.getContratos().then(r=>{ _finContratos = r; }).catch(()=>{}),
+    sbProf.getCategorias().then(r=>{ _finCategorias = r; }).catch(()=>{}),
+    sbProf.getDespesasRecorrentes ? sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; }).catch(()=>{}) : Promise.resolve(),
+  ]);
+}
+function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
 function profFinanceiro(){
   const w = el('<div></div>');
-  if(!_profData){ w.innerHTML='<div class="card card-pad" style="margin:20px;text-align:center;color:var(--muted)">Sem dados financeiros no modo local.</div>'; return w; }
-  const alunos   = (_profData?.alunos)||[];
-  const vencidos = alunos.filter(a=>a.pago==='late');
-  const aVencer  = alunos.filter(a=>a.pago==='soon');
-  const pagos    = alunos.filter(a=>a.pago==='ok');
-  const receita    = pagos.reduce((s,a)=>s+(a.mensValor||0),0);
-  const aReceber   = aVencer.reduce((s,a)=>s+(a.mensValor||0),0);
-  const vencidoVal = vencidos.reduce((s,a)=>s+(a.mensValor||0),0);
-  const mesAtual   = new Date().toLocaleDateString('pt-BR',{month:'long'});
-
+  if(!_finBackend()){
+    w.innerHTML='<div class="card card-pad" style="margin:20px;text-align:center;color:var(--muted)">Financeiro só funciona com backend ligado.</div>';
+    return w;
+  }
+  const mesAtual = new Date().toLocaleDateString('pt-BR',{month:'long'});
   w.innerHTML = `<div class="hello"><div class="date">Financeiro</div>
-    <div class="greet">${mesAtual} · mensalidades</div></div>`;
-  w.appendChild(el(`<div class="fin-head">
-    <div class="lbl">Recebido no mês</div><div class="big">${_profData?moneyBR(receita):'…'}</div>
+    <div class="greet">${mesAtual} · gestão</div></div>`;
+
+  const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px" role="tablist">
+    <button data-t="cobrancas" ${_finTab==='cobrancas'?'class="active"':''}>Cobranças</button>
+    <button data-t="despesas"  ${_finTab==='despesas' ?'class="active"':''}>Despesas</button>
+    <button data-t="planos"    ${_finTab==='planos'   ?'class="active"':''}>Planos</button>
+    <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
+  </div>`);
+  tabs.querySelectorAll('[data-t]').forEach(b=>{
+    b.onclick=()=>{ _finTab=b.dataset.t; render(); };
+  });
+  w.appendChild(tabs);
+
+  const body = el('<div class="fin-body"></div>');
+  body.appendChild(el('<div class="loading-center" style="padding:24px">Carregando…</div>'));
+  w.appendChild(body);
+
+  _finReload(true).then(()=>{
+    body.innerHTML='';
+    if(_finTab==='cobrancas') _finRenderCobrancas(body);
+    else if(_finTab==='despesas') _finRenderDespesas(body);
+    else if(_finTab==='planos') _finRenderPlanos(body);
+    else _finRenderContratos(body);
+  });
+
+  return w;
+}
+
+/* ---- Sub-aba: Cobranças ---- */
+function _finRenderCobrancas(body){
+  const cobs = _finCobrancas || [];
+  const today = HOJE_ISO;
+  const isVenc = c => c.status==='pendente' && c.venc && c.venc < today;
+  const vencidas = cobs.filter(isVenc);
+  const aVencer  = cobs.filter(c => c.status==='pendente' && !isVenc(c));
+  const pagas    = cobs.filter(c => c.status==='pago');
+  const isentas  = cobs.filter(c => c.status==='isento');
+  const soma = arr => arr.reduce((s,c)=>s+(Number(c.valor)||0),0);
+
+  body.appendChild(el(`<div class="fin-head">
+    <div class="lbl">Recebido no mês</div><div class="big">${moneyBR(soma(pagas))}</div>
     <div class="row">
-      <div class="c"><div class="v green">${_profData?moneyBR(aReceber):'…'}</div><div class="l">A receber</div></div>
-      <div class="c"><div class="v red">${_profData?moneyBR(vencidoVal):'…'}</div><div class="l">Vencido</div></div>
-      <div class="c"><div class="v">${_profData?pagos.length:'…'}</div><div class="l">Pagos</div></div>
+      <div class="c"><div class="v green">${moneyBR(soma(aVencer))}</div><div class="l">A receber</div></div>
+      <div class="c"><div class="v red">${moneyBR(soma(vencidas))}</div><div class="l">Vencido</div></div>
+      <div class="c"><div class="v">${isentas.length}</div><div class="l">Isentos</div></div>
     </div></div>`));
 
-  let filtro = 'vencidos';
   const seg = el(`<div class="filter-seg">
-    <button class="active" data-f="vencidos">Vencidos (${vencidos.length})</button>
-    <button data-f="avencer">A vencer (${aVencer.length})</button>
-    <button data-f="pagos">Pagos (${pagos.length})</button>
+    <button data-f="vencidas" ${_finCobFiltro==='vencidas'?'class="active"':''}>Vencidas (${vencidas.length})</button>
+    <button data-f="avencer"  ${_finCobFiltro==='avencer' ?'class="active"':''}>A vencer (${aVencer.length})</button>
+    <button data-f="pagas"    ${_finCobFiltro==='pagas'   ?'class="active"':''}>Pagas (${pagas.length})</button>
+    <button data-f="isentas"  ${_finCobFiltro==='isentas' ?'class="active"':''}>Isentas (${isentas.length})</button>
   </div>`);
   const list = el('<div class="list"></div>');
-
-  const renderFin = ()=>{
+  const paint = () => {
     list.innerHTML='';
-    if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando…</div>')); return; }
-    const src = filtro==='vencidos'?vencidos : filtro==='avencer'?aVencer : pagos;
-    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum nesta categoria.</div>')); return; }
-    src.forEach(a=>{
-      const row=el(`<div class="st-row" style="cursor:pointer">
-        ${avatarAluno(a)}
-        <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
-          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">Vence ${safeTxt(a.mensVenc||'—')}</span></div></div>
+    const src = _finCobFiltro==='vencidas'?vencidas
+              : _finCobFiltro==='avencer' ?aVencer
+              : _finCobFiltro==='pagas'   ?pagas
+              : isentas;
+    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhuma cobrança nesta categoria.</div>')); return; }
+    src.forEach(c=>{
+      const p = c.profiles || {};
+      const nome = p.apelido || p.nome_completo || 'aluno';
+      const badge = c.pedido_id ? '<span style="font-size:10.5px;color:var(--muted);margin-left:6px">🛍 Loja</span>' : '';
+      const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)) : '—';
+      const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
+      const row = el(`<div class="st-row" style="cursor:pointer">
+        <div class="st-mid"><div class="nm">${safeTxt(nome)}${badge}</div>
+          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">Vence ${vencTxt}</span></div></div>
         <div class="st-right">
-          <div style="font-size:14.5px;font-weight:800;color:${a.pago==='late'?'var(--red)':'var(--ink)'}">${a.mensValor>0?moneyBR(a.mensValor):'—'}</div>
+          <div style="font-size:14.5px;font-weight:800;color:${cor}">${moneyBR(c.valor)}</div>
         </div>
       </div>`);
-      row.onclick=()=>_profAlunoSheet(a);
+      row.onclick = ()=> _finCobrancaSheet(c);
       list.appendChild(row);
     });
   };
-
   seg.querySelectorAll('[data-f]').forEach(b=>{
-    b.onclick=()=>{
-      filtro=b.dataset.f;
-      seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active'); renderFin();
-    };
+    b.onclick=()=>{ _finCobFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
   });
-  renderFin();
-  w.appendChild(seg); w.appendChild(list);
-  return w;
+  paint();
+  body.appendChild(seg);
+  body.appendChild(list);
+}
+
+/* ---- Sub-aba: Despesas ---- */
+function _finRenderDespesas(body){
+  const desps = _finDespesas || [];
+  const soma = arr => arr.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const mesRef = HOJE_ISO.slice(0,7);
+  const pagas   = desps.filter(d => d.status==='pago' && (d.data_pagamento||'').slice(0,7)===mesRef);
+  const aPagar  = desps.filter(d => d.status==='a_pagar');
+  const vencidas = aPagar.filter(d => d.data_lancamento < HOJE_ISO);
+
+  body.appendChild(el(`<div class="fin-head">
+    <div class="lbl">Pago no mês</div><div class="big">${moneyBR(soma(pagas))}</div>
+    <div class="row">
+      <div class="c"><div class="v">${moneyBR(soma(aPagar))}</div><div class="l">A pagar</div></div>
+      <div class="c"><div class="v red">${moneyBR(soma(vencidas))}</div><div class="l">Vencido</div></div>
+      <div class="c"><div class="v">${pagas.length}</div><div class="l">Pagas</div></div>
+    </div></div>`));
+
+  const seg = el(`<div class="filter-seg">
+    <button data-f="a_pagar" ${_finDespFiltro==='a_pagar'?'class="active"':''}>A pagar (${aPagar.length})</button>
+    <button data-f="pago"    ${_finDespFiltro==='pago'   ?'class="active"':''}>Pagas (${pagas.length})</button>
+    <button data-f="todas"   ${_finDespFiltro==='todas'  ?'class="active"':''}>Todas (${desps.length})</button>
+  </div>`);
+  const btnNova = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova despesa</button>');
+  btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+
+  const list = el('<div class="list"></div>');
+  const paint = () => {
+    list.innerHTML='';
+    let src;
+    if(_finDespFiltro==='a_pagar') src = aPagar;
+    else if(_finDespFiltro==='pago') src = pagas;
+    else src = desps;
+    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhuma despesa.</div>')); return; }
+    src.forEach(d=>{
+      const cat = d.categorias_financeiro && d.categorias_financeiro.nome;
+      const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
+      const dl  = d.data_lancamento ? (d.data_lancamento.slice(8,10)+'/'+d.data_lancamento.slice(5,7)) : '—';
+      const cor = d.status==='pago' ? 'var(--good)' : (d.data_lancamento < HOJE_ISO ? 'var(--red)' : 'var(--ink)');
+      const row = el(`<div class="st-row" style="cursor:pointer">
+        <div class="st-mid"><div class="nm">${safeTxt(d.descricao)}</div>
+          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(cat||'—')} · ${dl}${rec?' · '+safeTxt(rec):''}</span></div></div>
+        <div class="st-right">
+          <div style="font-size:14.5px;font-weight:800;color:${cor}">${moneyBR(d.valor)}</div>
+        </div>
+      </div>`);
+      row.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true).then(()=>render()); });
+      list.appendChild(row);
+    });
+  };
+  seg.querySelectorAll('[data-f]').forEach(b=>{
+    b.onclick=()=>{ _finDespFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
+  });
+  paint();
+  body.appendChild(seg);
+  body.appendChild(btnNova);
+  body.appendChild(list);
+}
+
+/* ---- Sub-aba: Planos ---- */
+function _finRenderPlanos(body){
+  const planos = _finPlanos || [];
+  const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo plano</button>');
+  btn.onclick = ()=> _finPlanoSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  body.appendChild(btn);
+
+  if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
+  const list = el('<div class="list"></div>');
+  planos.forEach(p=>{
+    const badge = p.ativo ? '' : ' <span style="font-size:10.5px;color:var(--muted)">(inativo)</span>';
+    const row = el(`<div class="st-row" style="cursor:pointer">
+      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}${badge}</div>
+        <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(p.frequencia)} · dia ${p.dia_vencimento}${p.tem_contrato?' · exige contrato':''}</span></div></div>
+      <div class="st-right">
+        <div style="font-size:14.5px;font-weight:800">${moneyBR(p.valor)}</div>
+      </div>
+    </div>`);
+    row.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true).then(()=>render()); });
+    list.appendChild(row);
+  });
+  body.appendChild(list);
+}
+
+/* ---- Sub-aba: Contratos ---- */
+function _finRenderContratos(body){
+  const cts = _finContratos || [];
+  const ativo    = cts.filter(c=>c.status==='ativo');
+  const esperando= cts.filter(c=>c.status==='aguardando_aceite');
+  const expirado = cts.filter(c=>c.status==='expirado');
+  const cancelado= cts.filter(c=>c.status==='cancelado');
+  const today = HOJE_ISO;
+  const vencendo30 = ativo.filter(c=> c.fim && c.fim <= _plus(today, 30) && c.fim >= today);
+
+  if(expirado.length || vencendo30.length){
+    body.appendChild(el(`<div class="card card-pad" style="margin:6px 12px;background:var(--red-soft,#fee);border-left:4px solid var(--red);font-size:13px">
+      ⚠️ <b>${expirado.length}</b> contratos expirados · <b>${vencendo30.length}</b> vencem em 30 dias
+    </div>`));
+  }
+
+  const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo contrato</button>');
+  btn.onclick = ()=> _finContratoSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  body.appendChild(btn);
+
+  const seg = el(`<div class="filter-seg">
+    <button data-f="ativo"    ${_finContrFiltro==='ativo'?'class="active"':''}>Ativos (${ativo.length})</button>
+    <button data-f="aguardando_aceite" ${_finContrFiltro==='aguardando_aceite'?'class="active"':''}>Aguardando (${esperando.length})</button>
+    <button data-f="expirado" ${_finContrFiltro==='expirado'?'class="active"':''}>Expirados (${expirado.length})</button>
+    <button data-f="cancelado"${_finContrFiltro==='cancelado'?'class="active"':''}>Cancelados (${cancelado.length})</button>
+  </div>`);
+  const list = el('<div class="list"></div>');
+  const paint = ()=>{
+    list.innerHTML='';
+    const src = cts.filter(c=>c.status===_finContrFiltro);
+    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum contrato neste status.</div>')); return; }
+    src.forEach(c=>{
+      const p = c.profiles || {};
+      const nome = p.apelido || p.nome_completo || 'aluno';
+      const pl = c.planos || {};
+      const numTxt = '#' + String(c.numero||0).padStart(3,'0');
+      const fimTxt = c.fim ? (c.fim.slice(8,10)+'/'+c.fim.slice(5,7)+'/'+c.fim.slice(0,4)) : '—';
+      const daysLeft = c.fim ? Math.round((new Date(c.fim) - new Date(today))/86400000) : null;
+      const alerta = (c.status==='ativo' && daysLeft!==null && daysLeft <= 30 && daysLeft >= 0)
+        ? ` <span style="font-size:10.5px;color:var(--red);font-weight:700">vence em ${daysLeft}d</span>` : '';
+      const row = el(`<div class="st-row" style="cursor:pointer">
+        <div class="st-mid"><div class="nm">${numTxt} · ${safeTxt(nome)}${alerta}</div>
+          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(pl.nome||'—')} · até ${fimTxt}</span></div></div>
+        <div class="st-right">
+          <div style="font-size:14.5px;font-weight:800">${moneyBR(c.valor_congelado)}</div>
+        </div>
+      </div>`);
+      row.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(true).then(()=>render()); });
+      list.appendChild(row);
+    });
+  };
+  seg.querySelectorAll('[data-f]').forEach(b=>{
+    b.onclick=()=>{ _finContrFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
+  });
+  paint();
+  body.appendChild(seg);
+  body.appendChild(list);
+}
+
+function _plus(iso, dias){
+  const d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()+dias);
+  return d.toISOString().slice(0,10);
+}
+
+/* ===== Sheets do Financeiro V2 ===== */
+
+// Cobrança — marcar paga / isenta / cancelada
+function _finCobrancaSheet(c){
+  const p = c.profiles || {};
+  const nome = p.apelido || p.nome_completo || 'aluno';
+  const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)+'/'+c.venc.slice(0,4)) : '—';
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Cobrança de ${safeAttr(nome)}">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Cobrança · ${safeTxt(nome)}</div>
+    <div class="sheet-desc">${safeTxt(c.mes)} · vence ${vencTxt} · <b>${moneyBR(c.valor)}</b> · status ${safeTxt(c.status)}</div>
+    ${c.status==='pendente' || c.status==='atrasado' ? `
+      <label class="flbl" style="margin-top:12px">Data do pagamento</label>
+      <input class="inp" id="fc-data" type="date" value="${HOJE_ISO}">
+      <label class="flbl" style="margin-top:10px">Forma de pagamento</label>
+      <select class="inp" id="fc-forma">
+        <option value="dinheiro">💵 Dinheiro</option>
+        <option value="pix">📱 PIX</option>
+        <option value="cartao_debito">💳 Cartão de débito</option>
+        <option value="cartao_credito">💳 Cartão de crédito</option>
+        <option value="boleto">🧾 Boleto</option>
+        <option value="outro">➕ Outro</option>
+      </select>
+      <label class="flbl" style="margin-top:10px">Observação (opcional)</label>
+      <input class="inp" id="fc-obs" maxlength="200" placeholder="—">
+      <button class="btn-save" id="fc-pagar" style="margin-top:14px">Marcar como paga</button>
+      <button class="btn-cad ghost" id="fc-isenta" style="margin-top:8px">Marcar como isenta</button>
+    `:''}
+    <button class="sheet-cancel" id="fc-close">Fechar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#fc-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const btnPagar = sheet.querySelector('#fc-pagar');
+  if(btnPagar){
+    btnPagar.onclick = ()=>{
+      const data_pagamento = sheet.querySelector('#fc-data').value;
+      const forma_pagamento = sheet.querySelector('#fc-forma').value;
+      const obs = sheet.querySelector('#fc-obs').value.trim();
+      if(!data_pagamento){ toast('Informe a data'); return; }
+      btnPagar.disabled=true; btnPagar.textContent='Salvando…';
+      sbProf.marcarCobrancaPaga(c.id, { data_pagamento, forma_pagamento, obs })
+        .then(()=>{ toast('Pagamento registrado ✔'); close(); _finReload(true).then(()=>render()); })
+        .catch(e=>{ btnPagar.disabled=false; btnPagar.textContent='Marcar como paga'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  const btnIsenta = sheet.querySelector('#fc-isenta');
+  if(btnIsenta){
+    btnIsenta.onclick = ()=>{
+      const motivo = prompt('Motivo da isenção (opcional):') || '';
+      btnIsenta.disabled=true;
+      sbProf.marcarCobrancaIsenta(c.id, motivo)
+        .then(()=>{ toast('Marcada como isenta'); close(); _finReload(true).then(()=>render()); })
+        .catch(e=>{ btnIsenta.disabled=false; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Plano — criar/editar
+function _finPlanoSheet(p, onDone){
+  const editar = !!p; p = p || {};
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${editar?'Editar plano':'Novo plano'}</div>
+    <label class="flbl">Nome</label>
+    <input class="inp" id="pl-nome" value="${safeAttr(p.nome||'')}" placeholder="Ex: Adulto | Mensal">
+    <label class="flbl" style="margin-top:10px">Descrição</label>
+    <input class="inp" id="pl-desc" maxlength="200" value="${safeAttr(p.descricao||'')}">
+    <label class="flbl" style="margin-top:10px">Frequência</label>
+    <select class="inp" id="pl-freq">
+      <option value="mensal">Mensal</option>
+      <option value="trimestral">Trimestral</option>
+      <option value="semestral">Semestral</option>
+      <option value="anual">Anual</option>
+    </select>
+    <label class="flbl" style="margin-top:10px">Valor (R$)</label>
+    <input class="inp" id="pl-valor" type="number" step="0.01" min="0" value="${p.valor||0}">
+    <label class="flbl" style="margin-top:10px">Dia de vencimento (1-28)</label>
+    <input class="inp" id="pl-dia" type="number" min="1" max="28" value="${p.dia_vencimento||10}">
+    <label class="flbl" style="margin-top:10px">Forma padrão</label>
+    <select class="inp" id="pl-forma">
+      <option value="">—</option>
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="pix">📱 PIX</option>
+      <option value="cartao_debito">💳 Cartão débito</option>
+      <option value="cartao_credito">💳 Cartão crédito</option>
+      <option value="boleto">🧾 Boleto</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <label class="flbl" style="margin-top:10px"><input type="checkbox" id="pl-contrato" ${p.tem_contrato?'checked':''}> Exige contrato assinado</label>
+    <label class="flbl" style="margin-top:8px"><input type="checkbox" id="pl-ativo" ${p.ativo!==false?'checked':''}> Plano ativo</label>
+    <button class="btn-save" id="pl-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="pl-close">Cancelar</button>
+  </div></div>`);
+  sheet.querySelector('#pl-freq').value = p.frequencia || 'mensal';
+  sheet.querySelector('#pl-forma').value = p.forma_padrao || '';
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#pl-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const btn = sheet.querySelector('#pl-save');
+  btn.onclick = ()=>{
+    const nome = sheet.querySelector('#pl-nome').value.trim();
+    if(!nome){ toast('Informe o nome'); return; }
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.salvarPlano({
+      id: p.id, nome,
+      descricao: sheet.querySelector('#pl-desc').value.trim(),
+      frequencia: sheet.querySelector('#pl-freq').value,
+      valor: parseFloat(sheet.querySelector('#pl-valor').value)||0,
+      dia_vencimento: parseInt(sheet.querySelector('#pl-dia').value)||10,
+      forma_padrao: sheet.querySelector('#pl-forma').value || null,
+      tem_contrato: sheet.querySelector('#pl-contrato').checked,
+      ativo: sheet.querySelector('#pl-ativo').checked,
+    }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Despesa — criar/editar/marcar paga
+function _finDespesaSheet(d, onDone){
+  const editar = !!d; d = d || {};
+  const cats = (_finCategorias||[]).filter(c=>c.tipo==='despesa');
+  const catsOpts = cats.map(c=>`<option value="${c.id}">${safeTxt(c.nome)}</option>`).join('');
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Despesa">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${editar?'Editar despesa':'Nova despesa'}</div>
+    <label class="flbl">Descrição</label>
+    <input class="inp" id="ds-desc" value="${safeAttr(d.descricao||'')}" placeholder="Ex: Aluguel setembro">
+    <label class="flbl" style="margin-top:10px">Categoria</label>
+    <div style="display:flex;gap:8px;align-items:stretch">
+      <select class="inp" id="ds-cat" style="flex:1">
+        <option value="">—</option>
+        ${catsOpts}
+      </select>
+      <button class="btn-cad ghost" id="ds-cat-add" style="min-width:44px;padding:0 10px">＋</button>
+    </div>
+    <label class="flbl" style="margin-top:10px">Valor (R$)</label>
+    <input class="inp" id="ds-valor" type="number" step="0.01" min="0" value="${d.valor||''}">
+    <label class="flbl" style="margin-top:10px">Data</label>
+    <input class="inp" id="ds-data" type="date" value="${d.data_lancamento||HOJE_ISO}">
+    ${d.status==='a_pagar' || !editar ? `
+      <div class="sec-title" style="margin:12px 0 6px;font-size:11px">Marcar como paga (opcional)</div>
+      <label class="flbl">Data do pagamento</label>
+      <input class="inp" id="ds-dpag" type="date" value="${d.data_pagamento||''}">
+      <label class="flbl" style="margin-top:8px">Forma</label>
+      <select class="inp" id="ds-forma">
+        <option value="">—</option>
+        <option value="dinheiro">💵 Dinheiro</option>
+        <option value="pix">📱 PIX</option>
+        <option value="cartao_debito">💳 Cartão débito</option>
+        <option value="cartao_credito">💳 Cartão crédito</option>
+        <option value="boleto">🧾 Boleto</option>
+        <option value="outro">➕ Outro</option>
+      </select>
+    `:''}
+    <label class="flbl" style="margin-top:10px">Observação</label>
+    <input class="inp" id="ds-obs" maxlength="400" value="${safeAttr(d.obs||'')}">
+    <button class="btn-save" id="ds-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="ds-close">Cancelar</button>
+  </div></div>`);
+  if(d.categoria_id) sheet.querySelector('#ds-cat').value = d.categoria_id;
+  if(d.forma_pagamento) sheet.querySelector('#ds-forma') && (sheet.querySelector('#ds-forma').value = d.forma_pagamento);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ds-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+
+  // "+ Nova categoria" inline
+  sheet.querySelector('#ds-cat-add').onclick = ()=>{
+    _finCategoriaInlineSheet('despesa', (novo)=>{
+      const sel = sheet.querySelector('#ds-cat');
+      sel.insertAdjacentHTML('beforeend', `<option value="${novo.id}">${safeTxt(novo.nome)}</option>`);
+      sel.value = novo.id;
+    });
+  };
+
+  const btn = sheet.querySelector('#ds-save');
+  btn.onclick = ()=>{
+    const descricao = sheet.querySelector('#ds-desc').value.trim();
+    const valor = parseFloat(sheet.querySelector('#ds-valor').value);
+    if(!descricao || !(valor>=0)){ toast('Preencha descrição e valor'); return; }
+    const dpag = sheet.querySelector('#ds-dpag') && sheet.querySelector('#ds-dpag').value;
+    const forma = sheet.querySelector('#ds-forma') && sheet.querySelector('#ds-forma').value;
+    const payload = {
+      id: d.id, descricao, valor,
+      categoria_id: sheet.querySelector('#ds-cat').value || null,
+      data_lancamento: sheet.querySelector('#ds-data').value,
+      obs: sheet.querySelector('#ds-obs').value.trim(),
+      status: (dpag && forma) ? 'pago' : (d.status || 'a_pagar'),
+      data_pagamento: (dpag && forma) ? dpag : null,
+      forma_pagamento: (dpag && forma) ? forma : null,
+    };
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.salvarDespesa(payload)
+      .then(()=>{ toast('Despesa salva ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Categoria inline — criação rápida
+function _finCategoriaInlineSheet(tipo, onCreated){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova categoria">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Nova categoria</div>
+    <div class="sheet-desc">Tipo: ${tipo==='receita'?'Receita':'Despesa'}</div>
+    <label class="flbl">Nome</label>
+    <input class="inp" id="cat-nome" placeholder="Ex: Aluguel">
+    <button class="btn-save" id="cat-save" style="margin-top:14px">Criar</button>
+    <button class="sheet-cancel" id="cat-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#cat-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const btn = sheet.querySelector('#cat-save');
+  btn.onclick = ()=>{
+    const nome = sheet.querySelector('#cat-nome').value.trim();
+    if(!nome){ toast('Informe o nome'); return; }
+    btn.disabled=true; btn.textContent='Criando…';
+    sbProf.salvarCategoria({ nome, tipo })
+      .then(id => sbProf.getCategorias().then(cats=>{
+        _finCategorias = cats;
+        const novo = cats.find(c=>c.id===id);
+        toast('Categoria criada ✔'); close();
+        if(onCreated && novo) onCreated(novo);
+      }))
+      .catch(e=>{ btn.disabled=false; btn.textContent='Criar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Contrato — criar/editar/aceite/cancelar
+function _finContratoSheet(c, onDone){
+  const editar = !!c; c = c || {};
+  const planos = (_finPlanos||[]).filter(p=>p.ativo!==false);
+  const planosOpts = planos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
+  const alunos = (_profData && _profData.alunos || []).filter(a=>!a._self);
+  const alunosOpts = alunos.map(a=>`<option value="${a.id}">${safeTxt(_nomeInst(a))}</option>`).join('');
+  const p = c.profiles || {};
+  const nome = p.apelido || p.nome_completo || '—';
+
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Contrato">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${editar? 'Contrato #'+String(c.numero||0).padStart(3,'0') : 'Novo contrato'}</div>
+    ${editar?`<div class="sheet-desc">${safeTxt(nome)} · status ${safeTxt(c.status)}</div>`:''}
+    ${editar?'':`
+      <label class="flbl">Aluno</label>
+      <select class="inp" id="ct-aluno">${alunosOpts}</select>
+      <label class="flbl" style="margin-top:10px">Plano</label>
+      <select class="inp" id="ct-plano">${planosOpts}</select>
+    `}
+    <label class="flbl" style="margin-top:10px">Início</label>
+    <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar?'readonly':''}>
+    <label class="flbl" style="margin-top:10px">Fim</label>
+    <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar?'readonly':''}>
+    <label class="flbl" style="margin-top:10px">Observação</label>
+    <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
+    ${!editar?`
+      <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>
+    `:''}
+    ${editar && c.status==='aguardando_aceite' ? `
+      <button class="btn-save" id="ct-aceite" style="margin-top:14px">Marcar aceite (aluno assinou)</button>
+    `:''}
+    ${editar && c.status==='ativo' ? `
+      <button class="btn-cad ghost" id="ct-cancelar" style="margin-top:8px;color:var(--red)">Cancelar contrato</button>
+    `:''}
+    <button class="sheet-cancel" id="ct-close">Fechar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ct-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+
+  const btnSave = sheet.querySelector('#ct-save');
+  if(btnSave){
+    btnSave.onclick = ()=>{
+      const user_id = sheet.querySelector('#ct-aluno').value;
+      const plano_id = sheet.querySelector('#ct-plano').value;
+      const inicio = sheet.querySelector('#ct-inicio').value;
+      const fim = sheet.querySelector('#ct-fim').value;
+      if(!user_id || !plano_id || !inicio || !fim){ toast('Preencha aluno, plano e datas'); return; }
+      if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
+      btnSave.disabled=true; btnSave.textContent='Criando…';
+      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim() })
+        .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  const btnAceite = sheet.querySelector('#ct-aceite');
+  if(btnAceite){
+    btnAceite.onclick = ()=>{
+      if(!confirm('Confirma que o aluno entregou o contrato assinado?')) return;
+      btnAceite.disabled=true; btnAceite.textContent='Marcando…';
+      sbProf.marcarAceiteContrato(c.id, { data_aceite: HOJE_ISO })
+        .then(()=>{ toast('Aceite registrado ✔'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnAceite.disabled=false; btnAceite.textContent='Marcar aceite (aluno assinou)'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  const btnCanc = sheet.querySelector('#ct-cancelar');
+  if(btnCanc){
+    btnCanc.onclick = ()=>{
+      const motivo = prompt('Motivo do cancelamento (opcional):') || '';
+      if(!confirm('Cancelar o contrato?')) return;
+      btnCanc.disabled=true;
+      sbProf.cancelarContrato(c.id, motivo)
+        .then(()=>{ toast('Contrato cancelado'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnCanc.disabled=false; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ============================================================
