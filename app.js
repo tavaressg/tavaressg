@@ -13665,7 +13665,9 @@ function selfTest(){
       ];
       DB.treinos = [ {id:1,data:'2025-07-10'}, {id:2,data:'2025-07-10'}, {id:3,data:'2025-03-01'} ];
       ok('C1 duas aulas no mesmo dia contam 2', aulasStats().atual===2);   // 2x 10/07 = 2; 01/03 é pré-grau
-      ok('C1 estimativa da faixa conta aulas', aulasStats().restantes===157); // 160 - 3 aulas na faixa
+      // v481 (0041 + fix fórmula): restantes = (maxGraus − graus + 1) × meta − atual.
+      // Aqui: (4−1+1) × 40 − 2 = 158. Antes era 160 (aulasGraduacao) − 3 (naFaixa) = 157.
+      ok('C1 estimativa da faixa conta aulas', aulasStats().restantes===158);
       DB.eu.graus=2; DB.graduacoes.push({faixa:'azul',graus:2,tipo:'grau',data:HOJE_ISO}); DB.eu.aulasGrau.base=0;
       ok('C1 reset de aulas no novo grau', aulasStats().atual===0);
       DB.eu.graus=1; DB.graduacoes.pop(); DB.eu.aulasGrau.base=5;
