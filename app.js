@@ -1647,7 +1647,7 @@ const _ROUTE_NOMES = {
   'onb':'Boas-vindas','trocarSenha':'Trocar senha','bootstrap':'Primeiro acesso',
   'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
   'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
-  'prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
+  'prof:financeiro':'Financeiro','prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
   'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
   'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
 };
@@ -11762,6 +11762,7 @@ function tabbarProf(){
     ['turmas','Turmas', icoCalendar(), false],
     ['graduacao','Graduação', icoBelt(), true],   // wide-only (mobile abre pela "Mais")
     ['relatorios','Relatórios', icoChart(), false],
+    ['financeiro','Financeiro', icoCard(), true],  // wide-only (mobile abre pela "Mais")
     ['videos','Vídeos', icoVideo(), true],   // wide-only (mobile abre pela "Mais")
     ['loja','Loja', icoStore(), true],       // wide-only (mobile abre pela "Mais")
     ['yama','Yama', icoYama(), true],        // wide-only (mobile abre pela "Mais")
@@ -11782,6 +11783,7 @@ function tabbarProf(){
 function _profMaisSheet(){
   const linhas = [
     ['graduacao','🎗️ Graduação','Eventos, retroativa e semear faixas'],
+    ['financeiro','💳 Financeiro','Cobranças, despesas, planos, contratos'],
     ['videos','🎥 Vídeos','Onboarding — vídeos por turma/faixa'],
     ['loja','🛍️ Loja','Produtos, estoque, pedidos, PIX'],
     ['yama','⚙️ Hub YAMA','Dados da academia, mensagens, push, QR'],
