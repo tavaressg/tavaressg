@@ -9731,8 +9731,14 @@ function _finRenderCobrancas(body){
   // estoque + cobrança pendente linked (0043).
   const novaBtn = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova venda</button>');
   novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload(true).then(()=>render()); if(_loadPedidos) _loadPedidos(true); });
+  // v485: cobrança avulsa (sem produto) — exame de faixa, taxa extra, aula
+  // avulsa. Cria linha em mensalidades com avulsa=true (não conflita com a
+  // recorrente do mês).
+  const avulsaBtn = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Cobrança avulsa</button>');
+  avulsaBtn.onclick = ()=> _finCobrancaAvulsaSheet(()=>{ _finReload(true).then(()=>render()); });
   body.appendChild(seg);
   body.appendChild(novaBtn);
+  body.appendChild(avulsaBtn);
   paint();
   body.appendChild(list);
 }
@@ -9761,6 +9767,10 @@ function _finRenderDespesas(body){
   </div>`);
   const btnNova = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova despesa</button>');
   btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  // v485: cadastro-mãe de despesa parcelada (IPTU 12x, seguro anual). Cron gera
+  // as parcelas dia 1 de cada mês entre inicio e fim.
+  const btnRec = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>');
+  btnRec.onclick = ()=> _finDespesaRecorrenteSheet(null, ()=>{ _finReload(true).then(()=>render()); });
 
   const list = el('<div class="list"></div>');
   const paint = () => {
@@ -9792,6 +9802,28 @@ function _finRenderDespesas(body){
   paint();
   body.appendChild(seg);
   body.appendChild(btnNova);
+  body.appendChild(btnRec);
+
+  // v485: cards das despesas recorrentes ativas — clique abre edit sheet
+  const recs = (_finRec||[]).filter(r=> r.ativo!==false);
+  if(recs.length){
+    body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Despesas recorrentes ativas</div>'));
+    const recList = el('<div class="list" style="margin-bottom:8px"></div>');
+    recs.forEach(r=>{
+      const cat = r.categorias_financeiro && r.categorias_financeiro.nome;
+      const row = el(`<div class="st-row" style="cursor:pointer">
+        <div class="st-mid"><div class="nm">${safeTxt(r.descricao)}</div>
+          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(cat||'—')} · ${r.parcelas_total}× ${moneyBR(r.valor_parcela)} · dia ${r.dia_venc}</span></div></div>
+        <div class="st-right">
+          <div style="font-size:14.5px;font-weight:800">${moneyBR((r.valor_parcela||0) * (r.parcelas_total||0))}</div>
+        </div>
+      </div>`);
+      row.onclick = ()=> _finDespesaRecorrenteSheet(r, ()=>{ _finReload(true).then(()=>render()); });
+      recList.appendChild(row);
+    });
+    body.appendChild(recList);
+    body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Lançamentos</div>'));
+  }
   body.appendChild(list);
 }
 
@@ -9841,6 +9873,7 @@ function _finRenderContratos(body){
 
   const seg = el(`<div class="filter-seg">
     <button data-f="ativo"    ${_finContrFiltro==='ativo'?'class="active"':''}>Ativos (${ativo.length})</button>
+    <button data-f="vencendo30" ${_finContrFiltro==='vencendo30'?'class="active"':''}>Vencendo 30d (${vencendo30.length})</button>
     <button data-f="aguardando_aceite" ${_finContrFiltro==='aguardando_aceite'?'class="active"':''}>Aguardando (${esperando.length})</button>
     <button data-f="expirado" ${_finContrFiltro==='expirado'?'class="active"':''}>Expirados (${expirado.length})</button>
     <button data-f="cancelado"${_finContrFiltro==='cancelado'?'class="active"':''}>Cancelados (${cancelado.length})</button>
@@ -9848,7 +9881,8 @@ function _finRenderContratos(body){
   const list = el('<div class="list"></div>');
   const paint = ()=>{
     list.innerHTML='';
-    const src = cts.filter(c=>c.status===_finContrFiltro);
+    // v485: filtro "vencendo30" é derivado (status='ativo' + fim entre hoje e +30d).
+    const src = _finContrFiltro==='vencendo30' ? vencendo30 : cts.filter(c=>c.status===_finContrFiltro);
     if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum contrato neste status.</div>')); return; }
     src.forEach(c=>{
       const p = c.profiles || {};
@@ -9939,6 +9973,66 @@ function _finCobrancaSheet(c){
         .catch(e=>{ btnIsenta.disabled=false; toast('Erro: '+(e.message||e)); });
     };
   }
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Cobrança avulsa — sem produto (exame de faixa, taxa, aula avulsa)
+function _finCobrancaAvulsaSheet(onDone){
+  const alunos = (_profData && _profData.alunos || []).filter(a=>!a._self);
+  const cats = (_finCategorias||[]).filter(c=>c.tipo==='receita');
+  const catsOpts = cats.map(c=>`<option value="${c.id}">${safeTxt(c.nome)}</option>`).join('');
+  const alunosOpts = alunos.map(a=>`<option value="${a.id}">${safeTxt(_nomeInst(a))}</option>`).join('');
+
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova cobrança avulsa">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">＋ Cobrança avulsa</div>
+    <div class="sheet-desc">Exame de faixa, taxa extra, aula avulsa. Sem produto — sem baixa de estoque.</div>
+    <label class="flbl" style="margin-top:12px">Aluno</label>
+    <select class="inp" id="cav-aluno">
+      <option value="">—</option>
+      ${alunosOpts}
+    </select>
+    <label class="flbl" style="margin-top:10px">Categoria</label>
+    <div style="display:flex;gap:8px;align-items:stretch">
+      <select class="inp" id="cav-cat" style="flex:1">
+        <option value="">—</option>
+        ${catsOpts}
+      </select>
+      <button class="btn-cad ghost" id="cav-cat-add" style="min-width:44px;padding:0 10px">＋</button>
+    </div>
+    <label class="flbl" style="margin-top:10px">Valor (R$)</label>
+    <input class="inp" id="cav-valor" type="number" step="0.01" min="0" placeholder="0,00">
+    <label class="flbl" style="margin-top:10px">Vencimento</label>
+    <input class="inp" id="cav-venc" type="date" value="${HOJE_ISO}">
+    <label class="flbl" style="margin-top:10px">Observação</label>
+    <input class="inp" id="cav-obs" maxlength="200" placeholder="Ex: Exame azul · Set/26">
+    <button class="btn-save" id="cav-save" style="margin-top:14px">Criar cobrança</button>
+    <button class="sheet-cancel" id="cav-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#cav-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#cav-cat-add').onclick = ()=>{
+    _finCategoriaInlineSheet('receita', novo=>{
+      const sel = sheet.querySelector('#cav-cat');
+      sel.insertAdjacentHTML('beforeend', `<option value="${novo.id}">${safeTxt(novo.nome)}</option>`);
+      sel.value = novo.id;
+    });
+  };
+  const btn = sheet.querySelector('#cav-save');
+  btn.onclick = ()=>{
+    const user_id = sheet.querySelector('#cav-aluno').value;
+    const valor = parseFloat(sheet.querySelector('#cav-valor').value);
+    const venc = sheet.querySelector('#cav-venc').value;
+    if(!user_id || !(valor>0) || !venc){ toast('Preencha aluno, valor e vencimento'); return; }
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.criarCobrancaAvulsa({
+      user_id, valor, venc,
+      categoria_id: sheet.querySelector('#cav-cat').value || null,
+      obs: sheet.querySelector('#cav-obs').value.trim() || null,
+    }).then(()=>{ toast('Cobrança avulsa criada ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Criar cobrança'; toast('Erro: '+(e.message||e)); });
+  };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
@@ -10079,6 +10173,99 @@ function _finDespesaSheet(d, onDone){
     btn.disabled=true; btn.textContent='Salvando…';
     sbProf.salvarDespesa(payload)
       .then(()=>{ toast('Despesa salva ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// Despesa recorrente (IPTU 12x, seguro anual etc) — cadastro-mãe
+function _finDespesaRecorrenteSheet(r, onDone){
+  const editar = !!r; r = r || {};
+  const cats = (_finCategorias||[]).filter(c=>c.tipo==='despesa');
+  const catsOpts = cats.map(c=>`<option value="${c.id}">${safeTxt(c.nome)}</option>`).join('');
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Despesa recorrente">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${editar?'Editar recorrente':'Nova despesa recorrente'}</div>
+    <div class="sheet-desc">Cron gera 1 parcela por mês entre início e fim. Cancelar depois é 1 clique — parcelas passadas ficam.</div>
+    <label class="flbl" style="margin-top:12px">Descrição</label>
+    <input class="inp" id="dr-desc" maxlength="200" value="${safeAttr(r.descricao||'')}" placeholder="Ex: IPTU 2027 · Seguro anual DEKRA">
+    <label class="flbl" style="margin-top:10px">Categoria</label>
+    <div style="display:flex;gap:8px;align-items:stretch">
+      <select class="inp" id="dr-cat" style="flex:1">
+        <option value="">—</option>
+        ${catsOpts}
+      </select>
+      <button class="btn-cad ghost" id="dr-cat-add" style="min-width:44px;padding:0 10px">＋</button>
+    </div>
+    <label class="flbl" style="margin-top:10px">Valor TOTAL (R$)</label>
+    <input class="inp" id="dr-total" type="number" step="0.01" min="0" placeholder="Ex: 3600" value="${(r.valor_parcela||0) * (r.parcelas_total||0) || ''}">
+    <label class="flbl" style="margin-top:10px">Número de parcelas</label>
+    <input class="inp" id="dr-parc" type="number" min="1" max="120" value="${r.parcelas_total||12}">
+    <label class="flbl" style="margin-top:10px">Dia de vencimento (1–28)</label>
+    <input class="inp" id="dr-dia" type="number" min="1" max="28" value="${r.dia_venc||10}">
+    <label class="flbl" style="margin-top:10px">Primeira parcela (mês)</label>
+    <input class="inp" id="dr-inicio" type="date" value="${r.inicio || HOJE_ISO}">
+    <div id="dr-preview" style="margin-top:10px;padding:10px;border-radius:8px;background:var(--card-alt,#f4f4f6);font-size:13px;color:var(--muted)"></div>
+    <label class="flbl" style="margin-top:10px">Observação</label>
+    <input class="inp" id="dr-obs" maxlength="400" value="${safeAttr(r.obs||'')}">
+    ${editar?`
+      <label class="flbl" style="margin-top:10px"><input type="checkbox" id="dr-ativo" ${r.ativo!==false?'checked':''}> Ativa (cron gera parcelas)</label>
+    `:''}
+    <button class="btn-save" id="dr-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="dr-close">Cancelar</button>
+  </div></div>`);
+  if(r.categoria_id) sheet.querySelector('#dr-cat').value = r.categoria_id;
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#dr-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#dr-cat-add').onclick = ()=>{
+    _finCategoriaInlineSheet('despesa', novo=>{
+      const sel = sheet.querySelector('#dr-cat');
+      sel.insertAdjacentHTML('beforeend', `<option value="${novo.id}">${safeTxt(novo.nome)}</option>`);
+      sel.value = novo.id;
+    });
+  };
+
+  // Preview em tempo real: N parcelas de R$ X · mm/YY → mm/YY
+  const prev = sheet.querySelector('#dr-preview');
+  const pintaPreview = ()=>{
+    const total = parseFloat(sheet.querySelector('#dr-total').value)||0;
+    const parc = parseInt(sheet.querySelector('#dr-parc').value)||0;
+    const inicio = sheet.querySelector('#dr-inicio').value;
+    if(!total || !parc || !inicio){ prev.textContent='Preencha total, parcelas e data.'; return; }
+    const valorParc = total / parc;
+    const d0 = new Date(inicio+'T12:00:00');
+    const dN = new Date(d0); dN.setMonth(dN.getMonth() + parc - 1);
+    const mmYY = d => (d.getMonth()+1).toString().padStart(2,'0')+'/'+d.getFullYear().toString().slice(2);
+    prev.textContent = `${parc}× ${moneyBR(valorParc)} · ${mmYY(d0)} → ${mmYY(dN)}`;
+  };
+  ['#dr-total','#dr-parc','#dr-inicio'].forEach(sel=> sheet.querySelector(sel).oninput = pintaPreview);
+  pintaPreview();
+
+  const btn = sheet.querySelector('#dr-save');
+  btn.onclick = ()=>{
+    const descricao = sheet.querySelector('#dr-desc').value.trim();
+    const total = parseFloat(sheet.querySelector('#dr-total').value);
+    const parcelas = parseInt(sheet.querySelector('#dr-parc').value);
+    const inicio = sheet.querySelector('#dr-inicio').value;
+    if(!descricao || !(total>0) || !(parcelas>0) || !inicio){ toast('Preencha descrição, total, parcelas e início'); return; }
+    // Calcula fim = inicio + (parcelas-1) meses
+    const d0 = new Date(inicio+'T12:00:00');
+    const dN = new Date(d0); dN.setMonth(dN.getMonth() + parcelas - 1);
+    const fim = dN.toISOString().slice(0,10);
+    const valor_parcela = +(total/parcelas).toFixed(2);
+    btn.disabled=true; btn.textContent='Salvando…';
+    const ativoChk = sheet.querySelector('#dr-ativo');
+    sbProf.salvarDespesaRecorrente({
+      id: r.id, descricao,
+      categoria_id: sheet.querySelector('#dr-cat').value || null,
+      valor_parcela,
+      dia_venc: parseInt(sheet.querySelector('#dr-dia').value)||10,
+      inicio, fim,
+      parcelas_total: parcelas,
+      ativo: ativoChk ? ativoChk.checked : true,
+      obs: sheet.querySelector('#dr-obs').value.trim() || null,
+    }).then(()=>{ toast('Despesa recorrente salva ✔'); close(); if(onDone) onDone(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));

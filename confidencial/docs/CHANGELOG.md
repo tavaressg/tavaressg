@@ -9,6 +9,45 @@
 
 ## Concluídas ✓
 
+### v485/v486 — Sprint 1 Financeiro: cobrança avulsa + despesa recorrente UI + filtro contratos vencendo + lesões sem excluir (2026-08-27)
+
+3 essenciais que faltaram do plano V481 e uma decisão sobre lesões, num único
+sprint.
+
+**v485 — Lesões sem Excluir.** Botão "Excluir" removido da lista de lesões
+(sheet do aluno). Correção continua pelo "Editar" (mudar status pra Curada,
+atualizar nota). Rationale: lesão é evento clínico — apagar quebra linha do
+tempo, coortes de recuperação e detecção de recidiva. Sheet de confirmação de
+exclusão (dead code) também saiu.
+
+**v486 (a) — Filtro "Vencendo 30d" na aba Contratos.** Antes: contratos com
+`fim <= today+30` só apareciam como badge inline no card. Agora: filtro
+dedicado ao lado de Ativos/Aguardando/Expirados/Cancelados, mostrando só
+esses. `_finContrFiltro='vencendo30'` é caso especial no `paint()` (deriva
+de `status='ativo' AND fim between today AND today+30`).
+
+**v486 (b) — Cobrança avulsa.** Botão "＋ Cobrança avulsa" (ghost, embaixo
+de "＋ Nova venda") em Cobranças. Abre sheet simples: aluno + categoria
+(criável inline) + valor + vencimento + obs. Grava direto em `mensalidades`
+com `avulsa=true` via `sbProf.criarCobrancaAvulsa`. Uso típico: exame de
+faixa, taxa extra, aula avulsa — cobrança sem produto e sem baixa de
+estoque.
+
+**v486 (c) — Despesa recorrente UI (IPTU 12x).** Botão "＋ Despesa recorrente
+(parcelada)" em Despesas. Sheet com preview em tempo real ("12× R$ 300,00
+· 01/27 → 12/27") baseado em total + parcelas + início. Calcula
+`valor_parcela = total/N` e `fim = inicio + (N−1) meses`, envia pra
+`sbProf.salvarDespesaRecorrente` (adapter já existia desde v481). Lista das
+recorrentes ativas aparece acima da lista de lançamentos; clique abre edit
+sheet com toggle "Ativa (cron gera parcelas)" pra cancelar sem apagar
+histórico. Cron `financeiro_diario` (0042) já gera as parcelas dia 1 de
+cada mês entre `inicio` e `fim`, idempotente pelo UNIQUE parcial
+`(despesa_recorrente_id, parcela_num)`.
+
+Fica pra Sprint 2: badge numérica de contratos no bottom bar, upload de PDF
+assinado do contrato, tela `Financeiro › Categorias` (CRUD dedicado), bloco
+"plano do aluno" fixo nas outras abas da ficha.
+
 ### v484 + migration 0043 — venda a prazo + botão movido pra Financeiro (2026-08-27)
 
 Reorganização pedida pelo dono: o botão **"＋ Nova venda presencial"** sai da
