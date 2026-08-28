@@ -1406,7 +1406,8 @@
 
     // -- Contratos --
     getContratos: wrap(async (filtros) => {
-      let q = SB.from('contratos').select('*, profiles(id,apelido,nome_completo), planos(nome,frequencia)')
+      // Contratos tem 2 FKs pra profiles (user_id + criado_por) — desambigua pelo user_id.
+      let q = SB.from('contratos').select('*, profiles!user_id(id,apelido,nome_completo), planos(nome,frequencia)')
         .order('criado_em', { ascending: false });
       if (filtros && filtros.status) q = q.eq('status', filtros.status);
       if (filtros && filtros.user_id) q = q.eq('user_id', filtros.user_id);
@@ -1480,8 +1481,9 @@
 
     // -- Cobranças (mensalidades v2) --
     getCobrancas: wrap(async (filtros) => {
+      // Mensalidades tem 2 FKs pra profiles (user_id + marcado_por) — desambigua pelo user_id.
       let q = SB.from('mensalidades')
-        .select('*, profiles(id,apelido,nome_completo,foto_url), pedidos(id,total)')
+        .select('*, profiles!user_id(id,apelido,nome_completo,foto_url), pedidos(id,total)')
         .order('venc', { ascending: true });
       if (filtros && filtros.mes) q = q.eq('mes', filtros.mes);
       if (filtros && filtros.status) q = q.eq('status', filtros.status);

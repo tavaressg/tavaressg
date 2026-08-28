@@ -9,6 +9,48 @@
 
 ## Concluídas ✓
 
+### v483 (supabase.js v73) + Edge send-push — Financeiro V2 fase 4/5 (2026-08-27)
+
+Sequência de v481. Menu **Financeiro** ganha entrada visível na sidebar do
+professor (`tabbarProf`, wide-only entre Relatórios e Vídeos, ícone `icoCard`)
+e no popup "Mais" do mobile (💳 Financeiro · Cobranças, despesas, planos,
+contratos). Faltava a porta de entrada — o handler `nav==='financeiro'` já
+existia na v481, mas a UI nunca linkava.
+
+**Fix embed PostgREST:** `contratos.select('*, profiles(...)')` falhava com
+"more than one relationship was found for 'contratos' and 'profiles'" porque
+a tabela tem 2 FKs pra profiles (`user_id` + `criado_por`). Mesmo problema em
+`mensalidades` (`user_id` + `marcado_por`). Desambiguado com
+`profiles!user_id(...)` nos dois SELECTs (`getContratos`, `getCobrancas`).
+
+**Fase 4 — Edge send-push:** 2 templates novos p/ os alertas de contrato do
+cron `financeiro_diario`: `contrato_vencendo` ("Contrato vencendo em 30 dias
+📄") e `contrato_expirado` ("Contrato expirou hoje ⚠️"). Deploy concluído.
+Cron 0042 já chama esses tipos idempotentemente pelos flags `aviso_30d_em` /
+`aviso_expirado_em` na tabela `contratos`. Banner de topo na tela Contratos
+(⚠️ N expirados · M vencem em 30 dias) já veio na v481.
+
+**Fase 5 — Docs:** entrada do CHANGELOG (v481 já registrada anteriormente),
+ROADMAP atualizado (Financeiro Fase F marcado como feito na v481, com
+pendências V2/V4 listadas), **ADR 0005** novo:
+`decisions/0005-financeiro-sem-transacao-no-app.md` — trava a decisão
+estrutural "app registra o que aconteceu, não intermedia dinheiro". Alivia
+PCI, elimina risco de vazamento de gateway, aceita depender de disciplina
+manual do professor. Schema já preparado pra V4 gateway sem retrabalho.
+
+Pendências desta linha que ficam pra próxima janela: (a) UI de despesas
+recorrentes (adapter já existe), (b) badge numérica de contratos vencendo no
+menu bottom bar, (c) integração real com gateway V4, (d) aceite eletrônico
+V2 (Clicksign/D4Sign).
+
+### v482 (2026-08-27) — fix selfTest C1 estimativa da faixa
+
+CI da v481 quebrou em 1 teste (166/167). O selfTest ainda esperava
+`restantes === 157` (fórmula antiga: `aulasGraduacao - naFaixa = 160 - 3`).
+A fórmula nova, introduzida na v481, usa
+`(maxGraus − graus + 1) × meta − atual = (4−1+1) × 40 − 2 = 158`.
+Atualizado o assert e o comentário. Nada de código do app mudou.
+
 ### v481 + migration 0042 — Financeiro V2: planos, contratos, cobranças, despesas (2026-08-27)
 
 Menu Financeiro completo do professor. Reforma grande da tela `profFinanceiro()`
