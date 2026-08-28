@@ -1344,6 +1344,20 @@
       if (error) throw error;
       return data;
     }),
+    // 0043 (v484): venda a prazo — aluno pega, paga depois. Cria pedido concluído
+    // + baixa estoque + cobrança pendente linked em mensalidades. Só p/ aluno
+    // cadastrado (avulso não faz sentido pra prazo).
+    registrarVendaAPrazo: wrap(async ({ userId, itens, total, venc, categoria_id }) => {
+      const { data, error } = await SB.rpc('registrar_venda_a_prazo', {
+        p_user_id: userId,
+        p_itens: itens,
+        p_total: total,
+        p_venc: venc,
+        p_categoria_id: categoria_id || null,
+      });
+      if (error) throw error;
+      return data;   // { pedido_id, mensalidade_id }
+    }),
 
     /* ============================================================
        Financeiro V2 (0042) — Planos · Contratos · Cobranças · Despesas
@@ -1515,12 +1529,16 @@
     // recorrente — vai como uma linha de cobrança extra do mês.
     criarCobrancaAvulsa: wrap(async ({ user_id, valor, venc, categoria_id, obs, pedido_id, contrato_id }) => {
       const mes = (venc || HOJE()).slice(0, 7);
+      // v484 (0043): flag `avulsa=true` libera o UNIQUE parcial (user_id, mes) —
+      // permite quantas cobranças avulsas quiser no mesmo mês, sem conflitar
+      // com a mensalidade recorrente que o cron gera.
       const { data, error } = await SB.from('mensalidades').insert({
         user_id, mes, valor, venc, status: 'pendente',
         categoria_id: categoria_id || null,
         pedido_id: pedido_id || null,
         contrato_id: contrato_id || null,
         obs: obs || null,
+        avulsa: true,
       }).select('id').single();
       if (error) throw error;
       return data.id;

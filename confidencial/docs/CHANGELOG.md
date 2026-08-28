@@ -9,6 +9,49 @@
 
 ## Concluídas ✓
 
+### v484 + migration 0043 — venda a prazo + botão movido pra Financeiro (2026-08-27)
+
+Reorganização pedida pelo dono: o botão **"＋ Nova venda presencial"** sai da
+tela de Pedidos (Loja) e vira **"＋ Nova venda"** dentro de **Financeiro >
+Cobranças**. Semanticamente faz sentido — venda é lançamento de receita, não
+gestão de fila de pedido. Junto vem o modo **"pagamento a prazo"** que estava
+no plano: aluno pega o produto agora, paga depois, e o app registra a
+cobrança pendente ao fluxo normal.
+
+**Migration 0043:**
+- Nova RPC `registrar_venda_a_prazo(user_id, itens, total, venc, categoria_id)`
+  — cria pedido concluído (canal='presencial', forma_pagamento=NULL) + baixa
+  estoque + cobrança pendente em mensalidades com `pedido_id` FK + `avulsa=true`.
+  Exige aluno cadastrado (cliente avulso não faz sentido pra prazo — sem quem
+  cobrar depois). Retorna `{pedido_id, mensalidade_id}`.
+- Coluna nova `mensalidades.avulsa boolean default false`.
+- UNIQUE `(user_id, mes)` vira **parcial** (`where avulsa=false`) — mensalidade
+  recorrente do cron continua única por aluno-mês, mas cobrança avulsa
+  (uniforme, exame de faixa, venda de loja a prazo) pode conviver com ela no
+  mesmo mês.
+- `gerar_cobrancas_mes` atualizado: INSERT com `avulsa=false` + `ON CONFLICT
+  (user_id, mes) WHERE avulsa=false DO NOTHING` (o WHERE precisa aparecer no
+  ON CONFLICT p/ casar com o índice parcial).
+
+**UI:**
+- Botão sai de `profPedidos` (Loja → Pedidos) — comentário sinaliza a mudança.
+- Botão **＋ Nova venda** aparece em `_finRenderCobrancas`.
+- `_vendaPresencialSheet` ganha checkbox **"Pagamento a prazo"** no topo. Quando
+  marcado: forma_pagamento some, campo vencimento aparece, cliente avulso vira
+  desativado (força buscar aluno cadastrado). Botão vira "Confirmar venda a
+  prazo". Confirma → chama `sbProf.registrarVendaAPrazo`. Auto-cria categoria
+  "Uniforme/Loja" (receita) se não existir na academia — sem seed manual.
+
+**Adapter:**
+- `sbProf.registrarVendaAPrazo({userId, itens, total, venc, categoria_id})` novo.
+- `sbProf.criarCobrancaAvulsa` passa `avulsa=true` — libera UNIQUE parcial.
+
+Cobrança criada aparece imediato em Financeiro > Cobranças (Vencidas ou A
+vencer conforme data). Quando aluno paga, professor marca no fluxo normal —
+data + forma obrigatórias. Pedido fica com `forma_pagamento=NULL` como
+sinalizador que veio a prazo (a informação de pagamento real mora na
+mensalidade linked).
+
 ### v483 (supabase.js v73) + Edge send-push — Financeiro V2 fase 4/5 (2026-08-27)
 
 Sequência de v481. Menu **Financeiro** ganha entrada visível na sidebar do

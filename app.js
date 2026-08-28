@@ -9726,8 +9726,14 @@ function _finRenderCobrancas(body){
   seg.querySelectorAll('[data-f]').forEach(b=>{
     b.onclick=()=>{ _finCobFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
   });
-  paint();
+  // v484: botão "＋ Nova venda" — abre o sheet de venda com toggle "a prazo".
+  // Venda paga na hora = fluxo antigo. A prazo = pedido concluído + baixa
+  // estoque + cobrança pendente linked (0043).
+  const novaBtn = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova venda</button>');
+  novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload(true).then(()=>render()); if(_loadPedidos) _loadPedidos(true); });
   body.appendChild(seg);
+  body.appendChild(novaBtn);
+  paint();
   body.appendChild(list);
 }
 
@@ -10252,24 +10258,40 @@ const _PED_STATUS = { pendente:['Pendente','var(--red-strong)','red'], concluido
 // concluído + baixa estoque + audita em stock_movements.
 function _vendaPresencialSheet(onDone){
   _ensureLojaAdmin();
+  // v484 (0043): `aPrazo` liga o modo "aluno pega, paga depois". Nesse modo:
+  // - cliente OBRIGATÓRIO cadastrado (avulso desabilitado)
+  // - forma de pagamento não é pedida (fica pra hora que o aluno pagar)
+  // - vencimento é obrigatório
+  // - cria pedido concluído + baixa estoque + cobrança pendente linked (RPC registrar_venda_a_prazo)
   let selUser=null, selNome='', avulso=false, itens=[], forma='dinheiro', totalManual=null;
+  let aPrazo=false, venc=HOJE_ISO;
   const prods = (DB.loja.produtos||[]).filter(p=> p.ativo!==false);
   const alunos = _profAlunosArr().filter(a=> !a._self);
 
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova venda presencial" style="max-height:92vh;overflow-y:auto">
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova venda" style="max-height:92vh;overflow-y:auto">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">＋ Nova venda presencial</div>
-    <div class="sheet-desc">Cliente pagou aqui. Grava pedido concluído + baixa estoque.</div>
+    <div class="sheet-title">＋ Nova venda</div>
+    <div class="sheet-desc">Grava pedido concluído + baixa estoque. Toggle "a prazo" cria cobrança pendente.</div>
+    <label class="flbl" style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="vp-aprazo">
+      <span>Pagamento a prazo <span style="color:var(--muted);font-weight:500">(aluno paga depois)</span></span>
+    </label>
     <div class="flbl" style="margin-top:14px">Cliente</div>
     <div id="vp-cli"></div>
     <div class="flbl" style="margin-top:14px">Itens</div>
     <div id="vp-itens" class="list" style="margin:6px 0"></div>
     <button class="btn-cad ghost" id="vp-add-item" type="button" style="width:100%;margin-top:4px">＋ Adicionar item</button>
-    <div class="flbl" style="margin-top:14px">Forma de pagamento</div>
-    <div id="vp-forma" class="filter-seg" style="margin:6px 0">
-      <button class="active" data-f="dinheiro">💵 Dinheiro</button>
-      <button data-f="cartao">💳 Cartão</button>
-      <button data-f="pix">📱 Pix</button>
+    <div id="vp-forma-wrap">
+      <div class="flbl" style="margin-top:14px">Forma de pagamento</div>
+      <div id="vp-forma" class="filter-seg" style="margin:6px 0">
+        <button class="active" data-f="dinheiro">💵 Dinheiro</button>
+        <button data-f="cartao">💳 Cartão</button>
+        <button data-f="pix">📱 Pix</button>
+      </div>
+    </div>
+    <div id="vp-venc-wrap" style="display:none">
+      <div class="flbl" style="margin-top:14px">Vencimento da cobrança</div>
+      <input class="inp" id="vp-venc" type="date" value="${HOJE_ISO}">
     </div>
     <div class="flbl" style="margin-top:14px" id="vp-total-lbl">Total <span style="color:var(--muted);font-weight:500">(editável)</span></div>
     <input class="inp" id="vp-total" type="text" inputmode="decimal" placeholder="0,00">
@@ -10292,15 +10314,22 @@ function _vendaPresencialSheet(onDone){
   const totalCalculado = ()=> (forma==='cartao') ? _bruto() : _precoPix(_bruto());
   const validar = ()=>{
     const t = totalManual!=null ? totalManual : totalCalculado();
-    goBtn.disabled = !((selUser || (avulso && selNome.trim())) && itens.length && t>=0 && forma);
+    // A prazo: exige aluno cadastrado + venc; forma_pagamento não é pedida.
+    // Presencial paga: forma obrigatória, cliente cadastrado OU avulso.
+    if(aPrazo){
+      goBtn.disabled = !(selUser && itens.length && t>=0 && venc);
+    } else {
+      goBtn.disabled = !((selUser || (avulso && selNome.trim())) && itens.length && t>=0 && forma);
+    }
   };
   const pintaTotal = ()=>{
-    if(totalManual==null) totalEl.value = totalCalculado().toFixed(2).replace('.',',');
+    // v484: no modo "a prazo" não aplica desconto Pix (não faz sentido — não sabemos a forma ainda)
+    if(totalManual==null) totalEl.value = (aPrazo ? _bruto() : totalCalculado()).toFixed(2).replace('.',',');
     // v461: label mostra "−X%" quando o desconto Pix está sendo aplicado (dinheiro ou pix
-    // com config > 0). Cartão sempre paga cheio, sem badge.
+    // com config > 0). Cartão sempre paga cheio, sem badge. A prazo: sem badge.
     const lbl = sheet.querySelector('#vp-total-lbl'); if(lbl){
       const d = _descontoPixPct();
-      const aplicado = d>0 && forma!=='cartao';
+      const aplicado = !aPrazo && d>0 && forma!=='cartao';
       lbl.innerHTML = `Total <span style="color:var(--muted);font-weight:500">(editável)</span>${aplicado?` <span class="pr-off">−${d}%</span>`:''}`;
     }
     validar();
@@ -10380,22 +10409,52 @@ function _vendaPresencialSheet(onDone){
     };
   });
 
+  // v484: toggle "a prazo" — esconde forma de pagamento, mostra venc, força cliente cadastrado
+  const aprazoChk = sheet.querySelector('#vp-aprazo');
+  const formaWrap = sheet.querySelector('#vp-forma-wrap');
+  const vencWrap  = sheet.querySelector('#vp-venc-wrap');
+  const vencEl    = sheet.querySelector('#vp-venc');
+  aprazoChk.onchange = ()=>{
+    aPrazo = aprazoChk.checked;
+    formaWrap.style.display = aPrazo ? 'none' : '';
+    vencWrap.style.display  = aPrazo ? '' : 'none';
+    if(aPrazo && avulso){ avulso=false; selNome=''; pintaCli(); }
+    goBtn.textContent = aPrazo ? 'Confirmar venda a prazo' : 'Fechar venda';
+    totalManual = null; pintaTotal();
+  };
+  vencEl.onchange = ()=>{ venc = vencEl.value; validar(); };
+
   // --- confirmar ---
   goBtn.onclick = async ()=>{
-    goBtn.disabled=true; goBtn.textContent='Fechando…';
+    goBtn.disabled=true; const origTxt = goBtn.textContent; goBtn.textContent='Fechando…';
     try{
-      const totalFinal = totalManual!=null ? totalManual : totalCalculado();
-      const payload = {
-        userId: selUser || null,
-        clienteAvulso: selUser ? null : selNome.trim(),
-        itens: itens.map(i=>({ produto_id:i.produto_id, nome:i.nome, tam:i.tam, qtd:i.qtd, preco:i.preco })),
-        total: totalFinal, forma,
-      };
-      await sbProf.registrarVendaPresencial(payload);
-      toast('✅ Venda registrada · estoque atualizado');
+      const totalFinal = totalManual!=null ? totalManual : (aPrazo ? _bruto() : totalCalculado());
+      const itensPayload = itens.map(i=>({ produto_id:i.produto_id, nome:i.nome, tam:i.tam, qtd:i.qtd, preco:i.preco }));
+      if(aPrazo){
+        // Categoria "Uniforme/Loja" da academia — cria se não existir (inline).
+        let catId = null;
+        try {
+          const cats = _finCategorias || await sbProf.getCategorias('receita');
+          const uni = (cats||[]).find(c=> c.tipo==='receita' && /uniforme|loja/i.test(c.nome||''));
+          if(uni) catId = uni.id;
+          else catId = await sbProf.salvarCategoria({ nome:'Uniforme/Loja', tipo:'receita' });
+        } catch(_) { /* sem categoria — cobrança fica sem categoria, funciona */ }
+        await sbProf.registrarVendaAPrazo({
+          userId: selUser, itens: itensPayload, total: totalFinal,
+          venc, categoria_id: catId,
+        });
+        toast('✅ Venda a prazo · cobrança pendente criada');
+      } else {
+        await sbProf.registrarVendaPresencial({
+          userId: selUser || null,
+          clienteAvulso: selUser ? null : selNome.trim(),
+          itens: itensPayload, total: totalFinal, forma,
+        });
+        toast('✅ Venda registrada · estoque atualizado');
+      }
       close(); if(onDone) onDone();
     }catch(e){
-      goBtn.disabled=false; goBtn.textContent='Fechar venda';
+      goBtn.disabled=false; goBtn.textContent=origTxt;
       toast('Erro: '+(e.message||e));
     }
   };
@@ -10478,11 +10537,9 @@ function profPedidos(){
     <div class="greet">Confirme o recebimento para baixar o estoque</div></div>`;
   const back = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0"><span>‹ Voltar à Loja</span></div>`);
   back.onclick=()=>goProf('loja'); w.appendChild(back);
-  // v460: venda presencial iniciada pela gestão (0038). Dono/professor registra
-  // venda paga na hora — grava pedido concluído + baixa estoque numa transação.
-  const novaBtn = el(`<div class="dt-add-wrap"><button class="btn-cad primary">＋ Nova venda presencial</button></div>`);
-  novaBtn.querySelector('button').onclick = ()=> _vendaPresencialSheet(()=>{ _loadPedidos(true); render(); });
-  w.appendChild(novaBtn);
+  // v484 (0043): botão "＋ Nova venda presencial" foi movido pra Financeiro >
+  // Cobranças — venda é lançamento de receita, e agora aceita "a prazo" (aluno
+  // pega o produto e paga depois, cobrança pendente linked ao pedido).
   if(!_pedidosData){ w.appendChild(el('<div class="loading-center">Carregando…</div>')); return w; }
   const arr = _pedidosArr();
   let filtro = 'pendente';
