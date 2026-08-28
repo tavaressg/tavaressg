@@ -9,6 +9,48 @@
 
 ## Concluídas ✓
 
+### v488 + migration 0044 — Sprint 2: dia_vencimento por aluno + upload PDF contrato + tela Categorias + plano sticky + badge menu (2026-08-28)
+
+Cinco melhorias que fecham o essencial do Financeiro V2 (Sprint 2 do plano
+original).
+
+**dia_vencimento override por aluno.** Antes: `dia_vencimento` morava só em
+`planos` — todo aluno do mesmo plano vencia no mesmo dia. Realidade da
+academia: aluno recebe salário dia 5, outro dia 25 — força pro mesmo dia gera
+inadimplência por design. Migration 0044 adiciona coluna opcional
+`aluno_plano.dia_vencimento`, cron `gerar_cobrancas_mes` usa
+`coalesce(ap.dia_vencimento, pl.dia_vencimento)`. Sheet "Definir plano" ganha
+input com placeholder "Herda do plano se em branco". Ficha do aluno mostra
+badge "(customizado)" quando o dia é override.
+
+**Upload PDF assinado do contrato.** V1 fluxo manual gov.br (aluno assina no
+assinador.iti.br, devolve por WhatsApp). Antes: professor marcava aceite sem
+anexar. Agora: bucket privado `contratos` criado na 0044 com RLS
+`is_professor()`. Sheet do contrato ganha `<input type="file"
+accept="application/pdf">` (máx 10MB). Path `contratos/<id>/<timestamp>.pdf`,
+`arquivo_url` salvo no contrato. Botão "📄 Ver PDF assinado" abre em signed
+URL de 5min (padrão 0007).
+
+**Tela `Financeiro › Categorias` (CRUD dedicado).** Nova sub-aba. Antes: só
+criação inline via dropdown de despesa/cobrança — sem editar/renomear/
+desativar. Agora: lista dividida em Receitas + Despesas com botões
+"＋ Receita" e "＋ Despesa", toggle Ativar/Desativar direto na linha, clique
+abre sheet de edição (renomear + reativar).
+
+**Plano do aluno sticky no sidebar da ficha.** Antes: bloco Financeiro só na
+aba "Ficha" — se navegar pra Presenças/Graduação, o plano some. Agora:
+`_erpPlanoMini` (nome + valor + dia + botão Editar/Definir) fixo no
+`_erpActions` (coluna direita), visível em todas as abas.
+
+**Badge numérica em `Financeiro` no bottom bar.** Bolinha vermelha com contagem
+(9+ acima disso) quando houver contratos expirados OU cobranças vencidas na
+academia. Data carregada lazy no boot da `tabbarProf` (via `_finReload`);
+recalcula sempre que dados mudam. CSS novo `.tab-badge` — posicionamento
+absoluto no ícone, ajusta pra desktop (sidebar).
+
+**Bug 11 (getCobrancas do painel escala com histórico) — descartado.** Falso
+alarme: já filtra por `mes` no adapter. Não é bug real ainda.
+
 ### v485/v486 — Sprint 1 Financeiro: cobrança avulsa + despesa recorrente UI + filtro contratos vencendo + lesões sem excluir (2026-08-27)
 
 3 essenciais que faltaram do plano V481 e uma decisão sobre lesões, num único

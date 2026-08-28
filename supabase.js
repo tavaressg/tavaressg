@@ -1406,6 +1406,8 @@
         user_id: ap.user_id,
         plano_id: ap.plano_id,
         valor_negociado: ap.valor_negociado != null ? Number(ap.valor_negociado) : null,
+        // v488 (0044): override do dia do plano por aluno (null herda do plano)
+        dia_vencimento: ap.dia_vencimento != null ? Number(ap.dia_vencimento) : null,
         isento: !!ap.isento,
         isento_motivo: ap.isento_motivo || null,
         inicio: ap.inicio || HOJE(),
@@ -1416,6 +1418,28 @@
       };
       const { error } = await SB.from('aluno_plano').upsert(row, { onConflict: 'user_id' });
       if (error) throw error;
+    }),
+    // v488 (0044): upload de PDF assinado do contrato (V1 fluxo manual gov.br)
+    // Path: contratos/<contrato_id>/<timestamp>.pdf. Salva `arquivo_url` no
+    // contrato (path relativo — signed URL sob demanda via getContratoUrl).
+    uploadContrato: wrap(async (contratoId, file) => {
+      if (!file) throw new Error('sem arquivo');
+      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
+      const path = `${contratoId}/${Date.now()}.${ext}`;
+      const { error: eUp } = await SB.storage.from('contratos').upload(path, file, {
+        cacheControl: '3600', upsert: false, contentType: file.type || 'application/pdf',
+      });
+      if (eUp) throw eUp;
+      const { error: eSv } = await SB.from('contratos').update({ arquivo_url: path }).eq('id', contratoId);
+      if (eSv) throw eSv;
+      return path;
+    }),
+    // Signed URL curta (5 min, padrão 0007) — bucket é privado.
+    getContratoUrl: wrap(async (path) => {
+      if (!path) return null;
+      const { data, error } = await SB.storage.from('contratos').createSignedUrl(path, 300);
+      if (error) throw error;
+      return data && data.signedUrl || null;
     }),
 
     // -- Contratos --

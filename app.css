@@ -1547,6 +1547,21 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .tab.tab-wide{display:none}
 @media (min-width:768px){ .tab.tab-wide{display:flex} }
 
+/* v488 Sprint 2: badge no bottom bar (Financeiro com pendências). Bolinha
+   vermelha compacta no canto superior direito do ícone; conta cobranças
+   vencidas + contratos expirados. Some quando zerado ou sem backend. */
+.tab{position:relative}
+.tab-badge{
+  position:absolute; top:2px; right:calc(50% - 22px);
+  min-width:16px; height:16px; padding:0 4px;
+  border-radius:8px; background:var(--red); color:#fff;
+  font-size:10px; font-weight:800; line-height:16px; text-align:center;
+  box-shadow:0 0 0 1.5px var(--bg,#fff);
+}
+@media (min-width:768px){
+  .tab-badge{ top:4px; right:8px; }
+}
+
 /* ============================================================
    SHELL RESPONSIVO DO PROFESSOR (PROFESSOR.md §7)
    Escopado em body[data-role="professor"]: NÃO afeta o aluno

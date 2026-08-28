@@ -7681,6 +7681,32 @@ function _erpMain(a, tab, refresh, paint, c, hora){
   return box;
 }
 
+/* --- Mini card do plano no sidebar (todas as abas da ficha) --- */
+function _erpPlanoMini(a, refresh){
+  const box = el('<div class="erp-card" style="margin-bottom:10px"></div>');
+  box.appendChild(el('<div class="erp-card-h">Plano</div>'));
+  const body = el('<div style="padding:6px 4px;font-size:12.5px">Carregando…</div>');
+  box.appendChild(body);
+  sbProf.getAlunoPlano(a.id).then(ap=>{
+    body.innerHTML='';
+    if(ap && ap.planos){
+      const p = ap.planos;
+      const val = ap.valor_negociado != null ? ap.valor_negociado : p.valor;
+      const dia = ap.dia_vencimento || p.dia_vencimento;
+      body.innerHTML = `
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${safeTxt(p.nome)}${ap.isento?' <span style="font-size:10.5px;color:var(--good)">(isento)</span>':''}</div>
+        <div style="color:var(--muted);font-size:12px">${moneyBR(val)} · dia ${dia}</div>
+      `;
+    } else {
+      body.innerHTML = '<div style="color:var(--muted);font-size:12px">Sem plano</div>';
+    }
+    const btn = el('<button class="erp-btn sm" style="margin-top:6px;width:100%">' + (ap ? 'Editar' : 'Definir') + '</button>');
+    btn.onclick = ()=> _finAlunoPlanoSheet(a, ()=>refresh());
+    body.appendChild(btn);
+  }).catch(()=>{ body.innerHTML='<div style="color:var(--red);font-size:12px">Erro ao carregar</div>'; });
+  return box;
+}
+
 /* --- Bloco Financeiro do aluno (dentro da ficha) --- */
 function _erpFinanceiroAluno(a, refresh){
   const box = el('<div class="erp-card" style="margin-top:12px"></div>');
@@ -7699,7 +7725,9 @@ function _erpFinanceiroAluno(a, refresh){
       const isBadge = ap.isento ? ' <span style="font-size:10.5px;color:var(--good)">(isento)</span>' : '';
       body.appendChild(el(`<div class="ficha-r"><span>📋 Plano</span><b>${safeTxt(p.nome)}${isBadge}</b></div>`));
       body.appendChild(el(`<div class="ficha-r"><span>💰 Valor</span><b>${moneyBR(val)}${negBadge}</b></div>`));
-      body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${p.dia_vencimento}</b></div>`));
+      const diaEfet = ap.dia_vencimento || p.dia_vencimento;
+      const diaBadge = ap.dia_vencimento ? ' <span style="font-size:10.5px;color:var(--muted)">(customizado)</span>' : '';
+      body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${diaEfet}${diaBadge}</b></div>`));
     } else {
       body.appendChild(el('<div style="padding:8px;color:var(--muted);font-size:13px">Sem plano cadastrado. Toque em "Definir plano" para matricular.</div>'));
     }
@@ -7740,6 +7768,8 @@ function _finAlunoPlanoSheet(a, onDone){
       </select>
       <label class="flbl" style="margin-top:10px">Valor negociado (opcional, R$)</label>
       <input class="inp" id="ap-valor" type="number" step="0.01" min="0" placeholder="Herda do plano se em branco" value="${ap.valor_negociado||''}">
+      <label class="flbl" style="margin-top:10px">Dia de vencimento (1–28, opcional)</label>
+      <input class="inp" id="ap-dia" type="number" min="1" max="28" placeholder="Herda do plano se em branco" value="${ap.dia_vencimento||''}">
       <label class="flbl" style="margin-top:10px"><input type="checkbox" id="ap-isento" ${ap.isento?'checked':''}> Aluno isento (não gera cobrança)</label>
       <label class="flbl" style="margin-top:10px">Motivo isenção</label>
       <input class="inp" id="ap-motivo" maxlength="200" value="${safeAttr(ap.isento_motivo||'')}">
@@ -7760,9 +7790,11 @@ function _finAlunoPlanoSheet(a, onDone){
       if(!plano_id){ toast('Escolha um plano'); return; }
       const valorTxt = sheet.querySelector('#ap-valor').value.trim();
       btn.disabled=true; btn.textContent='Salvando…';
+      const diaTxt = sheet.querySelector('#ap-dia').value.trim();
       sbProf.salvarAlunoPlano({
         user_id: a.id, plano_id,
         valor_negociado: valorTxt ? parseFloat(valorTxt) : null,
+        dia_vencimento: diaTxt ? parseInt(diaTxt) : null,
         isento: sheet.querySelector('#ap-isento').checked,
         isento_motivo: sheet.querySelector('#ap-motivo').value.trim() || null,
         inicio: sheet.querySelector('#ap-inicio').value,
@@ -7957,6 +7989,12 @@ function _erpPresencas(freq, aluno, refresh, paint){
 /* --- ERP: coluna direita (ações contextuais + globais) --- */
 function _erpActions(a, tab, refresh, paint, hora){
   const box=el('<div></div>');
+  // v488 Sprint 2: mini card do plano do aluno visível em TODA aba da ficha
+  // (antes só na Ficha). Complementa `_erpFinanceiroAluno` sem duplicar — ali
+  // é o bloco cheio na aba Ficha; aqui é resumo permanente no sidebar.
+  if(!a._self && !DEMO && typeof sbProf!=='undefined' && sbProf.getAlunoPlano){
+    box.appendChild(_erpPlanoMini(a, refresh));
+  }
   const rows=[];
   // v292: presença só via fluxo Turma → Adicionar frequência (batch com aula_id/turma/hora reais).
   // Lançar/remover manual daqui foi removido pra ter UM só caminho de gravação (evita histórico
@@ -9717,6 +9755,7 @@ function profFinanceiro(){
     <button data-t="despesas"  ${_finTab==='despesas' ?'class="active"':''}>Despesas</button>
     <button data-t="planos"    ${_finTab==='planos'   ?'class="active"':''}>Planos</button>
     <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
+    <button data-t="categorias" ${_finTab==='categorias'?'class="active"':''}>Categorias</button>
   </div>`);
   tabs.querySelectorAll('[data-t]').forEach(b=>{
     b.onclick=()=>{ _finTab=b.dataset.t; render(); };
@@ -9732,7 +9771,8 @@ function profFinanceiro(){
     if(_finTab==='cobrancas') _finRenderCobrancas(body);
     else if(_finTab==='despesas') _finRenderDespesas(body);
     else if(_finTab==='planos') _finRenderPlanos(body);
-    else _finRenderContratos(body);
+    else if(_finTab==='contratos') _finRenderContratos(body);
+    else _finRenderCategorias(body);
   });
 
   return w;
@@ -9980,6 +10020,79 @@ function _finRenderContratos(body){
 function _plus(iso, dias){
   const d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()+dias);
   return d.toISOString().slice(0,10);
+}
+
+/* ---- Sub-aba: Categorias (CRUD dedicado) — Sprint 2 v488 ---- */
+function _finRenderCategorias(body){
+  const cats = _finCategorias || [];
+  const receitas = cats.filter(c=>c.tipo==='receita');
+  const despesas = cats.filter(c=>c.tipo==='despesa');
+
+  const btnRow = el('<div style="display:flex;gap:8px;margin:0 12px 8px"></div>');
+  const btnR = el('<button class="btn-cad" style="flex:1">＋ Receita</button>');
+  btnR.onclick = ()=> _finCategoriaInlineSheet('receita', ()=>{ _finReload(true).then(()=>render()); });
+  const btnD = el('<button class="btn-cad" style="flex:1">＋ Despesa</button>');
+  btnD.onclick = ()=> _finCategoriaInlineSheet('despesa', ()=>{ _finReload(true).then(()=>render()); });
+  btnRow.appendChild(btnR); btnRow.appendChild(btnD);
+  body.appendChild(btnRow);
+
+  const secao = (titulo, arr, tipo) => {
+    body.appendChild(el(`<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">${titulo} (${arr.length})</div>`));
+    if(!arr.length){
+      body.appendChild(el(`<div class="empty-line">Nenhuma categoria de ${tipo}. Toque em "＋ ${tipo==='receita'?'Receita':'Despesa'}".</div>`));
+      return;
+    }
+    const list = el('<div class="list"></div>');
+    arr.forEach(c=>{
+      const row = el(`<div class="st-row" style="cursor:pointer">
+        <div class="st-mid"><div class="nm">${safeTxt(c.nome)}</div>
+          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${c.ativo===false?'inativa':'ativa'}</span></div></div>
+        <div class="st-right">
+          <button class="btn-cad ghost" data-act="toggle" style="padding:6px 10px;font-size:11.5px">${c.ativo===false?'Ativar':'Desativar'}</button>
+        </div>
+      </div>`);
+      const btnToggle = row.querySelector('[data-act="toggle"]');
+      btnToggle.onclick = (e)=>{
+        e.stopPropagation();
+        btnToggle.disabled=true;
+        sbProf.salvarCategoria({ id:c.id, nome:c.nome, tipo:c.tipo, ativo: c.ativo===false })
+          .then(()=>{ toast(c.ativo===false?'Categoria reativada':'Categoria desativada'); _finReload(true).then(()=>render()); })
+          .catch(e=>{ btnToggle.disabled=false; toast('Erro: '+(e.message||e)); });
+      };
+      row.onclick = ()=> _finCategoriaEditSheet(c, ()=>{ _finReload(true).then(()=>render()); });
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+  };
+  secao('Receitas', receitas, 'receita');
+  secao('Despesas', despesas, 'despesa');
+}
+
+// Editar categoria existente (renomear)
+function _finCategoriaEditSheet(c, onDone){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Editar categoria">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Editar categoria</div>
+    <div class="sheet-desc">Tipo: ${c.tipo==='receita'?'Receita':'Despesa'}</div>
+    <label class="flbl">Nome</label>
+    <input class="inp" id="ce-nome" value="${safeAttr(c.nome||'')}">
+    <label class="flbl" style="margin-top:10px"><input type="checkbox" id="ce-ativo" ${c.ativo!==false?'checked':''}> Ativa</label>
+    <button class="btn-save" id="ce-save" style="margin-top:14px">Salvar</button>
+    <button class="sheet-cancel" id="ce-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ce-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const btn = sheet.querySelector('#ce-save');
+  btn.onclick = ()=>{
+    const nome = sheet.querySelector('#ce-nome').value.trim();
+    if(!nome){ toast('Informe o nome'); return; }
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.salvarCategoria({ id:c.id, nome, tipo:c.tipo, ativo: sheet.querySelector('#ce-ativo').checked })
+      .then(()=>{ toast('Categoria salva ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ===== Sheets do Financeiro V2 ===== */
@@ -10393,6 +10506,12 @@ function _finContratoSheet(c, onDone){
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar?'readonly':''}>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
+    ${editar ? `
+      <div class="sec-title" style="margin:14px 0 6px;font-size:11px">PDF assinado (V1 fluxo manual gov.br)</div>
+      <div id="ct-pdf-info" style="font-size:12.5px;color:var(--muted);margin-bottom:6px">${c.arquivo_url ? '📄 Contrato anexado' : 'Nenhum arquivo anexado ainda'}</div>
+      ${c.arquivo_url ? '<button class="btn-cad ghost" id="ct-ver-pdf" style="width:100%;margin-bottom:6px">📄 Ver PDF assinado</button>' : ''}
+      <input type="file" id="ct-pdf-file" accept="application/pdf" style="width:100%;padding:6px 0;font-size:12.5px">
+    ` : ''}
     ${!editar?`
       <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>
     `:''}
@@ -10442,6 +10561,32 @@ function _finContratoSheet(c, onDone){
       sbProf.cancelarContrato(c.id, motivo)
         .then(()=>{ toast('Contrato cancelado'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnCanc.disabled=false; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  // v488 (0044): upload PDF assinado (V1 gov.br externo)
+  const btnVerPdf = sheet.querySelector('#ct-ver-pdf');
+  if(btnVerPdf){
+    btnVerPdf.onclick = ()=>{
+      btnVerPdf.disabled=true; btnVerPdf.textContent='Abrindo…';
+      sbProf.getContratoUrl(c.arquivo_url).then(url=>{
+        btnVerPdf.disabled=false; btnVerPdf.textContent='📄 Ver PDF assinado';
+        if(url) window.open(url, '_blank', 'noopener');
+        else toast('Sem URL — reenvie o arquivo');
+      }).catch(e=>{ btnVerPdf.disabled=false; btnVerPdf.textContent='📄 Ver PDF assinado'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  const inpPdf = sheet.querySelector('#ct-pdf-file');
+  if(inpPdf){
+    inpPdf.onchange = ()=>{
+      const f = inpPdf.files && inpPdf.files[0];
+      if(!f) return;
+      if(f.size > 10 * 1024 * 1024){ toast('Arquivo muito grande (máx 10 MB)'); inpPdf.value=''; return; }
+      const info = sheet.querySelector('#ct-pdf-info');
+      if(info) info.textContent='Enviando…';
+      sbProf.uploadContrato(c.id, f).then(()=>{
+        if(info) info.textContent='📄 Contrato anexado ✔';
+        toast('PDF enviado ✔'); if(onDone) onDone();
+      }).catch(e=>{ if(info) info.textContent='Erro no envio'; toast('Erro: '+(e.message||e)); });
     };
   }
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
@@ -12077,10 +12222,18 @@ function tabbarProf(){
     ['yama','Yama', icoYama(), true],        // wide-only (mobile abre pela "Mais")
     ['mais','Mais', icoMore(), false],
   ];
+  // v488 Sprint 2: badge de alerta em Financeiro — contratos expirados + cobranças
+  // vencidas. Só aparece com backend ligado e dados carregados. Kick lazy load.
+  const finAlerts = _finBackend() ? _finAlertsCount() : 0;
+  if(_finBackend() && _finCobrancas===null){
+    _finReload(true).then(()=>renderBg()).catch(()=>{});
+  }
   const bar = el(`<div class="tabbar"></div>`);
   tabs.forEach(([id,label,ico,wideOnly])=>{
     const cls = `tab ${DB.navProf===id?'active':''}${wideOnly?' tab-wide':''}`;
-    const t = el(`<div class="${cls}">${ico||icoMore()}<span class="tl">${label}</span></div>`);
+    const badge = (id==='financeiro' && finAlerts>0)
+      ? `<span class="tab-badge" aria-label="${finAlerts} pendências financeiras">${finAlerts>9?'9+':finAlerts}</span>` : '';
+    const t = el(`<div class="${cls}">${ico||icoMore()}${badge}<span class="tl">${label}</span></div>`);
     // v445: "Mais" no mobile abre um sheet com Graduação/Vídeos/Loja/Yama + Meu perfil
     // (tudo que o desktop mostra na sidebar). Antes navegava direto pra 'perfil', o que
     // deixava o professor mobile sem acesso a essas áreas sem virar o celular.
@@ -12088,6 +12241,17 @@ function tabbarProf(){
     bar.appendChild(t);
   });
   return bar;
+}
+
+// Conta alertas de Financeiro pra badge do bottom bar: contratos expirados +
+// cobranças vencidas do mês corrente. Retorna 0 se dados ainda não carregados
+// (badge invisível durante o loading).
+function _finAlertsCount(){
+  const cobs = _finCobrancas || [];
+  const cts  = _finContratos || [];
+  const vencidas = cobs.filter(c => c.status==='pendente' && c.venc && c.venc < HOJE_ISO).length;
+  const expirados = cts.filter(c => c.status==='expirado').length;
+  return vencidas + expirados;
 }
 function _profMaisSheet(){
   const linhas = [
