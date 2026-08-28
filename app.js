@@ -12898,21 +12898,12 @@ function abrirLesoes(){
   </div></div>`);
   const renderList=()=>{ const c=sheet.querySelector('#lesao-list'); c.innerHTML='';
     if(!DB.lesoes.length){ c.appendChild(el(`<div class="empty-line">Nenhuma lesão registrada. 🙏</div>`)); return; }
+    // v485: Excluir removido — lesão fica no histórico pra sempre (decisão do dono,
+    // 2026-08-27). Correção via "Editar" (status curada, nota do que aconteceu).
     DB.lesoes.forEach(l=>{ const st={ativa:['gold','Ativa'],recuperando:['blue','Recuperando'],curada:['green','Curada']}[l.status]||['blue',l.status];
       const row = el(`<div class="lesao-item"><div class="li-top"><span class="li-nm">${safeTxt(l.parte)}</span><span class="niv-badge ${st[0]}">${st[1]}</span></div>${l.nota?`<div class="li-nota">${safeTxt(l.nota)}</div>`:''}<div class="li-dt">${fmtDataLonga(l.data)}</div>
-        <div class="li-actions"><button class="li-edit">Editar</button><button class="li-del">Excluir</button></div></div>`);
+        <div class="li-actions"><button class="li-edit">Editar</button></div></div>`);
       row.querySelector('.li-edit').onclick=()=> abrirEditarLesao(l, renderList);
-      row.querySelector('.li-del').onclick=()=>{
-        const cf = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-          <div class="sheet-grip"></div>
-          <div class="sheet-title">Excluir lesão?</div>
-          <div class="sheet-desc">Esta lesão será removida permanentemente. Não dá pra desfazer.</div>
-          <button class="btn-save danger" id="ld-ok">Excluir</button>
-          <button class="sheet-cancel" id="ld-no">Cancelar</button>
-        </div></div>`);
-        const closeCf = openSheet(cf, '#ld-no');
-        cf.querySelector('#ld-ok').onclick=()=>{ DB.lesoes=DB.lesoes.filter(x=>x.id!==l.id); closeCf(); renderList(); scheduleSave(); if(DB.sbUser && !DEMO && typeof sbSync!=='undefined'){ try{ sbSync.pushLesoes(); }catch(e){} } toast('Lesão excluída'); };
-      };
       c.appendChild(row); }); };
   renderList();
   sheet.querySelector('#lesao-add').onclick=()=> abrirNovaLesao(renderList);
