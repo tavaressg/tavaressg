@@ -5683,31 +5683,96 @@ function profPainel(){
     w.appendChild(tbl);
   }
 
-  // Check-ins de hoje — lista compacta
-  const presentes = alunos.filter(a=>a.pres).length;
-  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Check-ins de hoje (${presentes})</div>
-    <a data-click="verAlunos">Ver todos</a></div>`));
-  const list = el('<div class="list block"></div>');
-  if(!presentes){
-    list.appendChild(el('<div class="empty-line">Nenhum check-in ainda hoje.</div>'));
+  // v487: check-ins de hoje saíram do painel. Trocado por resumo financeiro
+  // (Proposta A) — Saldo do mês + Recebido/A receber/Vencido + Despesas do mês
+  // + linha de ação (cobranças vencendo nos próximos 7 dias). Reusa `.fin-head`
+  // do Financeiro pra manter consistência visual. Check-ins continuam na tela
+  // Alunos (filtro "hoje") e em Presenças (relatório).
+  const mesAtualNome = new Date().toLocaleDateString('pt-BR',{month:'long'});
+  const mesRef = HOJE_ISO.slice(0,7);
+  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Financeiro · ${mesAtualNome}</div>
+    <a role="button" tabindex="0" data-click="verFinanceiro">Ver todos ›</a></div>`));
+  const finCard = el('<div class="block fin-summary-card" style="padding:14px 16px"></div>');
+  w.appendChild(finCard);
+
+  const pintaFin = ()=>{
+    finCard.innerHTML='';
+    // Sem backend do Financeiro (demo/offline): mostra placeholder amigável.
+    if(!_finBackend() || _finCobrancas===null){
+      finCard.innerHTML = '<div class="loading-center" style="padding:6px 0">Carregando financeiro…</div>';
+      return;
+    }
+    const soma = arr => arr.reduce((s,c)=> s + (Number(c.valor)||0), 0);
+    const isVenc = c => c.status==='pendente' && c.venc && c.venc < HOJE_ISO;
+    const cobs = _finCobrancas || [];
+    const pagas = cobs.filter(c => c.status==='pago');
+    const pendMesA = cobs.filter(c => c.status==='pendente' && !isVenc(c));
+    const vencs   = cobs.filter(isVenc);
+    // Despesas do mês (pagas). getDespesas retorna todas — filtra por mês corrente.
+    const desps = (_finDespesas||[]);
+    const despPagas = desps.filter(d => d.status==='pago'
+      && (d.data_pagamento||'').slice(0,7) === mesRef);
+    const despAPagar = desps.filter(d => d.status==='a_pagar');
+    const recebido = soma(pagas);
+    const aReceber = soma(pendMesA);
+    const vencido  = soma(vencs);
+    const despMes  = soma(despPagas);
+    const saldo    = recebido - despMes;
+    const saldoCor = saldo >= 0 ? 'var(--good)' : 'var(--red)';
+    const saldoSig = saldo >= 0 ? '+' : '−';
+    // Próximas 7d: pendente + venc entre hoje e hoje+7
+    const in7 = _plus(HOJE_ISO, 7);
+    const proxN = cobs.filter(c => c.status==='pendente' && c.venc && c.venc >= HOJE_ISO && c.venc <= in7).length;
+
+    finCard.innerHTML = `
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase">Saldo do mês</div>
+        <div style="font-size:28px;font-weight:800;color:${saldoCor};margin-top:2px">${saldoSig}${moneyBR(Math.abs(saldo)).replace('R$','R$ ')}</div>
+      </div>
+      <div class="row" style="display:flex;justify-content:space-between;gap:6px">
+        <div class="c" style="flex:1;text-align:center">
+          <div class="v green" style="font-size:15px;font-weight:800;color:var(--good)">${moneyBR(recebido)}</div>
+          <div class="l" style="font-size:10.5px;color:var(--muted);margin-top:1px">Recebido</div>
+        </div>
+        <div class="c" style="flex:1;text-align:center">
+          <div class="v" style="font-size:15px;font-weight:800">${moneyBR(aReceber)}</div>
+          <div class="l" style="font-size:10.5px;color:var(--muted);margin-top:1px">A receber</div>
+        </div>
+        <div class="c" style="flex:1;text-align:center">
+          <div class="v red" style="font-size:15px;font-weight:800;color:var(--red)">${moneyBR(vencido)}</div>
+          <div class="l" style="font-size:10.5px;color:var(--muted);margin-top:1px">Vencido</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#e5e5ea);font-size:13px">
+        <span style="color:var(--muted);font-weight:600">Despesas do mês</span>
+        <span style="font-weight:800">${moneyBR(despMes)}</span>
+      </div>
+      ${proxN > 0 ? `
+      <div class="fin-cta" role="button" tabindex="0" style="margin-top:10px;padding:8px 10px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px;color:var(--muted);cursor:pointer">
+        <b>${proxN}</b> cobrança${proxN>1?'s':''} vence${proxN>1?'m':''} nos próximos 7 dias ›
+      </div>` : ''}
+    `;
+    // clique no CTA de próximas 7 dias abre Financeiro
+    const cta = finCard.querySelector('.fin-cta');
+    if(cta){
+      cta.onclick = ()=>{ _finTab='cobrancas'; _finCobFiltro='avencer'; goProf('financeiro'); };
+      cta.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); cta.click(); } };
+    }
+  };
+
+  // Link "Ver todos ›"
+  const verLink = w.querySelector('[data-click="verFinanceiro"]');
+  if(verLink) verLink.onclick = ()=>goProf('financeiro');
+
+  // Backend liga o financeiro (Sprint 1). Carrega em background.
+  if(_finBackend()){
+    if(_finCobrancas === null){
+      _finReload(true).then(()=>{ pintaFin(); }).catch(()=>{ pintaFin(); });
+    }
+    pintaFin();
   } else {
-    alunos.filter(a=>a.pres).slice(0,5).forEach(a=>{
-      // v435: a TURMA do check-in. Vem do adapter (`presTurma`, embed turmas(nome) na
-      // consulta de hoje). Pode ser mais de uma desde a v429 — aluno com 4 turmas ADULTO
-      // no mesmo dia conta 4 check-ins; aqui vira "ADULTO · NO-GI".
-      // Sem turma (check-in legado sem vínculo) o chip simplesmente não aparece.
-      const turmas = Array.isArray(a.presTurma) ? a.presTurma.filter(Boolean) : [];
-      const chip = turmas.length
-        ? `<span class="st-turma-chip" title="${safeAttr(turmas.join(' · '))}">${safeTxt(turmas.join(' · '))}</span>`
-        : '';
-      list.appendChild(el(`<div class="ci-row"><span class="ci-dot"></span>
-        ${avatarAluno(a, 'width:36px;height:36px;font-size:13px')}
-        <div class="ci-mid"><div style="font-size:13.5px;font-weight:700">${safeTxt(_nomeInst(a))}</div>
-          <div class="ci-meta"><span>${BELTS[a.faixa]?.nome||safeTxt(a.faixa)} · ${a.graus||0}º grau</span>${chip}</div></div>
-        <span class="ci-time">${safeTxt(a.pres)}</span></div>`));
-    });
+    finCard.innerHTML = '<div class="empty-line" style="padding:8px">Financeiro não disponível.</div>';
   }
-  w.appendChild(list);
   return w;
 }
 
