@@ -10276,7 +10276,7 @@ function _finRenderCobrancas(body){
 
   if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
 
-  const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao_debito:'💳D', cartao_credito:'💳C', boleto:'🧾', outro:'➕' };
+  const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao:'💳', outro:'➕' };
   const statusRank = (c) => c.status==='pendente' ? (isVenc(c) ? 0 : 1) : (c.status==='pago' ? 2 : 3);
   const sorted = cobs.slice().sort((a,b) => {
     const ra = statusRank(a), rb = statusRank(b);
@@ -10347,61 +10347,17 @@ function _finRenderDespesas(body){
       <div class="c"><div class="v">${pagas.length}</div><div class="l">Pagas</div></div>
     </div></div>`));
 
-  const seg = el(`<div class="filter-seg">
-    <button data-f="a_pagar" ${_finDespFiltro==='a_pagar'?'class="active"':''}>A pagar (${aPagar.length})</button>
-    <button data-f="pago"    ${_finDespFiltro==='pago'   ?'class="active"':''}>Pagas (${pagas.length})</button>
-    <button data-f="todas"   ${_finDespFiltro==='todas'  ?'class="active"':''}>Todas (${desps.length})</button>
-  </div>`);
-  const btnNova = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova despesa</button>');
+  // v501: sub-tabs de status removidas — tabela unificada com coluna Status.
+  // Mesmo padrão da v500 em Cobranças. Ordenação: vencidas > a pagar > pagas
+  // > canceladas; dentro por data_lancamento asc.
+  const btnNova = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova despesa</button>');
   btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(true).then(()=>render()); });
-  // v485: cadastro-mãe de despesa parcelada (IPTU 12x, seguro anual). Cron gera
-  // as parcelas dia 1 de cada mês entre inicio e fim.
   const btnRec = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>');
   btnRec.onclick = ()=> _finDespesaRecorrenteSheet(null, ()=>{ _finReload(true).then(()=>render()); });
-
-  const list = el('<div class="list"></div>');
-  const paint = () => {
-    list.innerHTML='';
-    let src;
-    if(_finDespFiltro==='a_pagar') src = aPagar;
-    else if(_finDespFiltro==='pago') src = pagas;
-    else src = desps;
-    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhuma despesa.</div>')); return; }
-    src.forEach(d=>{
-      const cat = d.categorias_financeiro && d.categorias_financeiro.nome;
-      const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
-      const dl  = d.data_lancamento ? (d.data_lancamento.slice(8,10)+'/'+d.data_lancamento.slice(5,7)) : '—';
-      const cor = d.status==='pago' ? 'var(--good)' : (d.data_lancamento < HOJE_ISO ? 'var(--red)' : 'var(--ink)');
-      // v494 Sprint 6 item 3: botão "✓" pra pagar direto na lista (sem abrir sheet).
-      // Aparece só quando status='a_pagar'.
-      const btnQuickPay = d.status==='a_pagar'
-        ? `<button class="btn-cad ghost" data-quickpay="1" style="padding:6px 10px;font-size:14px;margin-right:8px" title="Marcar paga hoje">✓</button>`
-        : '';
-      const row = el(`<div class="st-row" style="cursor:pointer">
-        <div class="st-mid"><div class="nm">${safeTxt(d.descricao)}</div>
-          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(cat||'—')} · ${dl}${rec?' · '+safeTxt(rec):''}</span></div></div>
-        <div class="st-right" style="display:flex;align-items:center">
-          ${btnQuickPay}
-          <div style="font-size:14.5px;font-weight:800;color:${cor}">${moneyBR(d.valor)}</div>
-        </div>
-      </div>`);
-      const qp = row.querySelector('[data-quickpay]');
-      if(qp){
-        qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload(true).then(()=>render()); }); };
-      }
-      row.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true).then(()=>render()); });
-      list.appendChild(row);
-    });
-  };
-  seg.querySelectorAll('[data-f]').forEach(b=>{
-    b.onclick=()=>{ _finDespFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
-  });
-  paint();
-  body.appendChild(seg);
   body.appendChild(btnNova);
   body.appendChild(btnRec);
 
-  // v485: cards das despesas recorrentes ativas — clique abre edit sheet
+  // Cards das recorrentes ativas (mantido do original)
   const recs = (_finRec||[]).filter(r=> r.ativo!==false);
   if(recs.length){
     body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Despesas recorrentes ativas</div>'));
@@ -10419,9 +10375,69 @@ function _finRenderDespesas(body){
       recList.appendChild(row);
     });
     body.appendChild(recList);
-    body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Lançamentos</div>'));
   }
-  body.appendChild(list);
+
+  if(!desps.length){ body.appendChild(el('<div class="empty-line">Nenhuma despesa neste mês.</div>')); return; }
+
+  const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao:'💳', outro:'➕' };
+  const isVencDesp = (d) => d.status==='a_pagar' && d.data_lancamento && d.data_lancamento < HOJE_ISO;
+  const statusRank = (d) => d.status==='a_pagar' ? (isVencDesp(d) ? 0 : 1) : (d.status==='pago' ? 2 : 3);
+  const sorted = desps.slice().sort((a,b) => {
+    const ra = statusRank(a), rb = statusRank(b);
+    if(ra !== rb) return ra - rb;
+    return (a.data_lancamento||'').localeCompare(b.data_lancamento||'');
+  });
+  const statusBadge = (d) => {
+    if(d.status==='pago') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Paga</span>';
+    if(d.status==='cancelado') return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Cancelada</span>';
+    if(isVencDesp(d)) return '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Vencida</span>';
+    return '<span style="font-size:10.5px;color:var(--ink);background:rgba(0,0,0,0.05);padding:2px 8px;border-radius:10px;font-weight:700">A pagar</span>';
+  };
+  const dmy = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)) : '—';
+
+  body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Lançamentos</div>'));
+  const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
+  const table = el(`<table class="fin-desp-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:840px">
+    <thead>
+      <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700">Descrição</th>
+        <th style="padding:10px 8px;font-weight:700">Categoria</th>
+        <th style="padding:10px 8px;font-weight:700">Vence</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+        <th style="padding:10px 8px;font-weight:700">Pago em</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Forma</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>`);
+  const tbody = table.querySelector('tbody');
+  sorted.forEach(d => {
+    const cat = d.categorias_financeiro && d.categorias_financeiro.nome;
+    const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
+    const cor = d.status==='pago' ? 'var(--good)' : (isVencDesp(d) ? 'var(--red)' : 'var(--ink)');
+    const forma = d.forma_pagamento ? (FORMA_LBL[d.forma_pagamento]||d.forma_pagamento) : '';
+    const quickPay = d.status==='a_pagar'
+      ? `<button class="btn-cad ghost" data-quickpay="1" style="padding:4px 10px;font-size:13px" title="Marcar paga">✓</button>`
+      : '';
+    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
+      <td style="padding:10px 12px;font-weight:700">${safeTxt(d.descricao)}${rec?` <span style="font-size:10.5px;color:var(--muted);font-weight:500">(recorrente)</span>`:''}</td>
+      <td style="padding:10px 8px">${safeTxt(cat||'—')}</td>
+      <td style="padding:10px 8px">${dmy(d.data_lancamento)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(d.valor)}</td>
+      <td style="padding:10px 8px;text-align:center">${statusBadge(d)}</td>
+      <td style="padding:10px 8px">${d.data_pagamento ? dmy(d.data_pagamento) : '—'}</td>
+      <td style="padding:10px 8px;text-align:center">${safeTxt(forma) || '—'}</td>
+      <td style="padding:10px 8px;text-align:center">${quickPay}</td>
+    </tr>`);
+    const qp = tr.querySelector('[data-quickpay]');
+    if(qp) qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload(true).then(()=>render()); }); };
+    tr.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true).then(()=>render()); });
+    tbody.appendChild(tr);
+  });
+  wrap.appendChild(table);
+  body.appendChild(wrap);
 }
 
 /* ---- Sub-aba: Planos ---- */
@@ -10432,7 +10448,7 @@ function _finRenderPlanos(body){
   body.appendChild(btn);
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
-  const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao_debito:'💳 Débito', cartao_credito:'💳 Crédito', boleto:'🧾 Boleto', outro:'➕ Outro' };
+  const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao:'💳 Cartão', outro:'➕ Outro' };
   // v499: coluna Público removida (YAGNI). Info derivada de #alunos por plano
   // se realmente necessária.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
@@ -10633,9 +10649,7 @@ function _finCobrancaSheet(c){
       <select class="inp" id="fc-forma">
         <option value="dinheiro">💵 Dinheiro</option>
         <option value="pix">📱 PIX</option>
-        <option value="cartao_debito">💳 Cartão de débito</option>
-        <option value="cartao_credito">💳 Cartão de crédito</option>
-        <option value="boleto">🧾 Boleto</option>
+        <option value="cartao">💳 Cartão</option>
         <option value="outro">➕ Outro</option>
       </select>
       <label class="flbl" style="margin-top:10px">Observação (opcional)</label>
@@ -10797,9 +10811,7 @@ function _finPlanoSheet(p, onDone){
       <option value="">—</option>
       <option value="dinheiro">💵 Dinheiro</option>
       <option value="pix">📱 PIX</option>
-      <option value="cartao_debito">💳 Cartão débito</option>
-      <option value="cartao_credito">💳 Cartão crédito</option>
-      <option value="boleto">🧾 Boleto</option>
+      <option value="cartao">💳 Cartão</option>
       <option value="outro">➕ Outro</option>
     </select>
     <label class="flbl" style="margin-top:10px"><input type="checkbox" id="pl-contrato" ${p.tem_contrato?'checked':''}> Exige contrato assinado</label>
@@ -10957,9 +10969,7 @@ function _finDespesaSheet(d, onDone){
         <option value="">—</option>
         <option value="dinheiro">💵 Dinheiro</option>
         <option value="pix">📱 PIX</option>
-        <option value="cartao_debito">💳 Cartão débito</option>
-        <option value="cartao_credito">💳 Cartão crédito</option>
-        <option value="boleto">🧾 Boleto</option>
+        <option value="cartao">💳 Cartão</option>
         <option value="outro">➕ Outro</option>
       </select>
     `:''}
@@ -11040,9 +11050,7 @@ function _finDespesaQuickPaySheet(d, onDone){
     <select class="inp" id="qp-forma">
       <option value="dinheiro">💵 Dinheiro</option>
       <option value="pix">📱 PIX</option>
-      <option value="cartao_debito">💳 Cartão débito</option>
-      <option value="cartao_credito">💳 Cartão crédito</option>
-      <option value="boleto">🧾 Boleto</option>
+      <option value="cartao">💳 Cartão</option>
       <option value="outro">➕ Outro</option>
     </select>
     <button class="btn-save" id="qp-save" style="margin-top:14px">Confirmar</button>
