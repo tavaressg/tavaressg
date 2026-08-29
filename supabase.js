@@ -1508,6 +1508,10 @@
         valor_congelado: c.valor_congelado != null ? c.valor_congelado : (pl ? pl.valor : 0),
         frequencia_congelada: c.frequencia_congelada || (pl ? pl.frequencia : 'mensal'),
         obs: c.obs || null,
+        // v490 (0045): contrato de menor congela dados do responsável no momento
+        // da assinatura — mesmo se depois o responsável mudar, o contrato lembra.
+        eh_menor: !!c.eh_menor,
+        responsavel: c.responsavel || null,
         criado_por: u ? u.id : null,
       };
       if (c.id) {
@@ -1687,6 +1691,16 @@
     // Rodar o cron sob demanda (dev/reconciliação). Retorna o jsonb com contagens.
     rodarFinanceiroDiario: wrap(async () => {
       const { data, error } = await SB.rpc('financeiro_diario');
+      if (error) throw error;
+      return data;
+    }),
+    // v490 (0045): gera cobranças de um mês específico (antecipar próximo mês,
+    // reprocessar mês corrente). Sem param = mês atual. Idempotente pelo
+    // UNIQUE parcial (user_id, mes) where avulsa=false. Retorna quantas foram
+    // criadas nesta chamada (excluindo as que já existiam).
+    gerarCobrancasDoMes: wrap(async (mes) => {
+      const p_ref = mes ? (mes.length === 7 ? mes + '-01' : mes) : null;
+      const { data, error } = await SB.rpc('gerar_cobrancas_mes', { p_ref });
       if (error) throw error;
       return data;
     }),

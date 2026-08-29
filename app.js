@@ -5766,9 +5766,22 @@ function profPainel(){
     const saldo    = recebido - despMes;
     const saldoCor = saldo >= 0 ? 'var(--good)' : 'var(--red)';
     const saldoSig = saldo >= 0 ? '+' : '−';
+    // v490 Sprint 3 item 4: Custo/aluno = despesa mês ÷ alunos ativos
+    const ativosN = alunos.filter(a=>a.diasSem<14).length || alunos.length || 1;
+    const custoAluno = despMes / (ativosN || 1);
     // Próximas 7d: pendente + venc entre hoje e hoje+7
     const in7 = _plus(HOJE_ISO, 7);
     const proxN = cobs.filter(c => c.status==='pendente' && c.venc && c.venc >= HOJE_ISO && c.venc <= in7).length;
+    // v490 Sprint 3 item 5: inadimplentes = alunos com vencida no mês. Top 5 por valor.
+    const inadByAluno = {};
+    vencs.forEach(c=>{
+      const p = c.profiles || {};
+      const id = p.id || c.user_id;
+      if(!inadByAluno[id]) inadByAluno[id] = { nome: p.apelido || p.nome_completo || 'aluno', total: 0 };
+      inadByAluno[id].total += (Number(c.valor)||0);
+    });
+    const inadArr = Object.values(inadByAluno).sort((a,b)=>b.total-a.total);
+    const inadTop = inadArr.slice(0, 3);
 
     finCard.innerHTML = `
       <div style="text-align:center;margin-bottom:12px">
@@ -5793,9 +5806,22 @@ function profPainel(){
         <span style="color:var(--muted);font-weight:600">Despesas do mês</span>
         <span style="font-weight:800">${moneyBR(despMes)}</span>
       </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:13px">
+        <span style="color:var(--muted);font-weight:600">Custo por aluno</span>
+        <span style="font-weight:800">${moneyBR(custoAluno)}</span>
+      </div>
       ${proxN > 0 ? `
       <div class="fin-cta" role="button" tabindex="0" style="margin-top:10px;padding:8px 10px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px;color:var(--muted);cursor:pointer">
         <b>${proxN}</b> cobrança${proxN>1?'s':''} vence${proxN>1?'m':''} nos próximos 7 dias ›
+      </div>` : ''}
+      ${inadTop.length > 0 ? `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#e5e5ea)">
+        <div style="font-size:11px;color:var(--red);font-weight:800;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">⚠️ Inadimplentes (${inadArr.length})</div>
+        ${inadTop.map(x=>`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px">
+          <span>${safeTxt(x.nome)}</span>
+          <span style="font-weight:800;color:var(--red)">${moneyBR(x.total)}</span>
+        </div>`).join('')}
+        ${inadArr.length > inadTop.length ? `<div class="fin-ver-inad" role="button" tabindex="0" style="margin-top:4px;font-size:11.5px;color:var(--muted);cursor:pointer;text-align:right">Ver todos os ${inadArr.length} ›</div>` : ''}
       </div>` : ''}
     `;
     // clique no CTA de próximas 7 dias abre Financeiro
@@ -5803,6 +5829,12 @@ function profPainel(){
     if(cta){
       cta.onclick = ()=>{ _finTab='cobrancas'; _finCobFiltro='avencer'; goProf('financeiro'); };
       cta.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); cta.click(); } };
+    }
+    // Link "Ver todos" da lista de inadimplentes
+    const verInad = finCard.querySelector('.fin-ver-inad');
+    if(verInad){
+      verInad.onclick = ()=>{ _finTab='cobrancas'; _finCobFiltro='vencidas'; goProf('financeiro'); };
+      verInad.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); verInad.click(); } };
     }
   };
 
@@ -9766,16 +9798,28 @@ let _finTab = 'cobrancas';
 let _finPlanos = null, _finContratos = null, _finDespesas = null;
 let _finCobrancas = null, _finCategorias = null, _finRec = null;
 let _finTs = 0;
+let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
 let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
 let _finDespFiltro = 'a_pagar';
 let _finContrFiltro = 'ativo';
 
+function _finMes(){ return _finMesRef || HOJE_ISO.slice(0,7); }
+function _finMesNome(mes){
+  const [y,m] = (mes||_finMes()).split('-').map(Number);
+  const d = new Date(y, m-1, 1);
+  return d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+}
+function _finMesShift(delta){
+  const [y,m] = _finMes().split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  _finMesRef = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
 function _finReload(force){
   if(force) _finTs = 0;
   if(DEMO || typeof sbProf==='undefined' || !sbProf.getCobrancas) return Promise.resolve();
   if(!force && Date.now() - _finTs < 15000) return Promise.resolve();
   _finTs = Date.now();
-  const mes = HOJE_ISO.slice(0,7);
+  const mes = _finMes();
   return Promise.all([
     sbProf.getCobrancas({ mes }).then(r=>{ _finCobrancas = r; }).catch(()=>{}),
     sbProf.getDespesas().then(r=>{ _finDespesas = r; }).catch(()=>{}),
@@ -9792,9 +9836,42 @@ function profFinanceiro(){
     w.innerHTML='<div class="card card-pad" style="margin:20px;text-align:center;color:var(--muted)">Financeiro só funciona com backend ligado.</div>';
     return w;
   }
-  const mesAtual = new Date().toLocaleDateString('pt-BR',{month:'long'});
+  const mesAtualNome = _finMesNome();
+  const mesCorrente = HOJE_ISO.slice(0,7);
+  const eMesCorrente = _finMes() === mesCorrente;
   w.innerHTML = `<div class="hello"><div class="date">Financeiro</div>
-    <div class="greet">${mesAtual} · gestão</div></div>`;
+    <div class="greet">gestão</div></div>`;
+
+  // v490 Sprint 3: seletor de mês/ano + botão "Preparar próximo mês"
+  const mesBar = el(`<div class="fin-mes-bar" style="display:flex;align-items:center;gap:6px;margin:6px 12px 10px">
+    <button class="btn-cad ghost" id="fm-prev" aria-label="Mês anterior" style="min-width:34px;padding:6px 8px">‹</button>
+    <div id="fm-nome" style="flex:1;text-align:center;font-weight:800;font-size:14.5px;text-transform:capitalize">${safeTxt(mesAtualNome)}</div>
+    <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
+    ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
+  </div>`);
+  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true).then(()=>render()); };
+  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true).then(()=>render()); };
+  const btnHoje = mesBar.querySelector('#fm-hoje');
+  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true).then(()=>render()); };
+  w.appendChild(mesBar);
+
+  // Botão "Preparar próximo mês" (só quando estamos no mês corrente ou anterior)
+  const [y,m] = _finMes().split('-').map(Number);
+  const proxD = new Date(y, m, 1);   // próximo mês em relação ao selecionado
+  const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
+  const proxNome = _finMesNome(proxMes);
+  const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
+  prep.onclick = ()=>{
+    if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
+    prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
+    sbProf.gerarCobrancasDoMes(proxMes)
+      .then(n => {
+        toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
+        _finReload(true).then(()=>render());
+      })
+      .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
+  };
+  w.appendChild(prep);
 
   const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px" role="tablist">
     <button data-t="cobrancas" ${_finTab==='cobrancas'?'class="active"':''}>Cobranças</button>
@@ -9898,7 +9975,7 @@ function _finRenderCobrancas(body){
 function _finRenderDespesas(body){
   const desps = _finDespesas || [];
   const soma = arr => arr.reduce((s,d)=>s+(Number(d.valor)||0),0);
-  const mesRef = HOJE_ISO.slice(0,7);
+  const mesRef = _finMes();
   const pagas   = desps.filter(d => d.status==='pago' && (d.data_pagamento||'').slice(0,7)===mesRef);
   const aPagar  = desps.filter(d => d.status==='a_pagar');
   const vencidas = aPagar.filter(d => d.data_lancamento < HOJE_ISO);
@@ -10044,8 +10121,9 @@ function _finRenderContratos(body){
       const daysLeft = c.fim ? Math.round((new Date(c.fim) - new Date(today))/86400000) : null;
       const alerta = (c.status==='ativo' && daysLeft!==null && daysLeft <= 30 && daysLeft >= 0)
         ? ` <span style="font-size:10.5px;color:var(--red);font-weight:700">vence em ${daysLeft}d</span>` : '';
+      const badgeMenor = c.eh_menor ? ' <span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:1px 6px;border-radius:4px;font-weight:600">menor</span>' : '';
       const row = el(`<div class="st-row" style="cursor:pointer">
-        <div class="st-mid"><div class="nm">${numTxt} · ${safeTxt(nome)}${alerta}</div>
+        <div class="st-mid"><div class="nm">${numTxt} · ${safeTxt(nome)}${badgeMenor}${alerta}</div>
           <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(pl.nome||'—')} · até ${fimTxt}</span></div></div>
         <div class="st-right">
           <div style="font-size:14.5px;font-weight:800">${moneyBR(c.valor_congelado)}</div>
@@ -10552,6 +10630,36 @@ function _finContratoSheet(c, onDone){
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar?'readonly':''}>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
+    ${!editar ? `
+      <label class="flbl" style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="ct-menor">
+        <span>Contrato de menor de idade <span style="color:var(--muted);font-weight:500">(exige responsável)</span></span>
+      </label>
+      <div id="ct-resp-wrap" style="display:none">
+        <div class="sec-title" style="margin:12px 0 6px;font-size:11px">Responsável legal</div>
+        <label class="flbl">Nome</label>
+        <input class="inp" id="ct-resp-nome" placeholder="Nome completo do responsável">
+        <label class="flbl" style="margin-top:8px">CPF</label>
+        <input class="inp" id="ct-resp-cpf" placeholder="000.000.000-00" inputmode="numeric">
+        <label class="flbl" style="margin-top:8px">Parentesco</label>
+        <select class="inp" id="ct-resp-parent">
+          <option value="pai">Pai</option>
+          <option value="mae">Mãe</option>
+          <option value="responsavel">Responsável legal</option>
+          <option value="avo">Avô/Avó</option>
+          <option value="outro">Outro</option>
+        </select>
+        <label class="flbl" style="margin-top:8px">Telefone</label>
+        <input class="inp" id="ct-resp-tel" placeholder="(31) 99999-9999" inputmode="numeric">
+      </div>
+    ` : (c.eh_menor && c.responsavel ? `
+      <div class="sec-title" style="margin:14px 0 6px;font-size:11px">Responsável legal (congelado na assinatura)</div>
+      <div style="padding:8px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px">
+        <div><b>${safeTxt(c.responsavel.nome||'—')}</b>${c.responsavel.parentesco?' · '+safeTxt(c.responsavel.parentesco):''}</div>
+        ${c.responsavel.cpf?`<div style="color:var(--muted);margin-top:2px">CPF ${safeTxt(c.responsavel.cpf)}</div>`:''}
+        ${c.responsavel.telefone?`<div style="color:var(--muted)">Tel ${safeTxt(c.responsavel.telefone)}</div>`:''}
+      </div>
+    ` : '')}
     ${editar ? `
       <div class="sec-title" style="margin:14px 0 6px;font-size:11px">PDF assinado (V1 fluxo manual gov.br)</div>
       <div id="ct-pdf-info" style="font-size:12.5px;color:var(--muted);margin-bottom:6px">${c.arquivo_url ? '📄 Contrato anexado' : 'Nenhum arquivo anexado ainda'}</div>
@@ -10573,6 +10681,34 @@ function _finContratoSheet(c, onDone){
   sheet.querySelector('#ct-close').onclick = close;
   sheet.onclick = e=>{ if(e.target===sheet) close(); };
 
+  // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
+  // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
+  const chkMenor = sheet.querySelector('#ct-menor');
+  const respWrap = sheet.querySelector('#ct-resp-wrap');
+  if(chkMenor){
+    chkMenor.onchange = ()=>{
+      const on = chkMenor.checked;
+      respWrap.style.display = on ? '' : 'none';
+      if(on){
+        // Auto-preenche do profile do aluno selecionado
+        const uid = sheet.querySelector('#ct-aluno').value;
+        const a = alunos.find(x=>x.id===uid);
+        const r = a && a.cad && a.cad.responsavel;
+        if(r){
+          const inp = (sel,v)=>{ const e=sheet.querySelector(sel); if(e && !e.value) e.value = v || ''; };
+          inp('#ct-resp-nome', r.nome);
+          inp('#ct-resp-cpf', r.cpf);
+          inp('#ct-resp-tel', r.telefone);
+          const selP = sheet.querySelector('#ct-resp-parent');
+          if(selP && r.parentesco){
+            const norm = String(r.parentesco).toLowerCase();
+            const map = { 'pai':'pai','mae':'mae','mãe':'mae','responsavel':'responsavel','responsável':'responsavel','avo':'avo','avó':'avo','avô':'avo' };
+            selP.value = map[norm] || 'outro';
+          }
+        }
+      }
+    };
+  }
   const btnSave = sheet.querySelector('#ct-save');
   if(btnSave){
     btnSave.onclick = ()=>{
@@ -10582,8 +10718,20 @@ function _finContratoSheet(c, onDone){
       const fim = sheet.querySelector('#ct-fim').value;
       if(!user_id || !plano_id || !inicio || !fim){ toast('Preencha aluno, plano e datas'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
+      const eh_menor = chkMenor && chkMenor.checked;
+      let responsavel = null;
+      if(eh_menor){
+        const nome = sheet.querySelector('#ct-resp-nome').value.trim();
+        if(!nome){ toast('Informe o nome do responsável'); return; }
+        responsavel = {
+          nome,
+          cpf: sheet.querySelector('#ct-resp-cpf').value.trim() || null,
+          parentesco: sheet.querySelector('#ct-resp-parent').value,
+          telefone: sheet.querySelector('#ct-resp-tel').value.trim() || null,
+        };
+      }
       btnSave.disabled=true; btnSave.textContent='Criando…';
-      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim() })
+      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
         .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };
