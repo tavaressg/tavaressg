@@ -7849,18 +7849,12 @@ function _erpFinanceiroAluno(a, refresh){
 function _finAlunoPlanoSheet(a, onDone){
   Promise.all([ sbProf.getPlanos(), sbProf.getAlunoPlano(a.id) ]).then(([planos, ap])=>{
     ap = ap || {};
-    // v495 Sprint (planos): filtra planos por público conforme idade do aluno.
-    // Sem idade cadastrada, mostra todos. Misto sempre aparece.
+    // v499: sem filtro por público (coluna removida). Mostra todos os planos ativos.
     const ativos = planos.filter(p=>p.ativo!==false);
-    const idade = a.nascimento ? (new Date().getFullYear() - a.nascimento) : null;
-    const publicoDoAluno = idade == null ? null : (idade < 13 ? 'kids' : (idade < 18 ? 'juvenil' : 'adulto'));
-    const filtroPub = (p) => !publicoDoAluno || !p.publico || p.publico === 'misto' || p.publico === publicoDoAluno;
-    const planosVisiveis = ativos.filter(filtroPub);
-    const opts = planosVisiveis.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}${p.publico?' · '+p.publico:''}</option>`).join('');
+    const opts = ativos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
     const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano do aluno">
       <div class="sheet-grip"></div>
       <div class="sheet-title">Plano · ${safeTxt(_nomeInst(a))}</div>
-      ${publicoDoAluno ? `<div class="sheet-desc">${idade} anos · público <b>${publicoDoAluno}</b></div>` : ''}
       <label class="flbl">Plano</label>
       <select class="inp" id="ap-plano">
         <option value="">—</option>
@@ -10423,15 +10417,14 @@ function _finRenderPlanos(body){
   body.appendChild(btn);
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
-  const PUB_LBL = { adulto:'Adulto', juvenil:'Juvenil', kids:'Kids', misto:'Misto' };
   const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao_debito:'💳 Débito', cartao_credito:'💳 Crédito', boleto:'🧾 Boleto', outro:'➕ Outro' };
-  // v497: tabela em vez de cards. Scroll horizontal em mobile pra caber todas as colunas.
+  // v499: coluna Público removida (YAGNI). Info derivada de #alunos por plano
+  // se realmente necessária.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px">
+  const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Nome</th>
-        <th style="padding:10px 8px;font-weight:700">Público</th>
         <th style="padding:10px 8px;font-weight:700">Freq.</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
         <th style="padding:10px 8px;font-weight:700">Cobrança</th>
@@ -10452,7 +10445,6 @@ function _finRenderPlanos(body){
   planos.forEach((p, i) => {
     const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(p.nome)}</td>
-      <td style="padding:10px 8px">${p.publico ? safeTxt(PUB_LBL[p.publico]||p.publico) : '—'}</td>
       <td style="padding:10px 8px">${safeTxt(p.frequencia||'—')}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(p.valor)}</td>
       <td style="padding:10px 8px;font-size:11.5px">${safeTxt(cobLbl(p))}</td>
@@ -10761,14 +10753,6 @@ function _finPlanoSheet(p, onDone){
     <div class="sheet-title">${editar?'Editar plano':'Novo plano'}</div>
     <label class="flbl">Nome</label>
     <input class="inp" id="pl-nome" value="${safeAttr(p.nome||'')}" placeholder="Ex: Adulto Mensal">
-    <label class="flbl" style="margin-top:10px">Público</label>
-    <select class="inp" id="pl-publico">
-      <option value="">— (não definido)</option>
-      <option value="adulto">Adulto (18+)</option>
-      <option value="juvenil">Juvenil (13–17)</option>
-      <option value="kids">Kids (até 12)</option>
-      <option value="misto">Misto (todas as idades)</option>
-    </select>
     <label class="flbl" style="margin-top:10px">Descrição</label>
     <textarea class="inp" id="pl-desc" maxlength="200" rows="3" style="resize:vertical;min-height:64px;font-family:inherit" placeholder="Ex: 12 meses com desconto. Fidelidade mínima 12 meses.">${safeTxt(p.descricao||'')}</textarea>
     <label class="flbl" style="margin-top:10px">Frequência</label>
@@ -10811,7 +10795,6 @@ function _finPlanoSheet(p, onDone){
   </div></div>`);
   sheet.querySelector('#pl-freq').value = p.frequencia || 'mensal';
   sheet.querySelector('#pl-forma').value = p.forma_padrao || '';
-  sheet.querySelector('#pl-publico').value = p.publico || '';
   // v498 (0047): modalidade de cobrança — recorrente/unica/parcelado
   const selModo = sheet.querySelector('#pl-modo');
   const parcWrap = sheet.querySelector('#pl-parc-wrap');
@@ -10886,7 +10869,6 @@ function _finPlanoSheet(p, onDone){
       forma_padrao: sheet.querySelector('#pl-forma').value || null,
       tem_contrato: sheet.querySelector('#pl-contrato').checked,
       ativo: sheet.querySelector('#pl-ativo').checked,
-      publico: sheet.querySelector('#pl-publico').value || null,
       parcelas: parcelasFinal,
     }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });

@@ -1422,7 +1422,8 @@
         tem_contrato: !!p.tem_contrato,
         ativo: p.ativo !== false,
         ordem: p.ordem || 0,
-        publico: p.publico || null,   // v495 (0046): adulto/juvenil/kids/misto
+        // v499 (0048): planos.publico removido — YAGNI. Filtro por idade era overkill,
+        // #alunos por plano e badge são derivados. Sem impact — coluna dropped.
         parcelas: p.parcelas != null ? Number(p.parcelas) : null,   // v498 (0047): null=recorrente, N=N cobranças
       };
       if (p.id) {
