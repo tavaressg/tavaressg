@@ -10743,7 +10743,7 @@ function _finPlanoSheet(p, onDone){
       <option value="misto">Misto (todas as idades)</option>
     </select>
     <label class="flbl" style="margin-top:10px">Descrição</label>
-    <input class="inp" id="pl-desc" maxlength="200" value="${safeAttr(p.descricao||'')}">
+    <textarea class="inp" id="pl-desc" maxlength="200" rows="3" style="resize:vertical;min-height:64px;font-family:inherit" placeholder="Ex: 12 meses com desconto. Fidelidade mínima 12 meses.">${safeTxt(p.descricao||'')}</textarea>
     <label class="flbl" style="margin-top:10px">Frequência</label>
     <select class="inp" id="pl-freq">
       <option value="mensal">Mensal</option>
