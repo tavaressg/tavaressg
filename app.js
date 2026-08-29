@@ -7806,6 +7806,11 @@ function _erpFinanceiroAluno(a, refresh){
       const diaEfet = ap.dia_vencimento || p.dia_vencimento;
       const diaBadge = ap.dia_vencimento ? ' <span style="font-size:10.5px;color:var(--muted)">(customizado)</span>' : '';
       body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${diaEfet}${diaBadge}</b></div>`));
+      // v494 Sprint 6 item 6: notas gerais (obs) do plano — bolsa condicional,
+      // motivo do desconto, contexto. Campo existia no schema desde v481 mas
+      // não aparecia em lugar nenhum.
+      if(ap.obs) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>📝 Obs</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.obs)}</b></div>`));
+      if(ap.isento && ap.isento_motivo) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>🎗️ Motivo</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.isento_motivo)}</b></div>`));
     } else {
       body.appendChild(el('<div style="padding:8px;color:var(--muted);font-size:13px">Sem plano cadastrado. Toque em "Definir plano" para matricular.</div>'));
     }
@@ -10316,13 +10321,23 @@ function _finRenderDespesas(body){
       const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
       const dl  = d.data_lancamento ? (d.data_lancamento.slice(8,10)+'/'+d.data_lancamento.slice(5,7)) : '—';
       const cor = d.status==='pago' ? 'var(--good)' : (d.data_lancamento < HOJE_ISO ? 'var(--red)' : 'var(--ink)');
+      // v494 Sprint 6 item 3: botão "✓" pra pagar direto na lista (sem abrir sheet).
+      // Aparece só quando status='a_pagar'.
+      const btnQuickPay = d.status==='a_pagar'
+        ? `<button class="btn-cad ghost" data-quickpay="1" style="padding:6px 10px;font-size:14px;margin-right:8px" title="Marcar paga hoje">✓</button>`
+        : '';
       const row = el(`<div class="st-row" style="cursor:pointer">
         <div class="st-mid"><div class="nm">${safeTxt(d.descricao)}</div>
           <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(cat||'—')} · ${dl}${rec?' · '+safeTxt(rec):''}</span></div></div>
-        <div class="st-right">
+        <div class="st-right" style="display:flex;align-items:center">
+          ${btnQuickPay}
           <div style="font-size:14.5px;font-weight:800;color:${cor}">${moneyBR(d.valor)}</div>
         </div>
       </div>`);
+      const qp = row.querySelector('[data-quickpay]');
+      if(qp){
+        qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload(true).then(()=>render()); }); };
+      }
       row.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true).then(()=>render()); });
       list.appendChild(row);
     });
@@ -10586,17 +10601,17 @@ function _finCobrancaAvulsaSheet(onDone){
   const alunos = (_profData && _profData.alunos || []).filter(a=>!a._self);
   const cats = (_finCategorias||[]).filter(c=>c.tipo==='receita');
   const catsOpts = cats.map(c=>`<option value="${c.id}">${safeTxt(c.nome)}</option>`).join('');
-  const alunosOpts = alunos.map(a=>`<option value="${a.id}">${safeTxt(_nomeInst(a))}</option>`).join('');
+  // v494 Sprint 6 item 5: combobox filtrável com <datalist> — nativo, sem lib.
+  // Aluno digita nome, browser filtra. Guardamos ID no campo hidden pra submit.
+  const alunosDatalist = alunos.map(a=>`<option value="${safeAttr(_nomeInst(a))}" data-id="${a.id}"></option>`).join('');
 
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova cobrança avulsa">
     <div class="sheet-grip"></div>
     <div class="sheet-title">＋ Cobrança avulsa</div>
     <div class="sheet-desc">Exame de faixa, taxa extra, aula avulsa. Sem produto — sem baixa de estoque.</div>
     <label class="flbl" style="margin-top:12px">Aluno</label>
-    <select class="inp" id="cav-aluno">
-      <option value="">—</option>
-      ${alunosOpts}
-    </select>
+    <input class="inp" id="cav-aluno-nome" list="cav-alunos-list" placeholder="Digite pra buscar…" autocomplete="off">
+    <datalist id="cav-alunos-list">${alunosDatalist}</datalist>
     <label class="flbl" style="margin-top:10px">Categoria</label>
     <div style="display:flex;gap:8px;align-items:stretch">
       <select class="inp" id="cav-cat" style="flex:1">
@@ -10609,6 +10624,9 @@ function _finCobrancaAvulsaSheet(onDone){
     <input class="inp" id="cav-valor" type="number" step="0.01" min="0" placeholder="0,00">
     <label class="flbl" style="margin-top:10px">Vencimento</label>
     <input class="inp" id="cav-venc" type="date" value="${HOJE_ISO}">
+    <label class="flbl" style="margin-top:10px">Parcelas</label>
+    <input class="inp" id="cav-parc" type="number" min="1" max="12" value="1">
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Se >1, cria N cobranças mensais (mesmo dia de vencimento).</div>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="cav-obs" maxlength="200" placeholder="Ex: Exame azul · Set/26">
     <button class="btn-save" id="cav-save" style="margin-top:14px">Criar cobrança</button>
@@ -10625,18 +10643,40 @@ function _finCobrancaAvulsaSheet(onDone){
     });
   };
   const btn = sheet.querySelector('#cav-save');
-  btn.onclick = ()=>{
-    const user_id = sheet.querySelector('#cav-aluno').value;
+  btn.onclick = async ()=>{
+    // v494 Sprint 6 item 5: resolve aluno_id pelo nome digitado no datalist
+    const nomeDig = sheet.querySelector('#cav-aluno-nome').value.trim();
+    const opt = sheet.querySelector(`#cav-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
+    const user_id = opt ? opt.dataset.id : null;
     const valor = parseFloat(sheet.querySelector('#cav-valor').value);
     const venc = sheet.querySelector('#cav-venc').value;
     if(!user_id || !(valor>0) || !venc){ toast('Preencha aluno, valor e vencimento'); return; }
+    // v494 Sprint 6 item 1: cobrança avulsa parcelada — cria N cobranças com
+    // vencimento mensal escalonado (mesmo dia). Sequência: se houver falha na
+    // parcela N, aborta e mostra quantas conseguiu criar. Idempotente
+    // fica por conta do UNIQUE parcial (user_id, mes) where avulsa=false — como
+    // avulsa=true, permite múltiplas por mês; se rodar 2x, cria mais duplicatas.
+    // Aceita: professor tem controle direto e usa parcelas 1x só por operação.
+    const parcelas = Math.max(1, Math.min(12, parseInt(sheet.querySelector('#cav-parc').value)||1));
+    const cat = sheet.querySelector('#cav-cat').value || null;
+    const obs = sheet.querySelector('#cav-obs').value.trim() || null;
     btn.disabled=true; btn.textContent='Salvando…';
-    sbProf.criarCobrancaAvulsa({
-      user_id, valor, venc,
-      categoria_id: sheet.querySelector('#cav-cat').value || null,
-      obs: sheet.querySelector('#cav-obs').value.trim() || null,
-    }).then(()=>{ toast('Cobrança avulsa criada ✔'); close(); if(onDone) onDone(); })
-      .catch(e=>{ btn.disabled=false; btn.textContent='Criar cobrança'; toast('Erro: '+(e.message||e)); });
+    try{
+      let n = 0;
+      for(let i=0; i<parcelas; i++){
+        const d = new Date(venc+'T12:00:00');
+        d.setMonth(d.getMonth()+i);
+        const vencI = d.toISOString().slice(0,10);
+        const obsI = parcelas > 1 ? `${obs||''} (${i+1}/${parcelas})`.trim() : obs;
+        await sbProf.criarCobrancaAvulsa({ user_id, valor, venc: vencI, categoria_id: cat, obs: obsI });
+        n++;
+      }
+      toast(parcelas === 1 ? 'Cobrança avulsa criada ✔' : `${n} cobranças criadas ✔`);
+      close(); if(onDone) onDone();
+    } catch(e){
+      btn.disabled=false; btn.textContent='Criar cobrança';
+      toast('Erro: '+(e.message||e));
+    }
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
@@ -10742,6 +10782,7 @@ function _finDespesaSheet(d, onDone){
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ds-obs" maxlength="400" value="${safeAttr(d.obs||'')}">
     <button class="btn-save" id="ds-save" style="margin-top:14px">Salvar</button>
+    ${editar ? '<button class="btn-cad ghost" id="ds-dup" style="margin-top:8px;width:100%">📋 Duplicar (próximo mês)</button>' : ''}
     <button class="sheet-cancel" id="ds-close">Cancelar</button>
   </div></div>`);
   if(d.categoria_id) sheet.querySelector('#ds-cat').value = d.categoria_id;
@@ -10779,6 +10820,61 @@ function _finDespesaSheet(d, onDone){
     sbProf.salvarDespesa(payload)
       .then(()=>{ toast('Despesa salva ✔'); close(); if(onDone) onDone(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
+  };
+  // v494 Sprint 6 item 4: duplicar despesa (aluguel set → out). Copia campos,
+  // avança data_lancamento em 1 mês, zera pagamento, cria como nova.
+  const btnDup = sheet.querySelector('#ds-dup');
+  if(btnDup){
+    btnDup.onclick = ()=>{
+      const dt = new Date((sheet.querySelector('#ds-data').value)+'T12:00:00');
+      dt.setMonth(dt.getMonth()+1);
+      const novaData = dt.toISOString().slice(0,10);
+      btnDup.disabled=true; btnDup.textContent='Duplicando…';
+      sbProf.salvarDespesa({
+        descricao: sheet.querySelector('#ds-desc').value.trim(),
+        valor: parseFloat(sheet.querySelector('#ds-valor').value),
+        categoria_id: sheet.querySelector('#ds-cat').value || null,
+        data_lancamento: novaData,
+        obs: sheet.querySelector('#ds-obs').value.trim(),
+        status: 'a_pagar',
+      }).then(()=>{ toast('Duplicada pra '+novaData.slice(8,10)+'/'+novaData.slice(5,7)+' ✔'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnDup.disabled=false; btnDup.textContent='📋 Duplicar (próximo mês)'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// v494 Sprint 6 item 3: quick-pay sheet compacto (só data + forma)
+function _finDespesaQuickPaySheet(d, onDone){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Marcar despesa paga">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Marcar paga · ${safeTxt(d.descricao)}</div>
+    <div class="sheet-desc">${moneyBR(d.valor)}</div>
+    <label class="flbl" style="margin-top:12px">Data do pagamento</label>
+    <input class="inp" id="qp-data" type="date" value="${HOJE_ISO}">
+    <label class="flbl" style="margin-top:10px">Forma</label>
+    <select class="inp" id="qp-forma">
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="pix">📱 PIX</option>
+      <option value="cartao_debito">💳 Cartão débito</option>
+      <option value="cartao_credito">💳 Cartão crédito</option>
+      <option value="boleto">🧾 Boleto</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <button class="btn-save" id="qp-save" style="margin-top:14px">Confirmar</button>
+    <button class="sheet-cancel" id="qp-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#qp-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#qp-save').onclick = ()=>{
+    const btn = sheet.querySelector('#qp-save');
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.marcarDespesaPaga(d.id, {
+      data_pagamento: sheet.querySelector('#qp-data').value,
+      forma_pagamento: sheet.querySelector('#qp-forma').value,
+    }).then(()=>{ toast('Despesa paga ✔'); close(); if(onDone) onDone(); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Confirmar'; toast('Erro: '+(e.message||e)); });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
@@ -10921,16 +11017,20 @@ function _finContratoSheet(c, onDone){
     <div class="sheet-grip"></div>
     <div class="sheet-title">${editar? 'Contrato #'+String(c.numero||0).padStart(3,'0') : 'Novo contrato'}</div>
     ${editar?`<div class="sheet-desc">${safeTxt(nome)} · status ${safeTxt(c.status)}</div>`:''}
-    ${editar?'':`
+    ${!editar ? `
       <label class="flbl">Aluno</label>
-      <select class="inp" id="ct-aluno">${alunosOpts}</select>
+      <input class="inp" id="ct-aluno-nome" list="ct-alunos-list" placeholder="Digite pra buscar…" autocomplete="off">
+      <datalist id="ct-alunos-list">${alunos.map(a=>`<option value="${safeAttr(_nomeInst(a))}" data-id="${a.id}"></option>`).join('')}</datalist>
       <label class="flbl" style="margin-top:10px">Plano</label>
       <select class="inp" id="ct-plano">${planosOpts}</select>
-    `}
+    ` : (c.status === 'aguardando_aceite' ? `
+      <label class="flbl">Plano (pode trocar enquanto aguarda aceite)</label>
+      <select class="inp" id="ct-plano">${planosOpts}</select>
+    ` : '')}
     <label class="flbl" style="margin-top:10px">Início</label>
-    <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar?'readonly':''}>
+    <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
     <label class="flbl" style="margin-top:10px">Fim</label>
-    <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar?'readonly':''}>
+    <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
     ${!editar ? `
@@ -10984,6 +11084,10 @@ function _finContratoSheet(c, onDone){
   sheet.querySelector('#ct-close').onclick = close;
   sheet.onclick = e=>{ if(e.target===sheet) close(); };
 
+  // Pré-seleciona plano quando editando aguardando_aceite
+  const selPlano = sheet.querySelector('#ct-plano');
+  if(editar && selPlano && c.plano_id) selPlano.value = c.plano_id;
+
   // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
   // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
   const chkMenor = sheet.querySelector('#ct-menor');
@@ -10993,8 +11097,10 @@ function _finContratoSheet(c, onDone){
       const on = chkMenor.checked;
       respWrap.style.display = on ? '' : 'none';
       if(on){
-        // Auto-preenche do profile do aluno selecionado
-        const uid = sheet.querySelector('#ct-aluno').value;
+        // v494 Sprint 6 item 5: aluno vem do datalist agora
+        const nomeDig = sheet.querySelector('#ct-aluno-nome').value.trim();
+        const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
+        const uid = opt ? opt.dataset.id : null;
         const a = alunos.find(x=>x.id===uid);
         const r = a && a.cad && a.cad.responsavel;
         if(r){
@@ -11015,7 +11121,10 @@ function _finContratoSheet(c, onDone){
   const btnSave = sheet.querySelector('#ct-save');
   if(btnSave){
     btnSave.onclick = ()=>{
-      const user_id = sheet.querySelector('#ct-aluno').value;
+      // v494 Sprint 6 item 5: resolve aluno pelo datalist
+      const nomeDig = sheet.querySelector('#ct-aluno-nome').value.trim();
+      const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
+      const user_id = opt ? opt.dataset.id : null;
       const plano_id = sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
@@ -11037,6 +11146,25 @@ function _finContratoSheet(c, onDone){
       sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
         .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  // v494 Sprint 6 item 2: botão salvar edições em contrato aguardando_aceite.
+  // Cria mesmo botão "Salvar alterações" quando editar E status=aguardando.
+  if(editar && c.status === 'aguardando_aceite'){
+    const btnSaveEdit = el('<button class="btn-save" style="margin-top:14px">Salvar alterações</button>');
+    // Insere ANTES do "Marcar aceite" (que já existe)
+    const btnAc = sheet.querySelector('#ct-aceite');
+    if(btnAc && btnAc.parentNode) btnAc.parentNode.insertBefore(btnSaveEdit, btnAc);
+    btnSaveEdit.onclick = ()=>{
+      const plano_id = sheet.querySelector('#ct-plano') && sheet.querySelector('#ct-plano').value;
+      const inicio = sheet.querySelector('#ct-inicio').value;
+      const fim = sheet.querySelector('#ct-fim').value;
+      if(!plano_id || !inicio || !fim){ toast('Datas + plano obrigatórios'); return; }
+      if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
+      btnSaveEdit.disabled=true; btnSaveEdit.textContent='Salvando…';
+      sbProf.salvarContrato({ id:c.id, user_id:c.user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim() })
+        .then(()=>{ toast('Contrato atualizado ✔'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnSaveEdit.disabled=false; btnSaveEdit.textContent='Salvar alterações'; toast('Erro: '+(e.message||e)); });
     };
   }
   const btnAceite = sheet.querySelector('#ct-aceite');
