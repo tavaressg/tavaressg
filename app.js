@@ -10423,22 +10423,42 @@ function _finRenderPlanos(body){
   body.appendChild(btn);
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
-  const list = el('<div class="list"></div>');
-  const PUB_LBL = { adulto:'👤 Adulto', juvenil:'🧒 Juvenil', kids:'👶 Kids', misto:'🌐 Misto' };
-  planos.forEach(p=>{
-    const badge = p.ativo ? '' : ' <span style="font-size:10.5px;color:var(--muted)">(inativo)</span>';
-    const pubBadge = p.publico ? ` <span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:1px 6px;border-radius:4px;font-weight:600">${safeTxt(PUB_LBL[p.publico]||p.publico)}</span>` : '';
-    const row = el(`<div class="st-row" style="cursor:pointer">
-      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}${pubBadge}${badge}</div>
-        <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(p.frequencia)} · dia ${p.dia_vencimento}${p.tem_contrato?' · exige contrato':''}</span></div></div>
-      <div class="st-right">
-        <div style="font-size:14.5px;font-weight:800">${moneyBR(p.valor)}</div>
-      </div>
-    </div>`);
-    row.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true).then(()=>render()); });
-    list.appendChild(row);
+  const PUB_LBL = { adulto:'Adulto', juvenil:'Juvenil', kids:'Kids', misto:'Misto' };
+  const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao_debito:'💳 Débito', cartao_credito:'💳 Crédito', boleto:'🧾 Boleto', outro:'➕ Outro' };
+  // v497: tabela em vez de cards. Scroll horizontal em mobile pra caber todas as colunas.
+  const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
+  const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+    <thead>
+      <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700">Nome</th>
+        <th style="padding:10px 8px;font-weight:700">Público</th>
+        <th style="padding:10px 8px;font-weight:700">Freq.</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Dia</th>
+        <th style="padding:10px 8px;font-weight:700">Forma padrão</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Contrato</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Ativo</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>`);
+  const tbody = table.querySelector('tbody');
+  planos.forEach((p, i) => {
+    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
+      <td style="padding:10px 12px;font-weight:700">${safeTxt(p.nome)}</td>
+      <td style="padding:10px 8px">${p.publico ? safeTxt(PUB_LBL[p.publico]||p.publico) : '—'}</td>
+      <td style="padding:10px 8px">${safeTxt(p.frequencia||'—')}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(p.valor)}</td>
+      <td style="padding:10px 8px;text-align:center">${p.dia_vencimento||'—'}</td>
+      <td style="padding:10px 8px">${p.forma_padrao ? safeTxt(FORMA_LBL[p.forma_padrao]||p.forma_padrao) : '—'}</td>
+      <td style="padding:10px 8px;text-align:center">${p.tem_contrato ? '✓' : '—'}</td>
+      <td style="padding:10px 8px;text-align:center">${p.ativo===false ? '—' : '<span style="color:var(--good)">●</span>'}</td>
+    </tr>`);
+    tr.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true).then(()=>render()); });
+    tbody.appendChild(tr);
   });
-  body.appendChild(list);
+  wrap.appendChild(table);
+  body.appendChild(wrap);
 }
 
 /* ---- Sub-aba: Contratos ---- */
