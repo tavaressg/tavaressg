@@ -1562,10 +1562,27 @@ function salvar(){
   // servidor. Sem isso, se aluno registra treino local com check-in feito, o
   // pullAll criaria uma linha placeholder duplicada pra mesma aula.
   const _ck = DB.checkinHoje && DB.checkinHoje.sessao;
-  DB.treinos.unshift({ id:novoId, tipo:aula.tipo, data:dataTreino, titulo:aula.label, tecnica:tecLabel, mood:FEEL_LABEL[reg.mood], feel:reg.mood, det,
-    turmaId: (_ck && _ck.turmaId) || null, horaAula: (_ck && _ck.hora) || null });
+  // v489: se já existe PLACEHOLDER do servidor pra este dia/aula, MESCLAR (adicionar
+  // técnicas/randori/mood) em vez de criar treino novo. Sem isso, o aluno terminava
+  // com 2 entradas no diário (placeholder do server + treino local) — bug relatado
+  // 2026-08-28 pelo Guilherme. Prioridade: match por chave completa
+  // (data+turmaId+horaAula); fallback pra 1 placeholder do dia (aluno sem check-in).
+  const _phSrv = _ck
+    ? DB.treinos.find(t => t._fonte==='servidor' && t.data===dataTreino && t.turmaId===_ck.turmaId && t.horaAula===_ck.hora)
+    : DB.treinos.find(t => t._fonte==='servidor' && t.data===dataTreino);
+  if(_phSrv){
+    _phSrv.tipo = aula.tipo; _phSrv.titulo = aula.label;
+    _phSrv.tecnica = tecLabel; _phSrv.mood = FEEL_LABEL[reg.mood];
+    _phSrv.feel = reg.mood; _phSrv.det = det;
+    if(_ck){ _phSrv.turmaId = _ck.turmaId; _phSrv.horaAula = _ck.hora; }
+    delete _phSrv._fonte; delete _phSrv._via;   // deixa de ser placeholder
+    DB.justSaved = _phSrv.id;
+  } else {
+    DB.treinos.unshift({ id:novoId, tipo:aula.tipo, data:dataTreino, titulo:aula.label, tecnica:tecLabel, mood:FEEL_LABEL[reg.mood], feel:reg.mood, det,
+      turmaId: (_ck && _ck.turmaId) || null, horaAula: (_ck && _ck.hora) || null });
+  }
   if(!ehHoje) DB.treinos.sort((a,b)=> (b.data||'').localeCompare(a.data||''));   // treino de ontem entra na posição certa
-  DB.justSaved = novoId;   // marca o treino recém-salvo p/ oferecer compartilhar na Home (efêmero, some no reload)
+  if(!_phSrv) DB.justSaved = novoId;   // efêmero — some no reload (marca o novo, ou o placeholder mesclado acima)
   track('treino_registrado', { randori:reg.randori, tecnicas:reps.length, feel:reg.mood, total:DB.treinos.length });
   // M11: pushes objetivos no momento-chave (não a cada render)
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined'){ try{ sbSync.pushProgress(); sbSync.pushCheckin(); }catch(e){} }
@@ -1717,7 +1734,12 @@ function renderBg(){
   // v438: `produtoFormOpen` entra na guarda. O auto-save da foto (v437) dispara
   // `onDadosMudaram` → renderBg — sem isto, o refetch varria o form com a foto
   // recém-carregada logo depois da animação (bug "faz animação e some do nada").
-  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin || DB.produtoFormOpen || _hidratando) return;
+  // v489: `DB.flow` também entra na guarda. Fluxo de check-in (QR) monta camera
+  // + overlay + tick loop em `document.body` e termina com setTimeout(presencaScan,0).
+  // Qualquer render() disparado enquanto o fluxo está aberto (pullAll async, sync
+  // de outro dado) reabria uma SEGUNDA câmera com tick independente — dois overlays
+  // detectavam o mesmo QR e chamavam _flowCheckin 2× → check-in duplicado.
+  if (DB.authOpen || DB.trocarSenhaOpen || DB.onboardingOpen || DB.batchCheckin || DB.produtoFormOpen || DB.flow || _hidratando) return;
   render();
 }
 
@@ -4320,7 +4342,16 @@ function _flowCheckin(){
   }
   _finalizarCheckin(ses[0]);   // 1 sessão elegível: direto
 }
+let _finalizarCheckinLock = false;
 function _finalizarCheckin(sessao){
+  // v489: lock anti-duplicata. Cobre qualquer caminho que chegue aqui — QR duplo,
+  // double-tap no picker de sessão, click em card do Home + QR quase simultâneos,
+  // batch do professor que dispara callback duas vezes. 3s cobre o intervalo
+  // realista entre 2 tentativas legítimas do mesmo aluno (mesma pessoa não bate
+  // 2 checkins em <3s de propósito).
+  if(_finalizarCheckinLock) return;
+  _finalizarCheckinLock = true;
+  setTimeout(()=>{_finalizarCheckinLock=false;}, 3000);
   const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   // variacao viaja junto → pushCheckin grava o TIPO da aula (No-Gi/Avançado/…/Aula) no checkin.
   // v429: `hora` (da AULA) viaja junto. Sem ela, pushCheckin mandava p_hora_aula=null
@@ -4447,6 +4478,13 @@ function _presencaCameraErro(e){
   return 'Câmera indisponível — peça ao professor pra registrar sua presença.';
 }
 async function presencaScan(){
+  // v489: single-instance guard. `_renderPhase1` termina com `setTimeout(presencaScan,0)`,
+  // então qualquer `render()` disparado enquanto `DB.flow==='checkin'` (pullAll async
+  // completou, renderBg de outro fluxo) reabria a câmera. Dois overlays coexistindo
+  // detectam o mesmo QR e chamam `_flowCheckin` DUAS vezes → check-in duplicado
+  // (visto em prod 2026-08-28). Overlay antigo continua vivo (foi appended em body,
+  // não em root), então basta detectá-lo pra abortar a segunda invocação.
+  if(document.querySelector('.scan-overlay')) return;
   const token = _qrToken();
   if(!token){ _presencaSemCamera('QR da academia ainda não configurado — avise o professor'); return; }
 

@@ -265,6 +265,46 @@
       // dedup por DATA (1 aula/dia é o caso comum).
       const _chave = (o) => `${o.data||''}|${o.turmaId||''}|${o.horaAula||''}`;
       const _byChave = new Map((d.treinos||[]).map(t => [_chave(t), t]));
+      // v489 (aluno-side): backfill retroativo. Treino local legado (sem turmaId,
+      // seja porque salvou sem check-in, seja porque dump é anterior à v455) numa
+      // data QUE TEM checkin server é bug conhecido — o placeholder duplicava. Fix:
+      // pega turmaId/horaAula do PRIMEIRO checkin server do dia e carimba no treino
+      // legado. Assim a chave passa a bater e o placeholder é dedupado normal.
+      // Um único treino legado por dia é o caso comum; se houver 2+, backfill vai
+      // no primeiro achado (raro, e limpar tudo é caminho pro `_dedupTreinos`).
+      const _ckPorData = new Map();
+      (d._meusCheckins || []).forEach(c => {
+        if (!c.turmaId || !c.horaAula) return;
+        if (!_ckPorData.has(c.data)) _ckPorData.set(c.data, c);
+      });
+      (d.treinos || []).forEach(t => {
+        if (t.turmaId || t.horaAula || !t.data) return;
+        const c = _ckPorData.get(t.data); if (!c) return;
+        t.turmaId = c.turmaId; t.horaAula = c.horaAula;
+      });
+      // Reconstroi o índice DEPOIS do backfill — chaves mudaram.
+      _byChave.clear(); (d.treinos || []).forEach(t => _byChave.set(_chave(t), t));
+      // v489: dedup defensivo — se 2 treinos locais têm mesma chave (data|turma|hora),
+      // mescla mantendo o mais RICO (tem técnica/mood/randori). Cenário: backfill
+      // acima iguala chave de treino legado com placeholder do server; sem dedup,
+      // ambos permanecem no array. Também cobre bug antigo (2 _finalizarCheckin em
+      // paralelo antes do lock v489).
+      const _richness = (o) => (o.tecnica?1:0) + (o.mood?1:0) + ((o.det && o.det.randori!=null)?1:0) + ((o.det && (o.det.renshu||[]).length)?1:0);
+      const _mantem = new Map();
+      (d.treinos || []).forEach(t => {
+        if (!t.data) { _mantem.set(Symbol(), t); return; }
+        const k = _chave(t);
+        // Chave "sem turmaId/horaAula" é ambígua (pode agrupar treinos legítimos
+        // de dias diferentes com múltiplas entradas). Só dedup quando tem ao menos
+        // turmaId (chave específica).
+        if (!t.turmaId){ _mantem.set(Symbol(), t); return; }
+        const prev = _mantem.get(k);
+        if (!prev || _richness(t) > _richness(prev)) _mantem.set(k, t);
+      });
+      if (d.treinos && _mantem.size !== d.treinos.length){
+        d.treinos = Array.from(_mantem.values());
+      }
+      _byChave.clear(); (d.treinos || []).forEach(t => _byChave.set(_chave(t), t));
       const _legados = new Set((d.treinos||[]).filter(t => !t.turmaId).map(t => t.data));
       d._meusCheckins.forEach(c => {
         const chv = _chave(c);
