@@ -9936,9 +9936,161 @@ function _finRenderDashboard(body){
     _finDashData = resumo; _finDashInad = inad;
     holder.remove();
     body.appendChild(_finDashChartAnual(resumo, ano));
+    body.appendChild(_finDashDRE(resumo, ano));   // Sprint 5
     body.appendChild(_finDashPizzas(resumo));
+    body.appendChild(_finDashFluxoCaixa());       // Sprint 5
     body.appendChild(_finDashInadTabela(inad));
+    body.appendChild(_finDashExport(resumo, ano)); // Sprint 5
   }).catch(e=>{ holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
+}
+
+// DRE simplificada (Sprint 5) — mês corrente do ano do dashboard vs mês anterior
+function _finDashDRE(resumo, ano){
+  const anoCorr = new Date().getFullYear();
+  const mesAtual = anoCorr === ano ? (new Date().getMonth()) : 11;   // se ano passado, usa dez
+  const cur = resumo.meses[mesAtual];
+  const prev = mesAtual > 0 ? resumo.meses[mesAtual-1] : null;
+  const margem = cur.receita > 0 ? Math.round((cur.saldo/cur.receita)*100) : 0;
+  const varSaldo = prev ? ((cur.saldo - prev.saldo)) : null;
+  const varPct = prev && prev.saldo !== 0 ? Math.round(((cur.saldo - prev.saldo)/Math.abs(prev.saldo))*100) : null;
+  const NOMES_MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const nomeMes = NOMES_MES[mesAtual];
+  const nomeMesPrev = mesAtual > 0 ? NOMES_MES[mesAtual-1] : null;
+  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
+  card.innerHTML = `
+    <div style="font-weight:800;font-size:14px;margin-bottom:10px">DRE · ${nomeMes}/${ano}</div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
+      <span>Receita bruta</span><span style="font-weight:800;color:var(--good)">${moneyBR(cur.receita)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
+      <span>(−) Despesas operacionais</span><span style="font-weight:800;color:var(--red)">${moneyBR(cur.despesa)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border,#e5e5ea);border-bottom:1px solid var(--border,#e5e5ea);margin:4px 0;font-size:14px">
+      <span style="font-weight:800">Resultado operacional</span>
+      <span style="font-weight:800;color:${cur.saldo>=0?'var(--good)':'var(--red)'}">${moneyBR(cur.saldo)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--muted)">
+      <span>Margem</span><span style="font-weight:700">${margem}%</span>
+    </div>
+    ${prev !== null ? `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;color:var(--muted)">
+        <span>vs ${nomeMesPrev} (${moneyBR(prev.saldo)})</span>
+        <span style="font-weight:700;color:${varSaldo>=0?'var(--good)':'var(--red)'}">${varSaldo>=0?'+':''}${moneyBR(varSaldo)}${varPct!==null?' ('+(varPct>=0?'+':'')+varPct+'%)':''}</span>
+      </div>` : ''}
+  `;
+  return card;
+}
+
+// Fluxo de caixa — projeção próximos 30 dias (Sprint 5)
+function _finDashFluxoCaixa(){
+  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
+  card.appendChild(el('<div style="font-weight:800;font-size:14px;margin-bottom:10px">Fluxo de caixa · próximos 30 dias</div>'));
+  const loading = el('<div class="loading-center" style="padding:6px 0">Carregando…</div>');
+  card.appendChild(loading);
+  const in30 = _plus(HOJE_ISO, 30);
+  Promise.all([
+    // Cobranças pendentes/atrasadas com venc entre hoje e +30d
+    SB.from('mensalidades').select('valor,venc,status')
+      .in('status',['pendente','atrasado']).gte('venc', HOJE_ISO).lte('venc', in30),
+    // Despesas a pagar com data_lancamento entre hoje e +30d
+    SB.from('despesas').select('valor,data_lancamento,status')
+      .eq('status','a_pagar').gte('data_lancamento', HOJE_ISO).lte('data_lancamento', in30),
+  ]).then(([cR, dR])=>{
+    loading.remove();
+    const entradas = (cR.data||[]).reduce((s,c)=>s+(Number(c.valor)||0),0);
+    const saidas = (dR.data||[]).reduce((s,d)=>s+(Number(d.valor)||0),0);
+    const saldo = entradas - saidas;
+    const nCobs = (cR.data||[]).length, nDesp = (dR.data||[]).length;
+    card.appendChild(el(`
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
+        <span>Entradas previstas <span style="color:var(--muted);font-size:11.5px">(${nCobs})</span></span>
+        <span style="font-weight:800;color:var(--good)">${moneyBR(entradas)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
+        <span>Saídas previstas <span style="color:var(--muted);font-size:11.5px">(${nDesp})</span></span>
+        <span style="font-weight:800;color:var(--red)">${moneyBR(saidas)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border,#e5e5ea);margin-top:4px;font-size:14px">
+        <span style="font-weight:800">Saldo estimado</span>
+        <span style="font-weight:800;color:${saldo>=0?'var(--good)':'var(--red)'}">${moneyBR(saldo)}</span>
+      </div>
+    `));
+  }).catch(e=>{ loading.textContent='Erro: '+(e.message||e); });
+  return card;
+}
+
+// Botões de export (Sprint 5)
+function _finDashExport(resumo, ano){
+  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
+  card.appendChild(el('<div style="font-weight:800;font-size:14px;margin-bottom:10px">Exportar</div>'));
+  const btnCSV = el('<button class="btn-cad ghost" style="width:100%;margin-bottom:8px">📊 CSV — resumo anual</button>');
+  btnCSV.onclick = ()=> _finExportCSV(resumo, ano);
+  const btnPDF = el('<button class="btn-cad ghost" style="width:100%">📄 PDF — DRE do mês</button>');
+  btnPDF.onclick = ()=> _finExportPDF(resumo, ano);
+  card.appendChild(btnCSV);
+  card.appendChild(btnPDF);
+  return card;
+}
+function _finExportCSV(resumo, ano){
+  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const linhas = ['Mês;Receita;Despesa;Saldo'];
+  resumo.meses.forEach((m,i)=>{
+    linhas.push([MESES[i]+'/'+ano, m.receita.toFixed(2), m.despesa.toFixed(2), m.saldo.toFixed(2)].join(';'));
+  });
+  linhas.push('');
+  linhas.push('Receita por tipo');
+  Object.entries(resumo.receitasPorCategoria).sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v])=> linhas.push(k+';'+v.toFixed(2)));
+  linhas.push('');
+  linhas.push('Despesa por tipo');
+  Object.entries(resumo.despesasPorCategoria).sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v])=> linhas.push(k+';'+v.toFixed(2)));
+  const blob = new Blob(['﻿'+linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `financeiro-${ano}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV exportado ✔');
+}
+function _finExportPDF(resumo, ano){
+  if(typeof window.jspdf === 'undefined'){ toast('PDF indisponível — recarregue o app'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const anoCorr = new Date().getFullYear();
+  const mIdx = anoCorr === ano ? new Date().getMonth() : 11;
+  const nomeMes = NOMES[mIdx];
+  const cur = resumo.meses[mIdx];
+  const margem = cur.receita > 0 ? Math.round((cur.saldo/cur.receita)*100) : 0;
+  const acadNm = (DB.academia && DB.academia.nome) || 'Yama Jiu-Jitsu';
+  doc.setFontSize(18); doc.text(acadNm, 20, 20);
+  doc.setFontSize(12); doc.text(`DRE · ${nomeMes} de ${ano}`, 20, 30);
+  doc.setFontSize(10); doc.text('Gerado em '+new Date().toLocaleDateString('pt-BR'), 20, 36);
+  let y = 50;
+  const linha = (l, v, bold) => {
+    if(bold) doc.setFont(undefined,'bold'); else doc.setFont(undefined,'normal');
+    doc.text(l, 20, y); doc.text(v, 180, y, {align:'right'}); y += 8;
+  };
+  linha('Receita bruta', moneyBR(cur.receita));
+  linha('(-) Despesas operacionais', moneyBR(cur.despesa));
+  y += 2; doc.line(20, y, 180, y); y += 6;
+  linha('Resultado operacional', moneyBR(cur.saldo), true);
+  linha('Margem', margem+'%');
+  y += 10;
+  doc.setFont(undefined,'bold'); doc.text('Detalhamento por categoria', 20, y); y += 8;
+  doc.setFont(undefined,'normal');
+  doc.text('Receitas:', 20, y); y += 6;
+  Object.entries(resumo.receitasPorCategoria).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    doc.text('  '+k, 25, y); doc.text(moneyBR(v), 180, y, {align:'right'}); y += 6;
+    if(y>270){ doc.addPage(); y=20; }
+  });
+  y += 4; doc.text('Despesas:', 20, y); y += 6;
+  Object.entries(resumo.despesasPorCategoria).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    doc.text('  '+k, 25, y); doc.text(moneyBR(v), 180, y, {align:'right'}); y += 6;
+    if(y>270){ doc.addPage(); y=20; }
+  });
+  doc.save(`DRE-${ano}-${String(mIdx+1).padStart(2,'0')}.pdf`);
+  toast('PDF exportado ✔');
 }
 
 // Chart barras Receita x Despesa (12 meses, SVG puro)
