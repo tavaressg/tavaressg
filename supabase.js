@@ -1704,6 +1704,74 @@
       if (error) throw error;
       return data;
     }),
+
+    // v492 Sprint 4: agregação anual pro dashboard rico (12 meses + categorias).
+    // Feito em JS (raw fetch + reduce) — 1400 rows/ano é bem suportado. Se
+    // escalar (2k+ alunos), promove pra RPC agregada em SQL.
+    getFinResumoAnual: wrap(async (ano) => {
+      const desde = ano + '-01-01';
+      const ate   = ano + '-12-31';
+      const [cobs, desps, cats] = await Promise.all([
+        SB.from('mensalidades').select('mes,valor,status,venc,data_pagamento,categoria_id')
+          .gte('venc', desde).lte('venc', ate),
+        SB.from('despesas').select('data_lancamento,valor,status,data_pagamento,categoria_id')
+          .gte('data_lancamento', desde).lte('data_lancamento', ate),
+        SB.from('categorias_financeiro').select('id,nome,tipo'),
+      ]);
+      const catNome = {}; (cats.data||[]).forEach(c => { catNome[c.id] = c.nome; });
+      // 12 meses inicializados
+      const meses = Array.from({length:12}, (_,i)=> ({
+        mes: (i+1).toString().padStart(2,'0'),
+        receita: 0, despesa: 0, saldo: 0,
+      }));
+      const recPorCat = {}, despPorCat = {};
+      const bump = (obj, cat, v) => {
+        const k = catNome[cat] || '(sem categoria)';
+        obj[k] = (obj[k]||0) + v;
+      };
+      (cobs.data||[]).forEach(c => {
+        if (c.status === 'pago' && c.data_pagamento) {
+          const m = parseInt(c.data_pagamento.slice(5,7));
+          const v = Number(c.valor)||0;
+          if (m>=1 && m<=12) meses[m-1].receita += v;
+          bump(recPorCat, c.categoria_id, v);
+        }
+      });
+      (desps.data||[]).forEach(d => {
+        if (d.status === 'pago' && d.data_pagamento) {
+          const m = parseInt(d.data_pagamento.slice(5,7));
+          const v = Number(d.valor)||0;
+          if (m>=1 && m<=12) meses[m-1].despesa += v;
+          bump(despPorCat, d.categoria_id, v);
+        }
+      });
+      meses.forEach(m => { m.saldo = m.receita - m.despesa; });
+      return { meses, receitasPorCategoria: recPorCat, despesasPorCategoria: despPorCat };
+    }),
+
+    // Inadimplentes agregado por aluno (últimos N meses). Retorna nome + N cobranças
+    // vencidas + total. Usado na tabela detalhada do dashboard.
+    getInadimplentesDetalhado: wrap(async (mesesAtras = 6) => {
+      const dt = new Date();
+      const desde = new Date(dt.getFullYear(), dt.getMonth() - mesesAtras, 1)
+        .toISOString().slice(0,10);
+      const { data, error } = await SB.from('mensalidades')
+        .select('user_id,valor,venc,status,profiles!user_id(id,apelido,nome_completo,telefone)')
+        .in('status', ['pendente','atrasado']).gte('venc', desde).lte('venc', HOJE());
+      if (error) throw error;
+      const byAluno = {};
+      (data||[]).forEach(c => {
+        const p = c.profiles || {};
+        const id = c.user_id;
+        if (!byAluno[id]) byAluno[id] = {
+          id, nome: p.apelido || p.nome_completo || 'aluno',
+          telefone: p.telefone || null, meses: 0, total: 0,
+        };
+        byAluno[id].meses += 1;
+        byAluno[id].total += Number(c.valor)||0;
+      });
+      return Object.values(byAluno).sort((a,b)=>b.total-a.total);
+    }),
   };
 
   // Toda MUTAÇÃO (tudo que não é get*) invalida os memos e avisa a UI.

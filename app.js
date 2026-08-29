@@ -9842,38 +9842,43 @@ function profFinanceiro(){
   w.innerHTML = `<div class="hello"><div class="date">Financeiro</div>
     <div class="greet">gestão</div></div>`;
 
-  // v490 Sprint 3: seletor de mês/ano + botão "Preparar próximo mês"
-  const mesBar = el(`<div class="fin-mes-bar" style="display:flex;align-items:center;gap:6px;margin:6px 12px 10px">
-    <button class="btn-cad ghost" id="fm-prev" aria-label="Mês anterior" style="min-width:34px;padding:6px 8px">‹</button>
-    <div id="fm-nome" style="flex:1;text-align:center;font-weight:800;font-size:14.5px;text-transform:capitalize">${safeTxt(mesAtualNome)}</div>
-    <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
-    ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
-  </div>`);
-  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true).then(()=>render()); };
-  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true).then(()=>render()); };
-  const btnHoje = mesBar.querySelector('#fm-hoje');
-  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true).then(()=>render()); };
-  w.appendChild(mesBar);
+  // v490 Sprint 3: seletor de mês/ano + botão "Preparar próximo mês".
+  // v492 Sprint 4: só aparecem em sub-abas que são MENSAIS (Cobranças/Despesas).
+  // Dashboard tem seu próprio seletor de ANO; Planos/Contratos/Categorias não são mensais.
+  const tabMensal = _finTab==='cobrancas' || _finTab==='despesas';
+  if(tabMensal){
+    const mesBar = el(`<div class="fin-mes-bar" style="display:flex;align-items:center;gap:6px;margin:6px 12px 10px">
+      <button class="btn-cad ghost" id="fm-prev" aria-label="Mês anterior" style="min-width:34px;padding:6px 8px">‹</button>
+      <div id="fm-nome" style="flex:1;text-align:center;font-weight:800;font-size:14.5px;text-transform:capitalize">${safeTxt(mesAtualNome)}</div>
+      <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
+      ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
+    </div>`);
+    mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true).then(()=>render()); };
+    mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true).then(()=>render()); };
+    const btnHoje = mesBar.querySelector('#fm-hoje');
+    if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true).then(()=>render()); };
+    w.appendChild(mesBar);
 
-  // Botão "Preparar próximo mês" (só quando estamos no mês corrente ou anterior)
-  const [y,m] = _finMes().split('-').map(Number);
-  const proxD = new Date(y, m, 1);   // próximo mês em relação ao selecionado
-  const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
-  const proxNome = _finMesNome(proxMes);
-  const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
-  prep.onclick = ()=>{
-    if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
-    prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
-    sbProf.gerarCobrancasDoMes(proxMes)
-      .then(n => {
-        toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
-        _finReload(true).then(()=>render());
-      })
-      .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
-  };
-  w.appendChild(prep);
+    const [y,m] = _finMes().split('-').map(Number);
+    const proxD = new Date(y, m, 1);
+    const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
+    const proxNome = _finMesNome(proxMes);
+    const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
+    prep.onclick = ()=>{
+      if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
+      prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
+      sbProf.gerarCobrancasDoMes(proxMes)
+        .then(n => {
+          toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
+          _finReload(true).then(()=>render());
+        })
+        .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
+    };
+    w.appendChild(prep);
+  }
 
-  const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px" role="tablist">
+  const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px;overflow-x:auto" role="tablist">
+    <button data-t="dashboard" ${_finTab==='dashboard'?'class="active"':''}>Dashboard</button>
     <button data-t="cobrancas" ${_finTab==='cobrancas'?'class="active"':''}>Cobranças</button>
     <button data-t="despesas"  ${_finTab==='despesas' ?'class="active"':''}>Despesas</button>
     <button data-t="planos"    ${_finTab==='planos'   ?'class="active"':''}>Planos</button>
@@ -9891,7 +9896,8 @@ function profFinanceiro(){
 
   _finReload(true).then(()=>{
     body.innerHTML='';
-    if(_finTab==='cobrancas') _finRenderCobrancas(body);
+    if(_finTab==='dashboard') _finRenderDashboard(body);
+    else if(_finTab==='cobrancas') _finRenderCobrancas(body);
     else if(_finTab==='despesas') _finRenderDespesas(body);
     else if(_finTab==='planos') _finRenderPlanos(body);
     else if(_finTab==='contratos') _finRenderContratos(body);
@@ -9899,6 +9905,151 @@ function profFinanceiro(){
   });
 
   return w;
+}
+
+/* ---- Sub-aba: Dashboard (Sprint 4) ---- */
+let _finDashAno = null, _finDashData = null, _finDashInad = null;
+function _finDashAnoAtual(){ return _finDashAno || new Date().getFullYear(); }
+function _finRenderDashboard(body){
+  if(!_finBackend()){ body.innerHTML='<div class="empty-line">Dashboard só com backend ligado.</div>'; return; }
+  const ano = _finDashAnoAtual();
+  const anoCorrente = new Date().getFullYear();
+
+  // Seletor de ano
+  const yBar = el(`<div style="display:flex;align-items:center;gap:8px;margin:0 12px 10px">
+    <button class="btn-cad ghost" id="fy-prev" style="min-width:34px;padding:6px 8px">‹</button>
+    <div style="flex:1;text-align:center;font-weight:800;font-size:14.5px">${ano}</div>
+    <button class="btn-cad ghost" id="fy-next" style="min-width:34px;padding:6px 8px" ${ano>=anoCorrente?'disabled':''}>›</button>
+  </div>`);
+  yBar.querySelector('#fy-prev').onclick = ()=>{ _finDashAno = ano-1; _finDashData=null; render(); };
+  const btnNextY = yBar.querySelector('#fy-next');
+  if(!btnNextY.disabled) btnNextY.onclick = ()=>{ _finDashAno = ano+1; _finDashData=null; render(); };
+  body.appendChild(yBar);
+
+  const holder = el('<div class="loading-center" style="padding:20px">Carregando…</div>');
+  body.appendChild(holder);
+
+  Promise.all([
+    sbProf.getFinResumoAnual(ano),
+    sbProf.getInadimplentesDetalhado(6),
+  ]).then(([resumo, inad])=>{
+    _finDashData = resumo; _finDashInad = inad;
+    holder.remove();
+    body.appendChild(_finDashChartAnual(resumo, ano));
+    body.appendChild(_finDashPizzas(resumo));
+    body.appendChild(_finDashInadTabela(inad));
+  }).catch(e=>{ holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
+}
+
+// Chart barras Receita x Despesa (12 meses, SVG puro)
+function _finDashChartAnual(resumo, ano){
+  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
+  card.appendChild(el(`<div style="font-weight:800;font-size:14px;margin-bottom:10px">Receita × Despesa · ${ano}</div>`));
+  const MESES = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+  const maxV = Math.max(1, ...resumo.meses.map(m => Math.max(m.receita, m.despesa)));
+  const W = 12*44, H = 160, PAD = 20;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox', `0 0 ${W+PAD*2} ${H+40}`);
+  svg.setAttribute('style', 'width:100%;max-width:100%;height:auto;overflow:visible');
+  const bars = resumo.meses.map((m,i)=>{
+    const x = PAD + i*44;
+    const hR = Math.round((m.receita/maxV)*H);
+    const hD = Math.round((m.despesa/maxV)*H);
+    return `
+      <g>
+        <rect x="${x+4}"  y="${PAD+H-hR}" width="16" height="${hR}" fill="#22a06b" rx="2"/>
+        <rect x="${x+22}" y="${PAD+H-hD}" width="16" height="${hD}" fill="#e5392f" rx="2"/>
+        <text x="${x+21}" y="${PAD+H+16}" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">${MESES[i]}</text>
+      </g>
+    `;
+  }).join('');
+  svg.innerHTML = bars;
+  card.appendChild(svg);
+  // Legenda
+  card.appendChild(el(`<div style="display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:8px">
+    <span><span style="display:inline-block;width:10px;height:10px;background:#22a06b;border-radius:2px;margin-right:4px"></span>Receita</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#e5392f;border-radius:2px;margin-right:4px"></span>Despesa</span>
+  </div>`));
+  const totR = resumo.meses.reduce((s,m)=>s+m.receita,0);
+  const totD = resumo.meses.reduce((s,m)=>s+m.despesa,0);
+  const totS = totR - totD;
+  card.appendChild(el(`<div style="display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#e5e5ea);font-size:12.5px">
+    <span>Total receita: <b>${moneyBR(totR)}</b></span>
+    <span>Total despesa: <b>${moneyBR(totD)}</b></span>
+    <span style="color:${totS>=0?'var(--good)':'var(--red)'}">Saldo: <b>${moneyBR(totS)}</b></span>
+  </div>`));
+  return card;
+}
+
+// Duas pizzas — Receita e Despesa por categoria (SVG puro)
+function _finDashPizzas(resumo){
+  const wrap = el('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 12px 12px"></div>');
+  wrap.appendChild(_finDashPizza('Receita por tipo', resumo.receitasPorCategoria, ['#22a06b','#0d9488','#3b82f6','#8b5cf6','#f59e0b']));
+  wrap.appendChild(_finDashPizza('Despesa por tipo', resumo.despesasPorCategoria, ['#e5392f','#f97316','#f59e0b','#dc2626','#9333ea']));
+  return wrap;
+}
+function _finDashPizza(titulo, dados, cores){
+  const card = el('<div class="block" style="padding:12px"></div>');
+  card.appendChild(el(`<div style="font-weight:700;font-size:12.5px;margin-bottom:8px">${safeTxt(titulo)}</div>`));
+  const entries = Object.entries(dados||{}).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ card.appendChild(el('<div style="color:var(--muted);font-size:12px;padding:8px 0">Sem dados</div>')); return card; }
+  const total = entries.reduce((s,[,v])=>s+v,0) || 1;
+  const R = 40, CX = 50, CY = 50;
+  let ang = -Math.PI/2;
+  const paths = entries.map(([nome, v], i)=>{
+    const frac = v/total;
+    const a2 = ang + frac*Math.PI*2;
+    const large = frac > 0.5 ? 1 : 0;
+    const x1 = CX + R*Math.cos(ang), y1 = CY + R*Math.sin(ang);
+    const x2 = CX + R*Math.cos(a2),  y2 = CY + R*Math.sin(a2);
+    const path = `M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    ang = a2;
+    return `<path d="${path}" fill="${cores[i%cores.length]}"/>`;
+  }).join('');
+  const svg = `<svg viewBox="0 0 100 100" style="width:100%;max-width:120px;height:auto;display:block;margin:0 auto">${paths}<circle cx="50" cy="50" r="18" fill="var(--card,#fff)"/></svg>`;
+  card.insertAdjacentHTML('beforeend', svg);
+  // Legenda: top 5
+  const leg = el('<div style="margin-top:8px"></div>');
+  entries.slice(0,5).forEach(([nome, v], i)=>{
+    const pct = Math.round(v/total*100);
+    leg.appendChild(el(`<div style="display:flex;align-items:center;font-size:11px;margin-bottom:2px">
+      <span style="width:8px;height:8px;background:${cores[i%cores.length]};border-radius:2px;margin-right:6px;flex-shrink:0"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(nome)}</span>
+      <span style="color:var(--muted);margin-left:4px">${pct}%</span>
+    </div>`));
+  });
+  card.appendChild(leg);
+  return card;
+}
+
+// Tabela inadimplentes detalhada
+function _finDashInadTabela(inad){
+  const card = el('<div class="block" style="padding:12px;margin:0 12px 12px"></div>');
+  const total = inad.reduce((s,x)=>s+x.total,0);
+  card.appendChild(el(`<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+    <div style="font-weight:800;font-size:14px">⚠️ Inadimplentes (últimos 6 meses)</div>
+    <div style="color:var(--red);font-weight:800;font-size:13px">${moneyBR(total)}</div>
+  </div>`));
+  if(!inad.length){ card.appendChild(el('<div style="color:var(--muted);font-size:12.5px;padding:6px 0">Nenhum inadimplente 🎉</div>')); return card; }
+  const list = el('<div class="list"></div>');
+  inad.forEach(x=>{
+    const wa = x.telefone ? _waLink({telefone:x.telefone, apelido:x.nome}) : null;
+    const row = el(`<div class="st-row">
+      <div class="st-mid">
+        <div class="nm">${safeTxt(x.nome)}</div>
+        <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${x.meses} m${x.meses>1?'eses':'ês'} vencido${x.meses>1?'s':''}</span></div>
+      </div>
+      <div class="st-right" style="display:flex;align-items:center;gap:8px">
+        <div style="font-size:14.5px;font-weight:800;color:var(--red)">${moneyBR(x.total)}</div>
+        ${wa?`<button class="btn-cad ghost" data-wa="${safeAttr(wa)}" style="padding:6px 10px;font-size:12px">💬</button>`:''}
+      </div>
+    </div>`);
+    const waBtn = row.querySelector('[data-wa]');
+    if(waBtn) waBtn.onclick = ()=> window.open(waBtn.dataset.wa, '_blank', 'noopener');
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+  return card;
 }
 
 /* ---- Sub-aba: Cobranças ---- */
