@@ -10264,55 +10264,70 @@ function _finRenderCobrancas(body){
       <div class="c"><div class="v">${isentas.length}</div><div class="l">Isentos</div></div>
     </div></div>`));
 
-  const seg = el(`<div class="filter-seg">
-    <button data-f="vencidas" ${_finCobFiltro==='vencidas'?'class="active"':''}>Vencidas (${vencidas.length})</button>
-    <button data-f="avencer"  ${_finCobFiltro==='avencer' ?'class="active"':''}>A vencer (${aVencer.length})</button>
-    <button data-f="pagas"    ${_finCobFiltro==='pagas'   ?'class="active"':''}>Pagas (${pagas.length})</button>
-    <button data-f="isentas"  ${_finCobFiltro==='isentas' ?'class="active"':''}>Isentas (${isentas.length})</button>
-  </div>`);
-  const list = el('<div class="list"></div>');
-  const paint = () => {
-    list.innerHTML='';
-    const src = _finCobFiltro==='vencidas'?vencidas
-              : _finCobFiltro==='avencer' ?aVencer
-              : _finCobFiltro==='pagas'   ?pagas
-              : isentas;
-    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhuma cobrança nesta categoria.</div>')); return; }
-    src.forEach(c=>{
-      const p = c.profiles || {};
-      const nome = p.apelido || p.nome_completo || 'aluno';
-      const badge = c.pedido_id ? '<span style="font-size:10.5px;color:var(--muted);margin-left:6px">🛍 Loja</span>' : '';
-      const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)) : '—';
-      const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
-      const row = el(`<div class="st-row" style="cursor:pointer">
-        <div class="st-mid"><div class="nm">${safeTxt(nome)}${badge}</div>
-          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">Vence ${vencTxt}</span></div></div>
-        <div class="st-right">
-          <div style="font-size:14.5px;font-weight:800;color:${cor}">${moneyBR(c.valor)}</div>
-        </div>
-      </div>`);
-      row.onclick = ()=> _finCobrancaSheet(c);
-      list.appendChild(row);
-    });
-  };
-  seg.querySelectorAll('[data-f]').forEach(b=>{
-    b.onclick=()=>{ _finCobFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
-  });
-  // v484: botão "＋ Nova venda" — abre o sheet de venda com toggle "a prazo".
-  // Venda paga na hora = fluxo antigo. A prazo = pedido concluído + baixa
-  // estoque + cobrança pendente linked (0043).
-  const novaBtn = el('<button class="btn-cad" style="margin:8px 12px">＋ Nova venda</button>');
+  // v500: sub-tabs de status removidas — tabela unificada com coluna Status.
+  // Dono viu tudo numa tela só, sem clicar. Ordenação: vencidas > a vencer >
+  // pagas > isentas, e dentro do grupo por venc (mais antigo primeiro).
+  const novaBtn = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova venda</button>');
   novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload(true).then(()=>render()); if(_loadPedidos) _loadPedidos(true); });
-  // v485: cobrança avulsa (sem produto) — exame de faixa, taxa extra, aula
-  // avulsa. Cria linha em mensalidades com avulsa=true (não conflita com a
-  // recorrente do mês).
   const avulsaBtn = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Cobrança avulsa</button>');
   avulsaBtn.onclick = ()=> _finCobrancaAvulsaSheet(()=>{ _finReload(true).then(()=>render()); });
-  body.appendChild(seg);
   body.appendChild(novaBtn);
   body.appendChild(avulsaBtn);
-  paint();
-  body.appendChild(list);
+
+  if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
+
+  const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao_debito:'💳D', cartao_credito:'💳C', boleto:'🧾', outro:'➕' };
+  const statusRank = (c) => c.status==='pendente' ? (isVenc(c) ? 0 : 1) : (c.status==='pago' ? 2 : 3);
+  const sorted = cobs.slice().sort((a,b) => {
+    const ra = statusRank(a), rb = statusRank(b);
+    if(ra !== rb) return ra - rb;
+    return (a.venc||'').localeCompare(b.venc||'');
+  });
+  const statusBadge = (c) => {
+    if(c.status==='pago') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Paga</span>';
+    if(c.status==='isento') return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Isenta</span>';
+    if(c.status==='cancelado') return '<span style="font-size:10.5px;color:var(--muted);padding:2px 8px;border-radius:10px;font-weight:700">Cancelada</span>';
+    if(isVenc(c)) return '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Vencida</span>';
+    return '<span style="font-size:10.5px;color:var(--ink);background:rgba(0,0,0,0.05);padding:2px 8px;border-radius:10px;font-weight:700">A vencer</span>';
+  };
+  const dmy = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)) : '—';
+
+  const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
+  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:820px">
+    <thead>
+      <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700">Aluno</th>
+        <th style="padding:10px 8px;font-weight:700">Vence</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+        <th style="padding:10px 8px;font-weight:700">Pago em</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Forma</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Origem</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>`);
+  const tbody = table.querySelector('tbody');
+  sorted.forEach(c => {
+    const p = c.profiles || {};
+    const nome = p.apelido || p.nome_completo || 'aluno';
+    const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
+    const origem = c.pedido_id ? '🛍' : (c.contrato_id ? '📄' : (c.avulsa ? '＋' : ''));
+    const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
+    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
+      <td style="padding:10px 12px;font-weight:700">${safeTxt(nome)}</td>
+      <td style="padding:10px 8px">${dmy(c.venc)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
+      <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
+      <td style="padding:10px 8px">${c.data_pagamento ? dmy(c.data_pagamento) : '—'}</td>
+      <td style="padding:10px 8px;text-align:center">${safeTxt(forma) || '—'}</td>
+      <td style="padding:10px 8px;text-align:center;font-size:15px" title="${c.pedido_id?'Loja':c.contrato_id?'Contrato':c.avulsa?'Avulsa':''}">${origem || '—'}</td>
+    </tr>`);
+    tr.onclick = ()=> _finCobrancaSheet(c);
+    tbody.appendChild(tr);
+  });
+  wrap.appendChild(table);
+  body.appendChild(wrap);
 }
 
 /* ---- Sub-aba: Despesas ---- */
