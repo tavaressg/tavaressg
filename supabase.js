@@ -1422,6 +1422,7 @@
         tem_contrato: !!p.tem_contrato,
         ativo: p.ativo !== false,
         ordem: p.ordem || 0,
+        publico: p.publico || null,   // v495 (0046): adulto/juvenil/kids/misto
       };
       if (p.id) {
         const { error } = await SB.from('planos').update(row).eq('id', p.id);
@@ -1431,6 +1432,21 @@
       const { data, error } = await SB.from('planos').insert(row).select('id').single();
       if (error) throw error;
       return data.id;
+    }),
+    // v495 (0046): histórico de preço do plano — timeline de reajustes.
+    getPlanoHistorico: wrap(async (planoId) => {
+      const { data, error } = await SB.from('planos_precos_historico')
+        .select('*, profiles!alterado_por(apelido,nome_completo)')
+        .eq('plano_id', planoId).order('alterado_em', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }),
+    // v495 (0046): antes de aplicar reajuste, mostra quantos alunos afeta e
+    // quantos estão travados (contrato / anual / manual). Sem gravar nada.
+    planoImpactoReajuste: wrap(async (planoId) => {
+      const { data, error } = await SB.rpc('plano_impacto_reajuste', { p_plano_id: planoId });
+      if (error) throw error;
+      return data;
     }),
 
     // -- Matrícula (aluno_plano) --
@@ -1442,14 +1458,27 @@
     }),
     salvarAlunoPlano: wrap(async (ap) => {
       const u = (await SB.auth.getUser()).data.user;
+      // v495 (0046): snapshot valor_matricula quando é matrícula nova ou plano trocou.
+      // Pega valor do plano atual. Usado pra auto-trava de anual e fallback quando
+      // trava_reajuste=true sem valor_negociado.
+      let valorMatricula = ap.valor_matricula;
+      if (valorMatricula == null && ap.plano_id) {
+        const { data: pl } = await SB.from('planos').select('valor').eq('id', ap.plano_id).single();
+        if (pl) valorMatricula = pl.valor;
+      }
       const row = {
         user_id: ap.user_id,
         plano_id: ap.plano_id,
         valor_negociado: ap.valor_negociado != null ? Number(ap.valor_negociado) : null,
+        valor_matricula: valorMatricula != null ? Number(valorMatricula) : null,
         // v488 (0044): override do dia do plano por aluno (null herda do plano)
         dia_vencimento: ap.dia_vencimento != null ? Number(ap.dia_vencimento) : null,
         isento: !!ap.isento,
         isento_motivo: ap.isento_motivo || null,
+        // v495 (0046): trava manual do reajuste
+        trava_reajuste: !!ap.trava_reajuste,
+        trava_motivo: ap.trava_reajuste ? (ap.trava_motivo || null) : null,
+        trava_desde: ap.trava_reajuste ? (ap.trava_desde || HOJE()) : null,
         inicio: ap.inicio || HOJE(),
         fim: ap.fim || null,
         obs: ap.obs || null,

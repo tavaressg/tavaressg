@@ -7769,10 +7769,11 @@ function _erpPlanoMini(a, refresh){
     body.innerHTML='';
     if(ap && ap.planos){
       const p = ap.planos;
-      const val = ap.valor_negociado != null ? ap.valor_negociado : p.valor;
+      const val = ap.valor_negociado != null ? ap.valor_negociado : (ap.valor_matricula || p.valor);
       const dia = ap.dia_vencimento || p.dia_vencimento;
+      const travaBadge = ap.trava_reajuste ? ' <span style="font-size:10.5px;color:var(--muted)" title="Trava reajuste">🔒</span>' : '';
       body.innerHTML = `
-        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${safeTxt(p.nome)}${ap.isento?' <span style="font-size:10.5px;color:var(--good)">(isento)</span>':''}</div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${safeTxt(p.nome)}${ap.isento?' <span style="font-size:10.5px;color:var(--good)">(isento)</span>':''}${travaBadge}</div>
         <div style="color:var(--muted);font-size:12px">${moneyBR(val)} · dia ${dia}</div>
       `;
     } else {
@@ -7806,6 +7807,15 @@ function _erpFinanceiroAluno(a, refresh){
       const diaEfet = ap.dia_vencimento || p.dia_vencimento;
       const diaBadge = ap.dia_vencimento ? ' <span style="font-size:10.5px;color:var(--muted)">(customizado)</span>' : '';
       body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${diaEfet}${diaBadge}</b></div>`));
+      // v495: badge trava reajuste. Se travado + valor plano > valor efetivo, mostra economia.
+      if(ap.trava_reajuste){
+        const motivoTxt = { bolsa:'Bolsa', familia:'Família', seguranca_publica:'Segurança pública', fidelidade:'Fidelidade', convenio:'Convênio', outro:'Outro' }[ap.trava_motivo] || 'Trava manual';
+        const planoAtual = Number(p.valor||0);
+        const efetivo = ap.valor_negociado != null ? ap.valor_negociado : (ap.valor_matricula || planoAtual);
+        const diff = planoAtual - efetivo;
+        const diffTxt = diff > 0.01 ? ` <span style="font-size:10.5px;color:var(--good)">(−${moneyBR(diff)}/mês)</span>` : '';
+        body.appendChild(el(`<div class="ficha-r" style="background:var(--card-alt,rgba(0,0,0,0.03));padding:6px 8px;border-radius:6px;margin-top:4px"><span>🔒 Trava reajuste</span><b style="font-weight:600;font-size:12.5px">${motivoTxt}${diffTxt}</b></div>`));
+      }
       // v494 Sprint 6 item 6: notas gerais (obs) do plano — bolsa condicional,
       // motivo do desconto, contexto. Campo existia no schema desde v481 mas
       // não aparecia em lugar nenhum.
@@ -7839,11 +7849,18 @@ function _erpFinanceiroAluno(a, refresh){
 function _finAlunoPlanoSheet(a, onDone){
   Promise.all([ sbProf.getPlanos(), sbProf.getAlunoPlano(a.id) ]).then(([planos, ap])=>{
     ap = ap || {};
+    // v495 Sprint (planos): filtra planos por público conforme idade do aluno.
+    // Sem idade cadastrada, mostra todos. Misto sempre aparece.
     const ativos = planos.filter(p=>p.ativo!==false);
-    const opts = ativos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
+    const idade = a.nascimento ? (new Date().getFullYear() - a.nascimento) : null;
+    const publicoDoAluno = idade == null ? null : (idade < 13 ? 'kids' : (idade < 18 ? 'juvenil' : 'adulto'));
+    const filtroPub = (p) => !publicoDoAluno || !p.publico || p.publico === 'misto' || p.publico === publicoDoAluno;
+    const planosVisiveis = ativos.filter(filtroPub);
+    const opts = planosVisiveis.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}${p.publico?' · '+p.publico:''}</option>`).join('');
     const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano do aluno">
       <div class="sheet-grip"></div>
       <div class="sheet-title">Plano · ${safeTxt(_nomeInst(a))}</div>
+      ${publicoDoAluno ? `<div class="sheet-desc">${idade} anos · público <b>${publicoDoAluno}</b></div>` : ''}
       <label class="flbl">Plano</label>
       <select class="inp" id="ap-plano">
         <option value="">—</option>
@@ -7856,6 +7873,22 @@ function _finAlunoPlanoSheet(a, onDone){
       <label class="flbl" style="margin-top:10px"><input type="checkbox" id="ap-isento" ${ap.isento?'checked':''}> Aluno isento (não gera cobrança)</label>
       <label class="flbl" style="margin-top:10px">Motivo isenção</label>
       <input class="inp" id="ap-motivo" maxlength="200" value="${safeAttr(ap.isento_motivo||'')}">
+      <div class="sec-title" style="margin:14px 0 6px;font-size:11px">Trava de reajuste</div>
+      <label class="flbl" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="ap-trava" ${ap.trava_reajuste?'checked':''}>
+        <span>🔒 Travar reajuste automático <span style="color:var(--muted);font-weight:500">(aluno não pega reajustes do plano)</span></span>
+      </label>
+      <div id="ap-trava-wrap" style="display:${ap.trava_reajuste?'block':'none'};margin-top:8px">
+        <label class="flbl">Motivo da trava</label>
+        <select class="inp" id="ap-trava-motivo">
+          <option value="bolsa">🎗️ Bolsa</option>
+          <option value="familia">👨‍👩‍👧 Família</option>
+          <option value="seguranca_publica">🚔 Segurança pública</option>
+          <option value="fidelidade">🤝 Fidelidade</option>
+          <option value="convenio">🏢 Convênio empresa</option>
+          <option value="outro">📝 Outro</option>
+        </select>
+      </div>
       <label class="flbl" style="margin-top:10px">Início do plano</label>
       <input class="inp" id="ap-inicio" type="date" value="${ap.inicio||HOJE_ISO}">
       <label class="flbl" style="margin-top:10px">Observação</label>
@@ -7864,6 +7897,11 @@ function _finAlunoPlanoSheet(a, onDone){
       <button class="sheet-cancel" id="ap-close">Cancelar</button>
     </div></div>`);
     if(ap.plano_id) sheet.querySelector('#ap-plano').value = ap.plano_id;
+    if(ap.trava_motivo) sheet.querySelector('#ap-trava-motivo').value = ap.trava_motivo;
+    // Toggle trava-wrap
+    const travaChk = sheet.querySelector('#ap-trava');
+    const travaWrap = sheet.querySelector('#ap-trava-wrap');
+    travaChk.onchange = ()=>{ travaWrap.style.display = travaChk.checked ? 'block' : 'none'; };
     const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
     sheet.querySelector('#ap-close').onclick = close;
     sheet.onclick = e=>{ if(e.target===sheet) close(); };
@@ -7874,12 +7912,16 @@ function _finAlunoPlanoSheet(a, onDone){
       const valorTxt = sheet.querySelector('#ap-valor').value.trim();
       btn.disabled=true; btn.textContent='Salvando…';
       const diaTxt = sheet.querySelector('#ap-dia').value.trim();
+      const travaOn = travaChk.checked;
       sbProf.salvarAlunoPlano({
         user_id: a.id, plano_id,
         valor_negociado: valorTxt ? parseFloat(valorTxt) : null,
         dia_vencimento: diaTxt ? parseInt(diaTxt) : null,
         isento: sheet.querySelector('#ap-isento').checked,
         isento_motivo: sheet.querySelector('#ap-motivo').value.trim() || null,
+        trava_reajuste: travaOn,
+        trava_motivo: travaOn ? sheet.querySelector('#ap-trava-motivo').value : null,
+        trava_desde: travaOn ? (ap.trava_desde || HOJE_ISO) : null,
         inicio: sheet.querySelector('#ap-inicio').value,
         obs: sheet.querySelector('#ap-obs').value.trim() || null,
       }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
@@ -10382,10 +10424,12 @@ function _finRenderPlanos(body){
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
   const list = el('<div class="list"></div>');
+  const PUB_LBL = { adulto:'👤 Adulto', juvenil:'🧒 Juvenil', kids:'👶 Kids', misto:'🌐 Misto' };
   planos.forEach(p=>{
     const badge = p.ativo ? '' : ' <span style="font-size:10.5px;color:var(--muted)">(inativo)</span>';
+    const pubBadge = p.publico ? ` <span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:1px 6px;border-radius:4px;font-weight:600">${safeTxt(PUB_LBL[p.publico]||p.publico)}</span>` : '';
     const row = el(`<div class="st-row" style="cursor:pointer">
-      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}${badge}</div>
+      <div class="st-mid"><div class="nm">${safeTxt(p.nome)}${pubBadge}${badge}</div>
         <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(p.frequencia)} · dia ${p.dia_vencimento}${p.tem_contrato?' · exige contrato':''}</span></div></div>
       <div class="st-right">
         <div style="font-size:14.5px;font-weight:800">${moneyBR(p.valor)}</div>
@@ -10684,11 +10728,20 @@ function _finCobrancaAvulsaSheet(onDone){
 // Plano — criar/editar
 function _finPlanoSheet(p, onDone){
   const editar = !!p; p = p || {};
+  const valorAtual = editar ? Number(p.valor || 0) : 0;
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano">
     <div class="sheet-grip"></div>
     <div class="sheet-title">${editar?'Editar plano':'Novo plano'}</div>
     <label class="flbl">Nome</label>
-    <input class="inp" id="pl-nome" value="${safeAttr(p.nome||'')}" placeholder="Ex: Adulto | Mensal">
+    <input class="inp" id="pl-nome" value="${safeAttr(p.nome||'')}" placeholder="Ex: Adulto Mensal">
+    <label class="flbl" style="margin-top:10px">Público</label>
+    <select class="inp" id="pl-publico">
+      <option value="">— (não definido)</option>
+      <option value="adulto">Adulto (18+)</option>
+      <option value="juvenil">Juvenil (13–17)</option>
+      <option value="kids">Kids (até 12)</option>
+      <option value="misto">Misto (todas as idades)</option>
+    </select>
     <label class="flbl" style="margin-top:10px">Descrição</label>
     <input class="inp" id="pl-desc" maxlength="200" value="${safeAttr(p.descricao||'')}">
     <label class="flbl" style="margin-top:10px">Frequência</label>
@@ -10699,7 +10752,7 @@ function _finPlanoSheet(p, onDone){
       <option value="anual">Anual</option>
     </select>
     <label class="flbl" style="margin-top:10px">Valor (R$)</label>
-    <input class="inp" id="pl-valor" type="number" step="0.01" min="0" value="${p.valor||0}">
+    <input class="inp" id="pl-valor" type="number" step="0.01" min="0" value="${valorAtual}">
     <label class="flbl" style="margin-top:10px">Dia de vencimento (1-28)</label>
     <input class="inp" id="pl-dia" type="number" min="1" max="28" value="${p.dia_vencimento||10}">
     <label class="flbl" style="margin-top:10px">Forma padrão</label>
@@ -10714,31 +10767,91 @@ function _finPlanoSheet(p, onDone){
     </select>
     <label class="flbl" style="margin-top:10px"><input type="checkbox" id="pl-contrato" ${p.tem_contrato?'checked':''}> Exige contrato assinado</label>
     <label class="flbl" style="margin-top:8px"><input type="checkbox" id="pl-ativo" ${p.ativo!==false?'checked':''}> Plano ativo</label>
+    ${editar ? '<button class="btn-cad ghost" id="pl-hist" style="margin-top:12px;width:100%">📈 Histórico de reajustes</button>' : ''}
     <button class="btn-save" id="pl-save" style="margin-top:14px">Salvar</button>
     <button class="sheet-cancel" id="pl-close">Cancelar</button>
   </div></div>`);
   sheet.querySelector('#pl-freq').value = p.frequencia || 'mensal';
   sheet.querySelector('#pl-forma').value = p.forma_padrao || '';
+  sheet.querySelector('#pl-publico').value = p.publico || '';
   const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.querySelector('#pl-close').onclick = close;
   sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  // v495: histórico de reajustes
+  const btnHist = sheet.querySelector('#pl-hist');
+  if(btnHist){
+    btnHist.onclick = ()=> _finPlanoHistoricoSheet(p);
+  }
   const btn = sheet.querySelector('#pl-save');
-  btn.onclick = ()=>{
+  btn.onclick = async ()=>{
     const nome = sheet.querySelector('#pl-nome').value.trim();
     if(!nome){ toast('Informe o nome'); return; }
+    const novoValor = parseFloat(sheet.querySelector('#pl-valor').value)||0;
+    // v495 Sprint 3: se edit + valor mudou, mostra modal de impacto ANTES de salvar
+    if(editar && Math.abs(novoValor - valorAtual) > 0.01){
+      btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Analisando…';
+      try {
+        const impacto = await sbProf.planoImpactoReajuste(p.id);
+        btn.disabled=false; btn.textContent=orig;
+        const msg = `Reajuste ${moneyBR(valorAtual)} → ${moneyBR(novoValor)}\n\n`
+          + `📈 ${impacto.afetados} aluno(s) pegam o novo valor automaticamente.\n`
+          + `🔒 ${impacto.total_travados} aluno(s) travados:\n`
+          + `   · ${impacto.travados_contrato} contrato ativo\n`
+          + `   · ${impacto.travados_anual} plano anual (dentro dos 12 meses)\n`
+          + `   · ${impacto.travados_manual} trava manual\n\n`
+          + `Confirmar reajuste?`;
+        if(!confirm(msg)) return;
+      } catch(e){ btn.disabled=false; btn.textContent=orig; toast('Erro impacto: '+(e.message||e)); return; }
+    }
     btn.disabled=true; btn.textContent='Salvando…';
     sbProf.salvarPlano({
       id: p.id, nome,
       descricao: sheet.querySelector('#pl-desc').value.trim(),
       frequencia: sheet.querySelector('#pl-freq').value,
-      valor: parseFloat(sheet.querySelector('#pl-valor').value)||0,
+      valor: novoValor,
       dia_vencimento: parseInt(sheet.querySelector('#pl-dia').value)||10,
       forma_padrao: sheet.querySelector('#pl-forma').value || null,
       tem_contrato: sheet.querySelector('#pl-contrato').checked,
       ativo: sheet.querySelector('#pl-ativo').checked,
+      publico: sheet.querySelector('#pl-publico').value || null,
     }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
+// v495: histórico de reajustes do plano
+function _finPlanoHistoricoSheet(p){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Histórico de reajustes">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">📈 Histórico · ${safeTxt(p.nome||'')}</div>
+    <div class="sheet-desc">Valor atual: <b>${moneyBR(p.valor)}</b></div>
+    <div class="list" id="ph-list"><div class="loading-center">Carregando…</div></div>
+    <button class="sheet-cancel" id="ph-close">Fechar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ph-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const list = sheet.querySelector('#ph-list');
+  sbProf.getPlanoHistorico(p.id).then(rows=>{
+    list.innerHTML='';
+    if(!rows.length){ list.appendChild(el('<div class="empty-line">Nenhum reajuste registrado ainda.</div>')); return; }
+    rows.forEach(r=>{
+      const dt = new Date(r.alterado_em);
+      const dtTxt = dt.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const pQuem = r.profiles && (r.profiles.apelido || r.profiles.nome_completo);
+      const va = Number(r.valor_anterior||0), vn = Number(r.valor_novo||0);
+      const delta = vn - va;
+      const pct = va > 0 ? Math.round((delta/va)*100) : null;
+      list.appendChild(el(`<div class="cfg-row" style="cursor:default;flex-direction:column;align-items:flex-start">
+        <div style="display:flex;justify-content:space-between;width:100%">
+          <span><b>${moneyBR(va)}</b> → <b>${moneyBR(vn)}</b></span>
+          <span style="color:${delta>=0?'var(--good)':'var(--red)'};font-weight:800">${delta>=0?'+':''}${moneyBR(delta)}${pct!==null?' ('+(pct>=0?'+':'')+pct+'%)':''}</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${dtTxt}${pQuem?' · por '+safeTxt(pQuem):''}</div>
+      </div>`));
+    });
+  }).catch(e=>{ list.innerHTML='<div class="empty-line" style="color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
