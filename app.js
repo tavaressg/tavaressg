@@ -10427,13 +10427,14 @@ function _finRenderPlanos(body){
   const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao_debito:'💳 Débito', cartao_credito:'💳 Crédito', boleto:'🧾 Boleto', outro:'➕ Outro' };
   // v497: tabela em vez de cards. Scroll horizontal em mobile pra caber todas as colunas.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">
+  const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Nome</th>
         <th style="padding:10px 8px;font-weight:700">Público</th>
         <th style="padding:10px 8px;font-weight:700">Freq.</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700">Cobrança</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Dia</th>
         <th style="padding:10px 8px;font-weight:700">Forma padrão</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Contrato</th>
@@ -10443,12 +10444,18 @@ function _finRenderPlanos(body){
     <tbody></tbody>
   </table>`);
   const tbody = table.querySelector('tbody');
+  const cobLbl = (p) => {
+    if(p.parcelas == null) return '🔄 Recorrente';
+    if(p.parcelas === 1) return '💰 Única';
+    return `📊 ${p.parcelas}× ${moneyBR((p.valor||0)/p.parcelas)}`;
+  };
   planos.forEach((p, i) => {
     const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(p.nome)}</td>
       <td style="padding:10px 8px">${p.publico ? safeTxt(PUB_LBL[p.publico]||p.publico) : '—'}</td>
       <td style="padding:10px 8px">${safeTxt(p.frequencia||'—')}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(p.valor)}</td>
+      <td style="padding:10px 8px;font-size:11.5px">${safeTxt(cobLbl(p))}</td>
       <td style="padding:10px 8px;text-align:center">${p.dia_vencimento||'—'}</td>
       <td style="padding:10px 8px">${p.forma_padrao ? safeTxt(FORMA_LBL[p.forma_padrao]||p.forma_padrao) : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${p.tem_contrato ? '✓' : '—'}</td>
@@ -10771,8 +10778,19 @@ function _finPlanoSheet(p, onDone){
       <option value="semestral">Semestral</option>
       <option value="anual">Anual</option>
     </select>
-    <label class="flbl" style="margin-top:10px">Valor (R$)</label>
+    <label class="flbl" style="margin-top:10px">Modalidade de cobrança</label>
+    <select class="inp" id="pl-modo">
+      <option value="recorrente">🔄 Recorrente mensal (paga todo mês, sem fim)</option>
+      <option value="unica">💰 Cobrança única (paga 1× no início)</option>
+      <option value="parcelado">📊 Parcelado em N vezes</option>
+    </select>
+    <div id="pl-parc-wrap" style="display:none;margin-top:8px">
+      <label class="flbl">Número de parcelas</label>
+      <input class="inp" id="pl-parc" type="number" min="2" max="60" value="${p.parcelas>1?p.parcelas:12}">
+    </div>
+    <label class="flbl" style="margin-top:10px" id="pl-valor-lbl">Valor (R$)</label>
     <input class="inp" id="pl-valor" type="number" step="0.01" min="0" value="${valorAtual}">
+    <div id="pl-valor-preview" style="margin-top:4px;font-size:12px;color:var(--muted);min-height:16px"></div>
     <label class="flbl" style="margin-top:10px">Dia de vencimento (1-28)</label>
     <input class="inp" id="pl-dia" type="number" min="1" max="28" value="${p.dia_vencimento||10}">
     <label class="flbl" style="margin-top:10px">Forma padrão</label>
@@ -10794,6 +10812,36 @@ function _finPlanoSheet(p, onDone){
   sheet.querySelector('#pl-freq').value = p.frequencia || 'mensal';
   sheet.querySelector('#pl-forma').value = p.forma_padrao || '';
   sheet.querySelector('#pl-publico').value = p.publico || '';
+  // v498 (0047): modalidade de cobrança — recorrente/unica/parcelado
+  const selModo = sheet.querySelector('#pl-modo');
+  const parcWrap = sheet.querySelector('#pl-parc-wrap');
+  const parcInp = sheet.querySelector('#pl-parc');
+  const valLbl = sheet.querySelector('#pl-valor-lbl');
+  const valInp = sheet.querySelector('#pl-valor');
+  const valPrev = sheet.querySelector('#pl-valor-preview');
+  const modoInicial = p.parcelas == null ? 'recorrente' : (p.parcelas === 1 ? 'unica' : 'parcelado');
+  selModo.value = modoInicial;
+  const pintaPreview = ()=>{
+    const modo = selModo.value;
+    const val = parseFloat(valInp.value)||0;
+    const parc = Math.max(2, Math.min(60, parseInt(parcInp.value)||12));
+    parcWrap.style.display = modo==='parcelado' ? 'block' : 'none';
+    if(modo==='recorrente'){
+      valLbl.textContent = 'Valor mensal (R$)';
+      valPrev.textContent = val > 0 ? `${moneyBR(val)}/mês · cron gera 1 cobrança todo mês, enquanto matrícula ativa` : '';
+    } else if(modo==='unica'){
+      valLbl.textContent = 'Valor total (R$)';
+      valPrev.textContent = val > 0 ? `${moneyBR(val)} — 1 cobrança única no mês da matrícula` : '';
+    } else {
+      valLbl.textContent = 'Valor TOTAL do plano (R$)';
+      const perParc = val > 0 && parc > 0 ? val/parc : 0;
+      valPrev.textContent = val > 0 && parc > 0 ? `${parc}× ${moneyBR(perParc)} — cron gera ${parc} cobranças mensais consecutivas` : '';
+    }
+  };
+  selModo.onchange = pintaPreview;
+  valInp.oninput = pintaPreview;
+  parcInp.oninput = pintaPreview;
+  pintaPreview();
   const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   sheet.querySelector('#pl-close').onclick = close;
   sheet.onclick = e=>{ if(e.target===sheet) close(); };
@@ -10824,6 +10872,11 @@ function _finPlanoSheet(p, onDone){
       } catch(e){ btn.disabled=false; btn.textContent=orig; toast('Erro impacto: '+(e.message||e)); return; }
     }
     btn.disabled=true; btn.textContent='Salvando…';
+    // v498 (0047): resolve parcelas do modo escolhido
+    const modo = selModo.value;
+    let parcelasFinal = null;   // recorrente
+    if(modo==='unica') parcelasFinal = 1;
+    else if(modo==='parcelado') parcelasFinal = Math.max(2, Math.min(60, parseInt(parcInp.value)||12));
     sbProf.salvarPlano({
       id: p.id, nome,
       descricao: sheet.querySelector('#pl-desc').value.trim(),
@@ -10834,6 +10887,7 @@ function _finPlanoSheet(p, onDone){
       tem_contrato: sheet.querySelector('#pl-contrato').checked,
       ativo: sheet.querySelector('#pl-ativo').checked,
       publico: sheet.querySelector('#pl-publico').value || null,
+      parcelas: parcelasFinal,
     }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
   };

@@ -1423,6 +1423,7 @@
         ativo: p.ativo !== false,
         ordem: p.ordem || 0,
         publico: p.publico || null,   // v495 (0046): adulto/juvenil/kids/misto
+        parcelas: p.parcelas != null ? Number(p.parcelas) : null,   // v498 (0047): null=recorrente, N=N cobranças
       };
       if (p.id) {
         const { error } = await SB.from('planos').update(row).eq('id', p.id);
