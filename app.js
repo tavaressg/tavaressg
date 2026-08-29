@@ -2882,7 +2882,15 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg){
   if(tpl==='checkin'){
     const cy=cardY+PAD+110;
     ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`800 15px ${SF}`; ctx.fillText('NO TATAME',ix,cy-26);
-    ctx.fillStyle='#fff'; ctx.font=`900 84px ${SF}`; ctx.fillText((DB.checkinHoje&&DB.checkinHoje.hora)||'19h',ix,cy+58);
+    // v490: card público mostra HORA DA AULA (não do scan). Antes: via='app'
+    // exibia hora do scan (21:04), via='professor' exibia hora da aula (19:30)
+    // — inconsistência visível ao compartilhar. Regra única agora: sempre a
+    // hora agendada da aula. Fallback: sessao do checkinHoje, ou '19h' se não
+    // tiver contexto (treino manual sem check-in).
+    const _horaCard = (t.horaAula)
+      || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
+      || '19h';
+    ctx.fillStyle='#fff'; ctx.font=`900 84px ${SF}`; ctx.fillText(_horaCard,ix,cy+58);
     ctx.fillStyle='rgba(255,255,255,.85)'; ctx.font=`800 22px ${SF}`; ctx.fillText(t.titulo,ix,cy+96);
     ctx.fillStyle=RED; ctx.font=`800 16px ${SF}`; ctx.fillText('Bora treinar',ix,cy+128);
     foot(); soff(); return;
