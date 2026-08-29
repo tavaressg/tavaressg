@@ -10449,8 +10449,18 @@ function _finRenderPlanos(body){
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
   const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao:'💳 Cartão', outro:'➕ Outro' };
-  // v499: coluna Público removida (YAGNI). Info derivada de #alunos por plano
-  // se realmente necessária.
+  // v502: badges de status coloridos (padrão Cobranças/Despesas) + ordenação
+  // ativos primeiro. Coluna Público removida (v499, YAGNI). Info derivada de
+  // #alunos por plano se realmente necessária.
+  const sorted = planos.slice().sort((a,b) => {
+    const rankA = a.ativo === false ? 1 : 0;
+    const rankB = b.ativo === false ? 1 : 0;
+    if(rankA !== rankB) return rankA - rankB;
+    return (a.nome||'').localeCompare(b.nome||'');
+  });
+  const statusBadge = (p) => p.ativo === false
+    ? '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Inativo</span>'
+    : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Ativo</span>';
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
   const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
     <thead>
@@ -10462,7 +10472,7 @@ function _finRenderPlanos(body){
         <th style="padding:10px 8px;font-weight:700;text-align:center">Dia</th>
         <th style="padding:10px 8px;font-weight:700">Forma padrão</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Contrato</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Ativo</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -10473,7 +10483,7 @@ function _finRenderPlanos(body){
     if(p.parcelas === 1) return '💰 Única';
     return `📊 ${p.parcelas}× ${moneyBR((p.valor||0)/p.parcelas)}`;
   };
-  planos.forEach((p, i) => {
+  sorted.forEach((p) => {
     const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(p.nome)}</td>
       <td style="padding:10px 8px">${safeTxt(p.frequencia||'—')}</td>
@@ -10482,7 +10492,7 @@ function _finRenderPlanos(body){
       <td style="padding:10px 8px;text-align:center">${p.dia_vencimento||'—'}</td>
       <td style="padding:10px 8px">${p.forma_padrao ? safeTxt(FORMA_LBL[p.forma_padrao]||p.forma_padrao) : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${p.tem_contrato ? '✓' : '—'}</td>
-      <td style="padding:10px 8px;text-align:center">${p.ativo===false ? '—' : '<span style="color:var(--good)">●</span>'}</td>
+      <td style="padding:10px 8px;text-align:center">${statusBadge(p)}</td>
     </tr>`);
     tr.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true).then(()=>render()); });
     tbody.appendChild(tr);
