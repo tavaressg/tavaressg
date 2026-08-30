@@ -1636,6 +1636,22 @@
       const { error } = await SB.from('mensalidades').update({ valor: Number(valor) }).eq('id', id);
       if (error) throw error;
     }),
+    // v508: edição inline genérica — patch parcial de qualquer campo editável.
+    // Se muda status pra 'pago', garante data_pagamento (default hoje).
+    editarCobranca: wrap(async (id, patch) => {
+      const u = (await SB.auth.getUser()).data.user;
+      const row = {};
+      if (patch.valor !== undefined) row.valor = Number(patch.valor);
+      if (patch.status !== undefined) row.status = patch.status;
+      if (patch.data_pagamento !== undefined) row.data_pagamento = patch.data_pagamento || null;
+      if (patch.forma_pagamento !== undefined) row.forma_pagamento = patch.forma_pagamento || null;
+      if (patch.obs !== undefined) row.obs = patch.obs || null;
+      // Regra do CHECK mensalidades_pago_tem_data: se vira pago, precisa data
+      if (row.status === 'pago' && !row.data_pagamento) row.data_pagamento = HOJE();
+      if (row.status === 'pago') { row.marcado_por = u ? u.id : null; row.marcado_em = new Date().toISOString(); }
+      const { error } = await SB.from('mensalidades').update(row).eq('id', id);
+      if (error) throw error;
+    }),
     marcarCobrancaIsenta: wrap(async (id, motivo) => {
       const { error } = await SB.from('mensalidades').update({
         status: 'isento', obs: motivo || null,
