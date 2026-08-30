@@ -10778,18 +10778,18 @@ function _finRenderMatriculas(body){
     const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
     // v514: colunas Turma, Vencimento, Status aluno. Ordem: Aluno · Turma ·
     // Plano · Valor · Vencimento · Desde · Ajustes · Status matrícula · Status aluno.
-    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:960px">
+    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1040px">
       <thead>
         <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
           <th style="padding:10px 12px;font-weight:700">Aluno</th>
           <th style="padding:10px 8px;font-weight:700">Turma</th>
           <th style="padding:10px 8px;font-weight:700">Plano</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:right">Valor efetivo</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center">Vencimento</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:right;white-space:nowrap">Valor efetivo</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap">Vencimento</th>
           <th style="padding:10px 8px;font-weight:700">Desde</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center">Ajustes</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center">Matrícula</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center">Status aluno</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:110px">Matrícula</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:100px">Status aluno</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -10805,8 +10805,8 @@ function _finRenderMatriculas(body){
       if(m && m.isento) ajustes.push('🎗️ isento');
       if(m && m.trava_reajuste) ajustes.push('🔒 travado');
       const badgeMatricula = semPl
-        ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">SEM PLANO</span>'
-        : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Matriculado</span>';
+        ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">SEM PLANO</span>'
+        : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Matriculado</span>';
       // v514: turmas do aluno — a.turmas é array de IDs (enrollments); mapeia
       // pra nome via _finTurmasMap (populado no _finReload). Fallback pra ID
       // se turmaMap não tem (turma nova sem cache ainda).
@@ -10821,8 +10821,8 @@ function _finRenderMatriculas(body){
       // v514: status ativo/inativo (auto 90d ou override manual)
       const st = _statusAluno(a);
       const badgeAluno = st.valor==='ativo'
-        ? '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Ativo</span>'
-        : `<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Inativo${st.origem==='manual'?'*':''}</span>`;
+        ? '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Ativo</span>'
+        : `<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Inativo${st.origem==='manual'?'*':''}</span>`;
       const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${semPl?'background:rgba(229,57,47,0.04)':''}">
         <td style="padding:10px 12px;font-weight:700">${safeTxt(_nomeInst(a))}</td>
         <td style="padding:10px 8px;font-size:12px">${safeTxt(turmas)}</td>
