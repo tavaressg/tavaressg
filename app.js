@@ -9843,6 +9843,7 @@ let _finTab = 'cobrancas';
 let _finPlanos = null, _finContratos = null, _finDespesas = null;
 let _finCobrancas = null, _finCategorias = null, _finRec = null;
 let _finMatriculas = null, _finTurmasMap = null;   // v504: cache pra tabela Cobranças rica
+let _finRenderingInProgress = false;   // v507: guard anti-loop de renderBg
 let _finTs = 0;
 let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
 let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
@@ -9880,7 +9881,12 @@ function _finReload(force){
     sbProf.getDespesasRecorrentes ? sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; }).catch(()=>{}) : Promise.resolve(),
     sbProf.getAllMatriculas ? sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; }).catch(()=>{}) : Promise.resolve(),
     sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); }).catch(()=>{}),
-  ]).then(()=>{ try { renderBg(); } catch(_){} });
+  ]).then(()=>{
+    // v507: renderBg só se NÃO estivermos no meio do render de profFinanceiro
+    // (senão loop: _finReload → renderBg → render → profFinanceiro → _finReload).
+    // O próprio profFinanceiro faz o repaint do body via .then() do seu callback.
+    if(!_finRenderingInProgress){ try { renderBg(); } catch(_){} }
+  });
 }
 function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
 function profFinanceiro(){
@@ -9895,40 +9901,39 @@ function profFinanceiro(){
   w.innerHTML = `<div class="hello"><div class="date">Financeiro</div>
     <div class="greet">gestão</div></div>`;
 
-  // v490 Sprint 3: seletor de mês/ano + botão "Preparar próximo mês".
-  // v492 Sprint 4: só aparecem em sub-abas que são MENSAIS (Cobranças/Despesas).
-  // Dashboard tem seu próprio seletor de ANO; Planos/Contratos/Categorias não são mensais.
-  const tabMensal = _finTab==='cobrancas' || _finTab==='despesas';
-  if(tabMensal){
-    const mesBar = el(`<div class="fin-mes-bar" style="display:flex;align-items:center;gap:6px;margin:6px 12px 10px">
-      <button class="btn-cad ghost" id="fm-prev" aria-label="Mês anterior" style="min-width:34px;padding:6px 8px">‹</button>
-      <div id="fm-nome" style="flex:1;text-align:center;font-weight:800;font-size:14.5px;text-transform:capitalize">${safeTxt(mesAtualNome)}</div>
-      <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
-      ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
-    </div>`);
-    mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true); };
-    mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true); };
-    const btnHoje = mesBar.querySelector('#fm-hoje');
-    if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true); };
-    w.appendChild(mesBar);
+  // v490 Sprint 3: seletor de mês + botão "Preparar próximo mês".
+  // v506: sempre visível (antes só em Cobranças/Despesas — causava layout shift
+  // quando trocava de aba). Em Planos/Contratos/Categorias/Matriculas o seletor
+  // não afeta a lista, mas seguir estável evita "pulo" da UI e o botão de
+  // preparar próximo mês fica sempre à mão.
+  const mesBar = el(`<div class="fin-mes-bar" style="display:flex;align-items:center;gap:6px;margin:6px 12px 10px">
+    <button class="btn-cad ghost" id="fm-prev" aria-label="Mês anterior" style="min-width:34px;padding:6px 8px">‹</button>
+    <div id="fm-nome" style="flex:1;text-align:center;font-weight:800;font-size:14.5px;text-transform:capitalize">${safeTxt(mesAtualNome)}</div>
+    <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
+    ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
+  </div>`);
+  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true); };
+  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true); };
+  const btnHoje = mesBar.querySelector('#fm-hoje');
+  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true); };
+  w.appendChild(mesBar);
 
-    const [y,m] = _finMes().split('-').map(Number);
-    const proxD = new Date(y, m, 1);
-    const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
-    const proxNome = _finMesNome(proxMes);
-    const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
-    prep.onclick = ()=>{
-      if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
-      prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
-      sbProf.gerarCobrancasDoMes(proxMes)
-        .then(n => {
-          toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
-          _finReload(true);
-        })
-        .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
-    };
-    w.appendChild(prep);
-  }
+  const [y,m] = _finMes().split('-').map(Number);
+  const proxD = new Date(y, m, 1);
+  const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
+  const proxNome = _finMesNome(proxMes);
+  const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
+  prep.onclick = ()=>{
+    if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
+    prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
+    sbProf.gerarCobrancasDoMes(proxMes)
+      .then(n => {
+        toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
+        _finReload(true);
+      })
+      .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
+  };
+  w.appendChild(prep);
 
   const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px;overflow-x:auto" role="tablist">
     <button data-t="dashboard" ${_finTab==='dashboard'?'class="active"':''}>Dashboard</button>
@@ -9948,6 +9953,9 @@ function profFinanceiro(){
   body.appendChild(el('<div class="loading-center" style="padding:24px">Carregando…</div>'));
   w.appendChild(body);
 
+  // v507: flag guarda o loop — _finReload pula renderBg enquanto profFinanceiro
+  // tá montando. Só solta a flag depois que o body foi pintado.
+  _finRenderingInProgress = true;
   _finReload(true).then(()=>{
     body.innerHTML='';
     if(_finTab==='dashboard') _finRenderDashboard(body);
@@ -9957,7 +9965,8 @@ function profFinanceiro(){
     else if(_finTab==='matriculas') _finRenderMatriculas(body);
     else if(_finTab==='contratos') _finRenderContratos(body);
     else _finRenderCategorias(body);
-  });
+    _finRenderingInProgress = false;
+  }).catch(()=>{ _finRenderingInProgress = false; });
 
   return w;
 }
