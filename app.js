@@ -10807,8 +10807,13 @@ function _finRenderMatriculas(body){
       const badgeMatricula = semPl
         ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">SEM PLANO</span>'
         : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Matriculado</span>';
-      // v514: turmas do aluno (a.turmas populado por pullAll — array de nomes)
-      const turmas = Array.isArray(a.turmas) && a.turmas.length ? a.turmas.join(', ') : '—';
+      // v514: turmas do aluno — a.turmas é array de IDs (enrollments); mapeia
+      // pra nome via _finTurmasMap (populado no _finReload). Fallback pra ID
+      // se turmaMap não tem (turma nova sem cache ainda).
+      const tmap = _finTurmasMap || {};
+      const turmas = (Array.isArray(a.turmas) && a.turmas.length)
+        ? a.turmas.map(id => tmap[id] || id).join(', ')
+        : '—';
       // v514: dia de vencimento (override do aluno tem precedência sobre o do plano)
       const diaVenc = m ? (m.dia_vencimento || (plano && plano.dia_vencimento)) : null;
       const vencCustom = m && m.dia_vencimento;
