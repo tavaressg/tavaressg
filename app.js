@@ -9838,6 +9838,7 @@ function _produtoVendasSheet(nomeProd){
 let _finTab = 'cobrancas';
 let _finPlanos = null, _finContratos = null, _finDespesas = null;
 let _finCobrancas = null, _finCategorias = null, _finRec = null;
+let _finMatriculas = null, _finTurmasMap = null;   // v504: cache pra tabela Cobranças rica
 let _finTs = 0;
 let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
 let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
@@ -9868,6 +9869,9 @@ function _finReload(force){
     sbProf.getContratos().then(r=>{ _finContratos = r; }).catch(()=>{}),
     sbProf.getCategorias().then(r=>{ _finCategorias = r; }).catch(()=>{}),
     sbProf.getDespesasRecorrentes ? sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; }).catch(()=>{}) : Promise.resolve(),
+    // v504: matrículas + turmas pro enriquecimento das linhas de Cobranças
+    sbProf.getAllMatriculas ? sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; }).catch(()=>{}) : Promise.resolve(),
+    sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); }).catch(()=>{}),
   ]);
 }
 function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
@@ -10278,7 +10282,7 @@ function _finRenderCobrancas(body){
 
   if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
 
-  const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao:'💳', outro:'➕' };
+  const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao:'💳 Cartão', outro:'➕ Outro' };
   const statusRank = (c) => c.status==='pendente' ? (isVenc(c) ? 0 : 1) : (c.status==='pago' ? 2 : 3);
   const sorted = cobs.slice().sort((a,b) => {
     const ra = statusRank(a), rb = statusRank(b);
@@ -10292,19 +10296,32 @@ function _finRenderCobrancas(body){
     if(isVenc(c)) return '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Vencida</span>';
     return '<span style="font-size:10.5px;color:var(--ink);background:rgba(0,0,0,0.05);padding:2px 8px;border-radius:10px;font-weight:700">A vencer</span>';
   };
-  const dmy = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)) : '—';
+  const dmyLong = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)) : '—';
+
+  // v504: enriquece linhas com nome completo + turmas + plano (client-side join)
+  const matrByUser = {};
+  (_finMatriculas||[]).forEach(m => { matrByUser[m.user_id] = m; });
+  const turmasByUser = {};
+  ((_profData && _profData.alunos)||[]).forEach(a => {
+    if(a.turmas && a.turmas.length && _finTurmasMap){
+      turmasByUser[a.id] = a.turmas.map(id => _finTurmasMap[id]).filter(Boolean).join(', ');
+    }
+  });
 
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:820px">
+  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1100px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Aluno</th>
-        <th style="padding:10px 8px;font-weight:700">Vence</th>
+        <th style="padding:10px 8px;font-weight:700">Turma</th>
+        <th style="padding:10px 8px;font-weight:700">Plano</th>
+        <th style="padding:10px 8px;font-weight:700">Vencimento</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
         <th style="padding:10px 8px;font-weight:700">Pago em</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Forma</th>
+        <th style="padding:10px 8px;font-weight:700">Tipo</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Origem</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -10312,24 +10329,76 @@ function _finRenderCobrancas(body){
   const tbody = table.querySelector('tbody');
   sorted.forEach(c => {
     const p = c.profiles || {};
-    const nome = p.apelido || p.nome_completo || 'aluno';
+    const nomeCompleto = p.nome_completo || p.apelido || 'aluno';
     const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
     const origem = c.pedido_id ? '🛍' : (c.contrato_id ? '📄' : (c.avulsa ? '＋' : ''));
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
-    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
-      <td style="padding:10px 12px;font-weight:700">${safeTxt(nome)}</td>
-      <td style="padding:10px 8px">${dmy(c.venc)}</td>
-      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
+    const turma = turmasByUser[c.user_id] || '—';
+    const matr = matrByUser[c.user_id];
+    const plano = matr && matr.planos ? matr.planos.nome : '—';
+    const podeExcluir = c.status==='pendente' || c.status==='atrasado';
+    const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)">
+      <td style="padding:10px 12px;font-weight:700;cursor:pointer" data-open="1">${safeTxt(nomeCompleto)}</td>
+      <td style="padding:10px 8px;font-size:12px;color:var(--muted);cursor:pointer" data-open="1">${safeTxt(turma)}</td>
+      <td style="padding:10px 8px;font-size:12px;cursor:pointer" data-open="1">${safeTxt(plano)}</td>
+      <td style="padding:10px 8px;cursor:pointer" data-open="1">${dmyLong(c.venc)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor};cursor:pointer" data-open="1">${moneyBR(c.valor)}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
-      <td style="padding:10px 8px">${c.data_pagamento ? dmy(c.data_pagamento) : '—'}</td>
-      <td style="padding:10px 8px;text-align:center">${safeTxt(forma) || '—'}</td>
+      <td style="padding:10px 8px">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
+      <td style="padding:10px 8px;font-size:12px">${safeTxt(forma) || '—'}</td>
       <td style="padding:10px 8px;text-align:center;font-size:15px" title="${c.pedido_id?'Loja':c.contrato_id?'Contrato':c.avulsa?'Avulsa':''}">${origem || '—'}</td>
+      <td style="padding:10px 8px;text-align:center;white-space:nowrap">
+        <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar / marcar paga">✏️</button>
+        <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
+        ${podeExcluir ? '<button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir cobrança">🗑️</button>' : ''}
+      </td>
     </tr>`);
-    tr.onclick = ()=> _finCobrancaSheet(c);
+    // Click nas células "data-open" abre a sheet completa
+    tr.querySelectorAll('[data-open]').forEach(td => { td.onclick = ()=> _finCobrancaSheet(c); });
+    // Ações
+    const btnEdit = tr.querySelector('[data-act="edit"]');
+    if(btnEdit) btnEdit.onclick = (e)=>{ e.stopPropagation(); _finCobrancaSheet(c); };
+    const btnDesc = tr.querySelector('[data-act="desconto"]');
+    if(btnDesc) btnDesc.onclick = (e)=>{ e.stopPropagation(); _finCobrancaDescontoSheet(c); };
+    const btnDel = tr.querySelector('[data-act="del"]');
+    if(btnDel) btnDel.onclick = (e)=>{
+      e.stopPropagation();
+      const nome = p.apelido || p.nome_completo || 'aluno';
+      if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
+      sbProf.excluirCobranca(c.id)
+        .then(()=>{ toast('Cobrança excluída'); _finReload(true).then(()=>render()); })
+        .catch(err=> toast('Erro: '+(err.message||err)));
+    };
     tbody.appendChild(tr);
   });
   wrap.appendChild(table);
   body.appendChild(wrap);
+}
+
+// v504: sheet compacta pra aplicar desconto (editar valor de 1 cobrança específica)
+function _finCobrancaDescontoSheet(c){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Aplicar desconto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">💰 Aplicar desconto</div>
+    <div class="sheet-desc">Valor atual: <b>${moneyBR(c.valor)}</b>. Edita só esta cobrança — não afeta o plano.</div>
+    <label class="flbl" style="margin-top:12px">Novo valor (R$)</label>
+    <input class="inp" id="dc-valor" type="number" step="0.01" min="0" value="${c.valor||0}" autofocus>
+    <button class="btn-save" id="dc-save" style="margin-top:14px">Aplicar</button>
+    <button class="sheet-cancel" id="dc-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#dc-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#dc-save').onclick = ()=>{
+    const v = parseFloat(sheet.querySelector('#dc-valor').value);
+    if(!(v >= 0)){ toast('Valor inválido'); return; }
+    const btn = sheet.querySelector('#dc-save');
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.editarValorCobranca(c.id, v)
+      .then(()=>{ toast('Valor atualizado ✔'); close(); _finReload(true).then(()=>render()); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Aplicar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ---- Sub-aba: Despesas ---- */

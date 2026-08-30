@@ -1626,6 +1626,16 @@
       }).eq('id', id);
       if (error) throw error;
     }),
+    // v504: excluir cobrança (só pendente/atrasada — pago deve ser cancelado via edit)
+    excluirCobranca: wrap(async (id) => {
+      const { error } = await SB.from('mensalidades').delete().eq('id', id);
+      if (error) throw error;
+    }),
+    // v504: editar valor de uma cobrança específica (desconto)
+    editarValorCobranca: wrap(async (id, valor) => {
+      const { error } = await SB.from('mensalidades').update({ valor: Number(valor) }).eq('id', id);
+      if (error) throw error;
+    }),
     marcarCobrancaIsenta: wrap(async (id, motivo) => {
       const { error } = await SB.from('mensalidades').update({
         status: 'isento', obs: motivo || null,
