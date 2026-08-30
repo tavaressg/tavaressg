@@ -5316,10 +5316,12 @@ window.onDadosMudaram = function(){
   _profTs = 0; _relTs = 0;
   _loadProfData();
   if(_relData) _loadRelData();
-  // v505: financeiro entra no fluxo de invalidação padrão. Antes, callbacks
-  // chamavam _finReload(true) explícito — gerava DUPLO
-  // render (aqui + no adapter wrapper) e piscava.
-  if(_finBackend()) _finReload(true);
+  // v509: financeiro SAIU do refetch automático. Cada edição fazia 8 queries
+  // (cobranças + despesas + planos + contratos + categorias + recorrentes +
+  // matrículas + turmas) — pesado. Agora só invalida o cache, refetch acontece
+  // quando o user muda de aba/mês/reabrir. Optimistic update local cuida da
+  // consistência imediata (ver saveField em _finRenderCobrancas).
+  _finTs = 0;
 };
 /* Aba/PWA volta ao foco → refaz o fetch (o F5 automático). Piso de 10s pra alt-tab
    frequente não virar rajada de query; `focus` e `visibilitychange` disparam juntos
@@ -10325,19 +10327,13 @@ function _finRenderCobrancas(body){
     }
   });
 
-  // v508: inline editing — todas as células editáveis viram inputs no click.
-  // Sem modal. Blur/Enter salva. Sempre editável (mesmo pago).
-  const STATUS_OPTS = [
-    ['pendente','A vencer'],
-    ['atrasado','Vencida'],
-    ['pago','Paga'],
-    ['isento','Isenta'],
-    ['cancelado','Cancelada'],
-  ];
-  const FORMA_OPTS = [['','—'],['dinheiro','💵 Dinheiro'],['pix','📱 PIX'],['cartao','💳 Cartão'],['outro','➕ Outro']];
-  const inpStyle = 'width:100%;padding:4px 6px;border:1px solid var(--border,#e5e5ea);border-radius:4px;font-size:13px;font-family:inherit;background:var(--card,#fff);color:var(--ink)';
+  // v509: reverte inline editing (a v508 fez bagunça). Tabela readonly com
+  // botões dedicados na coluna Ação — cada um abre sheet específica.
+  // Refetch pesado tirado: onDadosMudaram só invalida cache, e cada ação faz
+  // OPTIMISTIC UPDATE local + repinta APENAS a linha alterada. Sem redraw
+  // global. Se a ação falhar, reverte e mostra toast.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1200px">
+  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1100px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Aluno</th>
@@ -10345,82 +10341,111 @@ function _finRenderCobrancas(body){
         <th style="padding:10px 8px;font-weight:700">Plano</th>
         <th style="padding:10px 8px;font-weight:700">Vencimento</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
-        <th style="padding:10px 8px;font-weight:700">Status</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
         <th style="padding:10px 8px;font-weight:700">Pago em</th>
         <th style="padding:10px 8px;font-weight:700">Tipo</th>
-        <th style="padding:10px 8px;font-weight:700">Obs</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Origem</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Ação</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>`);
   const tbody = table.querySelector('tbody');
-  sorted.forEach(c => {
+
+  // Helper: repinta APENAS uma linha específica (sem re-render global).
+  // Usado depois de optimistic update — evita o refetch pesado das 8 queries.
+  const buildRow = (c) => {
     const p = c.profiles || {};
     const nomeCompleto = p.nome_completo || p.apelido || 'aluno';
     const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
     const origem = c.pedido_id ? '🛍' : (c.contrato_id ? '📄' : (c.avulsa ? '＋' : ''));
+    const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
     const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
     const plano = matr && matr.planos ? matr.planos.nome : '—';
     const podeExcluir = c.status==='pendente' || c.status==='atrasado';
-    // Cria row com cada célula editável usando inputs nativos leves
-    const statusOpts = STATUS_OPTS.map(([v,l])=>`<option value="${v}"${v===c.status?' selected':''}>${l}</option>`).join('');
-    const formaOpts = FORMA_OPTS.map(([v,l])=>`<option value="${v}"${v===(c.forma_pagamento||'')?' selected':''}>${l}</option>`).join('');
-    const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)">
-      <td style="padding:8px 12px;font-weight:700;font-size:12.5px">${safeTxt(nomeCompleto)}</td>
-      <td style="padding:8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
-      <td style="padding:8px;font-size:12px">${safeTxt(plano)}</td>
-      <td style="padding:8px">${dmyLong(c.venc)}</td>
-      <td style="padding:6px 8px;text-align:right">
-        <input type="number" step="0.01" min="0" value="${c.valor||0}" data-f="valor" style="${inpStyle};text-align:right;font-weight:800;color:${cor};max-width:110px">
-      </td>
-      <td style="padding:6px 8px">
-        <select data-f="status" style="${inpStyle}">${statusOpts}</select>
-      </td>
-      <td style="padding:6px 8px">
-        <input type="date" value="${c.data_pagamento||''}" data-f="data_pagamento" style="${inpStyle};min-width:130px">
-      </td>
-      <td style="padding:6px 8px">
-        <select data-f="forma_pagamento" style="${inpStyle}">${formaOpts}</select>
-      </td>
-      <td style="padding:6px 8px">
-        <input type="text" maxlength="200" value="${safeAttr(c.obs||'')}" placeholder="—" data-f="obs" style="${inpStyle};min-width:120px">
-      </td>
-      <td style="padding:8px;text-align:center;font-size:15px" title="${c.pedido_id?'Loja':c.contrato_id?'Contrato':c.avulsa?'Avulsa':''}">${origem || '—'}</td>
-      <td style="padding:8px;text-align:center;white-space:nowrap">
-        ${podeExcluir ? '<button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;color:var(--red)" title="Excluir cobrança">🗑️</button>' : '<span style="color:var(--muted);font-size:11px">—</span>'}
+    const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
+      <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
+      <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
+      <td style="padding:10px 8px;font-size:12px">${safeTxt(plano)}</td>
+      <td style="padding:10px 8px">${dmyLong(c.venc)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
+      <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
+      <td style="padding:10px 8px">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
+      <td style="padding:10px 8px;font-size:12px">${safeTxt(forma) || '—'}</td>
+      <td style="padding:10px 8px;text-align:center;font-size:15px" title="${c.pedido_id?'Loja':c.contrato_id?'Contrato':c.avulsa?'Avulsa':''}">${origem || '—'}</td>
+      <td style="padding:10px 8px;text-align:center;white-space:nowrap">
+        <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
+        <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
+        ${podeExcluir ? '<button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir cobrança">🗑️</button>' : ''}
       </td>
     </tr>`);
-    // Salva ao perder foco / mudar select — patch parcial
-    const saveField = (field) => {
-      const inp = tr.querySelector(`[data-f="${field}"]`);
-      if(!inp) return;
-      const val = field === 'valor' ? parseFloat(inp.value) : inp.value;
-      const patch = { [field]: val };
-      inp.disabled = true;
-      sbProf.editarCobranca(c.id, patch)
-        .then(()=>{ inp.disabled = false; _finReload(true); })
-        .catch(e=>{ inp.disabled = false; toast('Erro: '+(e.message||e)); });
-    };
-    tr.querySelectorAll('input,select').forEach(inp => {
-      inp.addEventListener('change', ()=> saveField(inp.dataset.f));
-      inp.addEventListener('blur',   ()=> saveField(inp.dataset.f));
-      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } });
-    });
+    // Bind actions — todas com optimistic update
+    tr.querySelector('[data-act="edit"]').onclick = ()=> _finCobrancaSheet(c, (patch)=> optimisticUpdate(c.id, patch));
+    tr.querySelector('[data-act="desconto"]').onclick = ()=> _finCobrancaDescontoSheet(c, (novoValor)=> optimisticUpdate(c.id, { valor: novoValor }));
     const btnDel = tr.querySelector('[data-act="del"]');
     if(btnDel) btnDel.onclick = ()=>{
       const nome = p.apelido || p.nome_completo || 'aluno';
       if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
       sbProf.excluirCobranca(c.id)
-        .then(()=>{ toast('Cobrança excluída'); _finReload(true); })
+        .then(()=>{
+          toast('Cobrança excluída');
+          // Remove local + tira do DOM sem refetch
+          const idx = _finCobrancas.findIndex(x => x.id === c.id);
+          if(idx >= 0) _finCobrancas.splice(idx, 1);
+          tr.remove();
+        })
         .catch(err=> toast('Erro: '+(err.message||err)));
     };
-    tbody.appendChild(tr);
-  });
+    return tr;
+  };
+
+  // Optimistic update: patch local em _finCobrancas + repinta APENAS a linha
+  const optimisticUpdate = (id, patch) => {
+    const idx = _finCobrancas.findIndex(x => x.id === id);
+    if(idx < 0) return;
+    Object.assign(_finCobrancas[idx], patch);
+    // Se virou pago sem data_pagamento, adapter põe hoje — reflete no local
+    if(patch.status === 'pago' && !_finCobrancas[idx].data_pagamento){
+      _finCobrancas[idx].data_pagamento = HOJE_ISO;
+    }
+    const trOld = tbody.querySelector(`[data-cob-id="${id}"]`);
+    if(trOld){
+      const trNew = buildRow(_finCobrancas[idx]);
+      trOld.replaceWith(trNew);
+    }
+  };
+
+  sorted.forEach(c => tbody.appendChild(buildRow(c)));
   wrap.appendChild(table);
   body.appendChild(wrap);
+}
+
+// v504: sheet compacta pra aplicar desconto (editar valor de 1 cobrança específica)
+// v509: aceita onDone(novoValor) pra optimistic update no chamador
+function _finCobrancaDescontoSheet(c, onDone){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Aplicar desconto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">💰 Aplicar desconto</div>
+    <div class="sheet-desc">Valor atual: <b>${moneyBR(c.valor)}</b>. Edita só esta cobrança — não afeta o plano.</div>
+    <label class="flbl" style="margin-top:12px">Novo valor (R$)</label>
+    <input class="inp" id="dc-valor" type="number" step="0.01" min="0" value="${c.valor||0}" autofocus>
+    <button class="btn-save" id="dc-save" style="margin-top:14px">Aplicar</button>
+    <button class="sheet-cancel" id="dc-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#dc-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#dc-save').onclick = ()=>{
+    const v = parseFloat(sheet.querySelector('#dc-valor').value);
+    if(!(v >= 0)){ toast('Valor inválido'); return; }
+    const btn = sheet.querySelector('#dc-save');
+    btn.disabled=true; btn.textContent='Salvando…';
+    sbProf.editarValorCobranca(c.id, v)
+      .then(()=>{ toast('Valor atualizado ✔'); close(); if(onDone) onDone(v); })
+      .catch(e=>{ btn.disabled=false; btn.textContent='Aplicar'; toast('Erro: '+(e.message||e)); });
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
 /* ---- Sub-aba: Despesas ---- */
@@ -10850,7 +10875,8 @@ function _finCategoriaEditSheet(c, onDone){
 /* ===== Sheets do Financeiro V2 ===== */
 
 // Cobrança — marcar paga / isenta / cancelada
-function _finCobrancaSheet(c){
+// v509: aceita onDone(patch) callback pra optimistic update no chamador
+function _finCobrancaSheet(c, onDone){
   const p = c.profiles || {};
   const nome = p.apelido || p.nome_completo || 'aluno';
   const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)+'/'+c.venc.slice(0,4)) : '—';
@@ -10887,7 +10913,11 @@ function _finCobrancaSheet(c){
       if(!data_pagamento){ toast('Informe a data'); return; }
       btnPagar.disabled=true; btnPagar.textContent='Salvando…';
       sbProf.marcarCobrancaPaga(c.id, { data_pagamento, forma_pagamento, obs })
-        .then(()=>{ toast('Pagamento registrado ✔'); close(); _finReload(true); })
+        .then(()=>{
+          toast('Pagamento registrado ✔');
+          close();
+          if(onDone) onDone({ status:'pago', data_pagamento, forma_pagamento, obs });
+        })
         .catch(e=>{ btnPagar.disabled=false; btnPagar.textContent='Marcar como paga'; toast('Erro: '+(e.message||e)); });
     };
   }
@@ -10897,7 +10927,11 @@ function _finCobrancaSheet(c){
       const motivo = prompt('Motivo da isenção (opcional):') || '';
       btnIsenta.disabled=true;
       sbProf.marcarCobrancaIsenta(c.id, motivo)
-        .then(()=>{ toast('Marcada como isenta'); close(); _finReload(true); })
+        .then(()=>{
+          toast('Marcada como isenta');
+          close();
+          if(onDone) onDone({ status:'isento', obs: motivo });
+        })
         .catch(e=>{ btnIsenta.disabled=false; toast('Erro: '+(e.message||e)); });
     };
   }
