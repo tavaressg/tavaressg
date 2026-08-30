@@ -9878,10 +9878,12 @@ function _finReload(what){
   if(want('matriculas') && sbProf.getAllMatriculas) tasks.push(sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; }).catch(()=>{}));
   if(want('turmas'))     tasks.push(sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); }).catch(()=>{}));
   return Promise.all(tasks).then(()=>{
-    // v507: renderBg só se NÃO estivermos no meio do render de profFinanceiro
-    // (senão loop: _finReload → renderBg → render → profFinanceiro → _finReload).
-    // O próprio profFinanceiro faz o repaint do body via .then() do seu callback.
-    if(!_finRenderingInProgress){ try { renderBg(); } catch(_){} }
+    if(_finRenderingInProgress) return;
+    // v512: se estamos NA tela do Financeiro, repaint SÓ o body (moldura estável —
+    // topbar/sidebar/mesBar/tabs não piscam). Fora dele, renderBg normal.
+    const finBody = document.querySelector('.fin-body');
+    if(finBody && typeof _finPaintBody === 'function') _finPaintBody(finBody);
+    else try { renderBg(); } catch(_){}
   });
 }
 function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
@@ -9908,11 +9910,16 @@ function profFinanceiro(){
     <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
     ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
   </div>`);
-  // v510: mês só afeta cobrancas (getCobrancas filtra por mes) — despesas/planos/etc não.
-  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload('cobrancas'); };
-  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload('cobrancas'); };
+  // v510/v512: mês só afeta cobrancas. v512 atualiza o texto do mesBar inline
+  // (sem render()) — _finReload dispara paint do body só quando chega, sem flash.
+  const atualizaMesNome = () => {
+    const nomeEl = mesBar.querySelector('#fm-nome');
+    if(nomeEl) nomeEl.textContent = _finMesNome();
+  };
+  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); atualizaMesNome(); _finReload('cobrancas'); };
+  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); atualizaMesNome(); _finReload('cobrancas'); };
   const btnHoje = mesBar.querySelector('#fm-hoje');
-  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload('cobrancas'); };
+  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; atualizaMesNome(); _finReload('cobrancas'); };
   w.appendChild(mesBar);
 
   const [y,m] = _finMes().split('-').map(Number);
@@ -9941,31 +9948,51 @@ function profFinanceiro(){
     <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
     <button data-t="categorias" ${_finTab==='categorias'?'class="active"':''}>Categorias</button>
   </div>`);
+  // v512: clicar em aba repinta SÓ o body (mesBar + tabs + prep ficam parados).
+  // Antes: render() inteiro reconstruía topbar/sidebar/mesBar/tabs — flash total.
   tabs.querySelectorAll('[data-t]').forEach(b=>{
-    b.onclick=()=>{ _finTab=b.dataset.t; render(); };
+    b.onclick=()=>{
+      _finTab=b.dataset.t;
+      tabs.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('active', x.dataset.t===_finTab));
+      _finPaintBody(body);
+    };
   });
   w.appendChild(tabs);
 
   const body = el('<div class="fin-body"></div>');
-  body.appendChild(el('<div class="loading-center" style="padding:24px">Carregando…</div>'));
   w.appendChild(body);
 
-  // v507: flag guarda o loop — _finReload pula renderBg enquanto profFinanceiro
-  // tá montando. Só solta a flag depois que o body foi pintado.
+  // v512: se temos cache, pinta IMEDIATO sem "Carregando…". Refresh em background
+  // (gate 15s). Antes _finReload(true) forçava fetch toda entrada — flash duplo
+  // (loading → apaga → dado) mesmo com dado fresco no cache.
+  const temCache = _finCobrancas !== null;
+  if(temCache){
+    _finPaintBody(body);
+  } else {
+    body.appendChild(el('<div class="loading-center" style="padding:24px">Carregando…</div>'));
+  }
+
   _finRenderingInProgress = true;
-  _finReload(true).then(()=>{
-    body.innerHTML='';
-    if(_finTab==='dashboard') _finRenderDashboard(body);
-    else if(_finTab==='cobrancas') _finRenderCobrancas(body);
-    else if(_finTab==='despesas') _finRenderDespesas(body);
-    else if(_finTab==='planos') _finRenderPlanos(body);
-    else if(_finTab==='matriculas') _finRenderMatriculas(body);
-    else if(_finTab==='contratos') _finRenderContratos(body);
-    else _finRenderCategorias(body);
+  _finReload().then(()=>{
+    _finPaintBody(body);
     _finRenderingInProgress = false;
   }).catch(()=>{ _finRenderingInProgress = false; });
 
   return w;
+}
+
+// v512: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
+// refetch em background — mantém a moldura estável.
+function _finPaintBody(body){
+  if(!body) return;
+  body.innerHTML='';
+  if(_finTab==='dashboard') _finRenderDashboard(body);
+  else if(_finTab==='cobrancas') _finRenderCobrancas(body);
+  else if(_finTab==='despesas') _finRenderDespesas(body);
+  else if(_finTab==='planos') _finRenderPlanos(body);
+  else if(_finTab==='matriculas') _finRenderMatriculas(body);
+  else if(_finTab==='contratos') _finRenderContratos(body);
+  else _finRenderCategorias(body);
 }
 
 /* ---- Sub-aba: Dashboard (Sprint 4) ---- */
