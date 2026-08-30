@@ -1050,17 +1050,9 @@
       if (error) throw error;
     }),
 
-    setMensalidade: wrap(async (id, status) => {
-      // v481 (0042): 'ok'|'soon'|'late' viraram legado. Traduz p/ o CHECK novo.
-      // Callers antigos passavam 'ok' pra "está pago" — o CHECK do 'pago' exige
-      // data_pagamento, então força hoje quando vier 'ok'.
-      const map = { ok: 'pago', soon: 'pendente', late: 'atrasado' };
-      const st = map[status] || status;
-      const row = { user_id: id, status: st, mes: mesAtual() };
-      if (st === 'pago') row.data_pagamento = HOJE();
-      const { error } = await SB.from('mensalidades').upsert(row, { onConflict: 'user_id,mes' });
-      if (error) throw error;
-    }),
+    // v510: setMensalidade removida — legado da v481 (mapeava ok/soon/late) usado só
+    // pelo botão "Marcar vencido" da ficha, que foi removido. Fluxo oficial:
+    // Financeiro → Cobranças (editarCobranca / editarValorCobranca).
 
     // ===== Fase B — Professores + Turmas (gestão 100% pelo app) =====
     // Dono cria professor (Edge Function service-role: auth user + profile role='professor').
@@ -1601,11 +1593,13 @@
     }),
 
     // -- Cobranças (mensalidades v2) --
+    // v510: limit 500 (114 alunos × 1 cobrança/mês = 114 linhas; teto de segurança).
     getCobrancas: wrap(async (filtros) => {
       // Mensalidades tem 2 FKs pra profiles (user_id + marcado_por) — desambigua pelo user_id.
       let q = SB.from('mensalidades')
         .select('*, profiles!user_id(id,apelido,nome_completo,foto_url), pedidos(id,total)')
-        .order('venc', { ascending: true });
+        .order('venc', { ascending: true })
+        .limit(500);
       if (filtros && filtros.mes) q = q.eq('mes', filtros.mes);
       if (filtros && filtros.status) q = q.eq('status', filtros.status);
       if (filtros && filtros.user_id) q = q.eq('user_id', filtros.user_id);
