@@ -10342,13 +10342,20 @@ function _finRenderCobrancas(body){
   };
   const dmyLong = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)) : '—';
 
-  // v504: enriquece linhas com nome completo + turmas + plano (client-side join)
+  // v504/v516: enriquece linhas com nome + turmas + plano (client-side join).
+  // v516: usa _turmasArr() (DB.turmas via _loadTurmas — mesma fonte de Alunos/
+  // Turmas), fallback pro ID se turma não existe mais no cache. _finTurmasMap
+  // sozinho ficava null em race — cache separado causava turma vazia.
+  if(typeof _loadTurmas==='function') _loadTurmas();
+  const _tArr = (typeof _turmasArr==='function' ? _turmasArr() : []);
+  const _tMap = {};
+  _tArr.forEach(t=>{ _tMap[t.id] = t.nome; });
   const matrByUser = {};
   (_finMatriculas||[]).forEach(m => { matrByUser[m.user_id] = m; });
   const turmasByUser = {};
   ((_profData && _profData.alunos)||[]).forEach(a => {
-    if(a.turmas && a.turmas.length && _finTurmasMap){
-      turmasByUser[a.id] = a.turmas.map(id => _finTurmasMap[id]).filter(Boolean).join(', ');
+    if(a.turmas && a.turmas.length){
+      turmasByUser[a.id] = a.turmas.map(id => _tMap[id] || id).filter(Boolean).join(', ');
     }
   });
 
@@ -10735,6 +10742,9 @@ function _finRenderContratos(body){
 function _finRenderMatriculas(body){
   if(!_finBackend()){ body.innerHTML='<div class="empty-line">Só com backend ligado.</div>'; return; }
 
+  // v516: garante cache das turmas (mesmo padrão do resto do app — _turmasArr)
+  if(typeof _loadTurmas==='function') _loadTurmas();
+
   const holder = el('<div class="loading-center" style="padding:20px">Carregando alunos e matrículas…</div>');
   body.appendChild(holder);
 
@@ -10794,6 +10804,10 @@ function _finRenderMatriculas(body){
       </thead>
       <tbody></tbody>
     </table>`);
+    // v516: mapa de turmas único pra tabela toda (fora do forEach — antes
+    // reconstruía a cada linha, e usava _finTurmasMap com race na 1ª pintura).
+    const _tArrM = (typeof _turmasArr==='function' ? _turmasArr() : []);
+    const _tMapM = {}; _tArrM.forEach(t=>{ _tMapM[t.id] = t.nome; });
     const tbody = table.querySelector('tbody');
     sorted.forEach(({a, m}) => {
       const plano = m && m.planos;
@@ -10807,12 +10821,8 @@ function _finRenderMatriculas(body){
       const badgeMatricula = semPl
         ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">SEM PLANO</span>'
         : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Matriculado</span>';
-      // v514: turmas do aluno — a.turmas é array de IDs (enrollments); mapeia
-      // pra nome via _finTurmasMap (populado no _finReload). Fallback pra ID
-      // se turmaMap não tem (turma nova sem cache ainda).
-      const tmap = _finTurmasMap || {};
       const turmas = (Array.isArray(a.turmas) && a.turmas.length)
-        ? a.turmas.map(id => tmap[id] || id).join(', ')
+        ? a.turmas.map(id => _tMapM[id] || id).join(', ')
         : '—';
       // v514: dia de vencimento (override do aluno tem precedência sobre o do plano)
       const diaVenc = m ? (m.dia_vencimento || (plano && plano.dia_vencimento)) : null;
