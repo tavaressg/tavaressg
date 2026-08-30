@@ -5316,6 +5316,10 @@ window.onDadosMudaram = function(){
   _profTs = 0; _relTs = 0;
   _loadProfData();
   if(_relData) _loadRelData();
+  // v505: financeiro entra no fluxo de invalidação padrão. Antes, callbacks
+  // chamavam _finReload(true) explícito — gerava DUPLO
+  // render (aqui + no adapter wrapper) e piscava.
+  if(_finBackend()) _finReload(true);
 };
 /* Aba/PWA volta ao foco → refaz o fetch (o F5 automático). Piso de 10s pra alt-tab
    frequente não virar rajada de query; `focus` e `visibilitychange` disparam juntos
@@ -9862,6 +9866,11 @@ function _finReload(force){
   if(!force && Date.now() - _finTs < 15000) return Promise.resolve();
   _finTs = Date.now();
   const mes = _finMes();
+  // v505: alinhado com padrão do resto do app — dispara renderBg sozinho
+  // quando os dados chegarem, sem exigir .then(()=>render()) do caller.
+  // Antes: cada callback fazia render() explícito, gerando FLASH DUPLICADO
+  // (adapter wrapper já dispara renderBg via onDadosMudaram, e o caller
+  // fazia um segundo render depois do _finReload).
   return Promise.all([
     sbProf.getCobrancas({ mes }).then(r=>{ _finCobrancas = r; }).catch(()=>{}),
     sbProf.getDespesas().then(r=>{ _finDespesas = r; }).catch(()=>{}),
@@ -9869,10 +9878,9 @@ function _finReload(force){
     sbProf.getContratos().then(r=>{ _finContratos = r; }).catch(()=>{}),
     sbProf.getCategorias().then(r=>{ _finCategorias = r; }).catch(()=>{}),
     sbProf.getDespesasRecorrentes ? sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; }).catch(()=>{}) : Promise.resolve(),
-    // v504: matrículas + turmas pro enriquecimento das linhas de Cobranças
     sbProf.getAllMatriculas ? sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; }).catch(()=>{}) : Promise.resolve(),
     sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); }).catch(()=>{}),
-  ]);
+  ]).then(()=>{ try { renderBg(); } catch(_){} });
 }
 function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
 function profFinanceiro(){
@@ -9898,10 +9906,10 @@ function profFinanceiro(){
       <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
       ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
     </div>`);
-    mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true).then(()=>render()); };
-    mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true).then(()=>render()); };
+    mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); _finReload(true); };
+    mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); _finReload(true); };
     const btnHoje = mesBar.querySelector('#fm-hoje');
-    if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true).then(()=>render()); };
+    if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; _finReload(true); };
     w.appendChild(mesBar);
 
     const [y,m] = _finMes().split('-').map(Number);
@@ -9915,7 +9923,7 @@ function profFinanceiro(){
       sbProf.gerarCobrancasDoMes(proxMes)
         .then(n => {
           toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
-          _finReload(true).then(()=>render());
+          _finReload(true);
         })
         .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
     };
@@ -10274,9 +10282,9 @@ function _finRenderCobrancas(body){
   // Dono viu tudo numa tela só, sem clicar. Ordenação: vencidas > a vencer >
   // pagas > isentas, e dentro do grupo por venc (mais antigo primeiro).
   const novaBtn = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova venda</button>');
-  novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload(true).then(()=>render()); if(_loadPedidos) _loadPedidos(true); });
+  novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload(true); if(_loadPedidos) _loadPedidos(true); });
   const avulsaBtn = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Cobrança avulsa</button>');
-  avulsaBtn.onclick = ()=> _finCobrancaAvulsaSheet(()=>{ _finReload(true).then(()=>render()); });
+  avulsaBtn.onclick = ()=> _finCobrancaAvulsaSheet(()=>{ _finReload(true); });
   body.appendChild(novaBtn);
   body.appendChild(avulsaBtn);
 
@@ -10366,7 +10374,7 @@ function _finRenderCobrancas(body){
       const nome = p.apelido || p.nome_completo || 'aluno';
       if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
       sbProf.excluirCobranca(c.id)
-        .then(()=>{ toast('Cobrança excluída'); _finReload(true).then(()=>render()); })
+        .then(()=>{ toast('Cobrança excluída'); _finReload(true); })
         .catch(err=> toast('Erro: '+(err.message||err)));
     };
     tbody.appendChild(tr);
@@ -10395,7 +10403,7 @@ function _finCobrancaDescontoSheet(c){
     const btn = sheet.querySelector('#dc-save');
     btn.disabled=true; btn.textContent='Salvando…';
     sbProf.editarValorCobranca(c.id, v)
-      .then(()=>{ toast('Valor atualizado ✔'); close(); _finReload(true).then(()=>render()); })
+      .then(()=>{ toast('Valor atualizado ✔'); close(); _finReload(true); })
       .catch(e=>{ btn.disabled=false; btn.textContent='Aplicar'; toast('Erro: '+(e.message||e)); });
   };
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
@@ -10422,9 +10430,9 @@ function _finRenderDespesas(body){
   // Mesmo padrão da v500 em Cobranças. Ordenação: vencidas > a pagar > pagas
   // > canceladas; dentro por data_lancamento asc.
   const btnNova = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova despesa</button>');
-  btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(true); });
   const btnRec = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>');
-  btnRec.onclick = ()=> _finDespesaRecorrenteSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  btnRec.onclick = ()=> _finDespesaRecorrenteSheet(null, ()=>{ _finReload(true); });
   body.appendChild(btnNova);
   body.appendChild(btnRec);
 
@@ -10442,7 +10450,7 @@ function _finRenderDespesas(body){
           <div style="font-size:14.5px;font-weight:800">${moneyBR((r.valor_parcela||0) * (r.parcelas_total||0))}</div>
         </div>
       </div>`);
-      row.onclick = ()=> _finDespesaRecorrenteSheet(r, ()=>{ _finReload(true).then(()=>render()); });
+      row.onclick = ()=> _finDespesaRecorrenteSheet(r, ()=>{ _finReload(true); });
       recList.appendChild(row);
     });
     body.appendChild(recList);
@@ -10503,8 +10511,8 @@ function _finRenderDespesas(body){
       <td style="padding:10px 8px;text-align:center">${quickPay}</td>
     </tr>`);
     const qp = tr.querySelector('[data-quickpay]');
-    if(qp) qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload(true).then(()=>render()); }); };
-    tr.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true).then(()=>render()); });
+    if(qp) qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload(true); }); };
+    tr.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(true); });
     tbody.appendChild(tr);
   });
   wrap.appendChild(table);
@@ -10515,7 +10523,7 @@ function _finRenderDespesas(body){
 function _finRenderPlanos(body){
   const planos = _finPlanos || [];
   const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo plano</button>');
-  btn.onclick = ()=> _finPlanoSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  btn.onclick = ()=> _finPlanoSheet(null, ()=>{ _finReload(true); });
   body.appendChild(btn);
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
@@ -10565,7 +10573,7 @@ function _finRenderPlanos(body){
       <td style="padding:10px 8px;text-align:center">${p.tem_contrato ? '✓' : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(p)}</td>
     </tr>`);
-    tr.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true).then(()=>render()); });
+    tr.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(true); });
     tbody.appendChild(tr);
   });
   wrap.appendChild(table);
@@ -10587,7 +10595,7 @@ function _finRenderContratos(body){
   }
 
   const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo contrato</button>');
-  btn.onclick = ()=> _finContratoSheet(null, ()=>{ _finReload(true).then(()=>render()); });
+  btn.onclick = ()=> _finContratoSheet(null, ()=>{ _finReload(true); });
   body.appendChild(btn);
 
   if(!cts.length){ body.appendChild(el('<div class="empty-line">Nenhum contrato cadastrado.</div>')); return; }
@@ -10651,7 +10659,7 @@ function _finRenderContratos(body){
       <td style="padding:10px 8px;text-align:center">${c.eh_menor?'✓':'—'}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
     </tr>`);
-    tr.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(true).then(()=>render()); });
+    tr.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(true); });
     tbody.appendChild(tr);
   });
   wrap.appendChild(table);
@@ -10739,7 +10747,7 @@ function _finRenderMatriculas(body){
         <td style="padding:10px 8px;text-align:center;font-size:11.5px">${safeTxt(ajustes.join(' · ') || '—')}</td>
         <td style="padding:10px 8px;text-align:center">${statusBadge}</td>
       </tr>`);
-      tr.onclick = ()=> _finAlunoPlanoSheet(a, ()=>{ _finReload(true).then(()=>render()); });
+      tr.onclick = ()=> _finAlunoPlanoSheet(a, ()=>{ _finReload(true); });
       tbody.appendChild(tr);
     });
     wrap.appendChild(table);
@@ -10760,9 +10768,9 @@ function _finRenderCategorias(body){
 
   const btnRow = el('<div style="display:flex;gap:8px;margin:0 12px 8px"></div>');
   const btnR = el('<button class="btn-cad" style="flex:1">＋ Receita</button>');
-  btnR.onclick = ()=> _finCategoriaInlineSheet('receita', ()=>{ _finReload(true).then(()=>render()); });
+  btnR.onclick = ()=> _finCategoriaInlineSheet('receita', ()=>{ _finReload(true); });
   const btnD = el('<button class="btn-cad" style="flex:1">＋ Despesa</button>');
-  btnD.onclick = ()=> _finCategoriaInlineSheet('despesa', ()=>{ _finReload(true).then(()=>render()); });
+  btnD.onclick = ()=> _finCategoriaInlineSheet('despesa', ()=>{ _finReload(true); });
   btnRow.appendChild(btnR); btnRow.appendChild(btnD);
   body.appendChild(btnRow);
 
@@ -10786,10 +10794,10 @@ function _finRenderCategorias(body){
         e.stopPropagation();
         btnToggle.disabled=true;
         sbProf.salvarCategoria({ id:c.id, nome:c.nome, tipo:c.tipo, ativo: c.ativo===false })
-          .then(()=>{ toast(c.ativo===false?'Categoria reativada':'Categoria desativada'); _finReload(true).then(()=>render()); })
+          .then(()=>{ toast(c.ativo===false?'Categoria reativada':'Categoria desativada'); _finReload(true); })
           .catch(e=>{ btnToggle.disabled=false; toast('Erro: '+(e.message||e)); });
       };
-      row.onclick = ()=> _finCategoriaEditSheet(c, ()=>{ _finReload(true).then(()=>render()); });
+      row.onclick = ()=> _finCategoriaEditSheet(c, ()=>{ _finReload(true); });
       list.appendChild(row);
     });
     body.appendChild(list);
@@ -10865,7 +10873,7 @@ function _finCobrancaSheet(c){
       if(!data_pagamento){ toast('Informe a data'); return; }
       btnPagar.disabled=true; btnPagar.textContent='Salvando…';
       sbProf.marcarCobrancaPaga(c.id, { data_pagamento, forma_pagamento, obs })
-        .then(()=>{ toast('Pagamento registrado ✔'); close(); _finReload(true).then(()=>render()); })
+        .then(()=>{ toast('Pagamento registrado ✔'); close(); _finReload(true); })
         .catch(e=>{ btnPagar.disabled=false; btnPagar.textContent='Marcar como paga'; toast('Erro: '+(e.message||e)); });
     };
   }
@@ -10875,7 +10883,7 @@ function _finCobrancaSheet(c){
       const motivo = prompt('Motivo da isenção (opcional):') || '';
       btnIsenta.disabled=true;
       sbProf.marcarCobrancaIsenta(c.id, motivo)
-        .then(()=>{ toast('Marcada como isenta'); close(); _finReload(true).then(()=>render()); })
+        .then(()=>{ toast('Marcada como isenta'); close(); _finReload(true); })
         .catch(e=>{ btnIsenta.disabled=false; toast('Erro: '+(e.message||e)); });
     };
   }
