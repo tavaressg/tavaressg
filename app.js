@@ -5710,7 +5710,7 @@ function profPainel(){
         <span class="erp-dash-birth-acts">${wa?'<button class="erp-mini" data-a="wa" aria-label="WhatsApp">💬</button>':''}
           <button class="erp-mini" data-a="open" aria-label="Abrir">›</button></span>
       </div>`);
-      row.querySelector('[data-a="open"]').onclick=()=>{ DB.alunoAberto=a; render(); window.scrollTo(0,0); };
+      row.querySelector('[data-a="open"]').onclick=()=>{ _navPush(); DB.alunoAberto=a; render(); window.scrollTo(0,0); };
       const waBtn=row.querySelector('[data-a="wa"]');
       if(waBtn && wa) waBtn.onclick=()=> window.open(wa, '_blank', 'noopener');
       tbl.appendChild(row);
@@ -8371,7 +8371,7 @@ function _tempoRelativo(iso){
   return `há ${y} ${y<=1?'ano':'anos'}`;
 }
 // Atalho: todo o app chama _profAlunoSheet(a) — agora navega para a tela cheia.
-function _profAlunoSheet(a){ DB.alunoAberto=a; render(); window.scrollTo(0,0); }
+function _profAlunoSheet(a){ _navPush(); DB.alunoAberto=a; render(); window.scrollTo(0,0); }
 
 /* Promover aluno → professor (só dono). Preserva a conta/histórico; muda o papel
    no servidor via Edge Function promote-professor (gated is_dono). */
@@ -9064,11 +9064,14 @@ function _relAlunosExcel(w, secTitle, note){
   const alunos = _profAlunosArr().slice();
   _loadTurmas(); const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
 
-  let busca='', filtroEt='todos', filtroRisco='todos', filtroStatus='todos';
+  // v514: filtros persistem em DB.alunosFiltro entre renders. Antes eram vars
+  // locais — abrir ficha do aluno + voltar RESETAVA "Inativos" pra "Todos".
+  DB.alunosFiltro = DB.alunosFiltro || { busca:'', et:'todos', risco:'todos', status:'todos' };
+  const F = DB.alunosFiltro;
   const wrap = el('<div class="xls-wrap"></div>');
 
   const bar = el(`<div class="xls-bar">
-    <div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" placeholder="Buscar por nome, e-mail, telefone…"></div>
+    <div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" placeholder="Buscar por nome, e-mail, telefone…" value="${safeAttr(F.busca)}"></div>
     <div class="xls-filters"></div>
     <button class="btn-cad ghost" id="xls-csv">⬇ Exportar Excel</button>
   </div>`);
@@ -9076,17 +9079,17 @@ function _relAlunosExcel(w, secTitle, note){
   const _chip=(lbl,cur,set,val)=>{ const b=el(`<button class="et-chip ${cur===val?'on':''}">${lbl}</button>`); b.onclick=()=>{ set(val); rebuild(); }; return b; };
   const paintChips=()=>{
     chips.innerHTML='';
-    chips.appendChild(_chip('Todas idades', filtroEt, v=>filtroEt=v, 'todos'));
-    FAIXA_ETARIA_OPCOES.forEach(op=> chips.appendChild(_chip(op, filtroEt, v=>filtroEt=v, op)));
+    chips.appendChild(_chip('Todas idades', F.et, v=>F.et=v, 'todos'));
+    FAIXA_ETARIA_OPCOES.forEach(op=> chips.appendChild(_chip(op, F.et, v=>F.et=v, op)));
     chips.appendChild(el(`<span class="xls-sep"></span>`));
-    RISCO_NIVEIS.forEach(([id,lbl])=> chips.appendChild(_chip(lbl, filtroRisco, v=>filtroRisco=v, id)));
-    chips.appendChild(_chip('Todos', filtroRisco, v=>filtroRisco=v, 'todos'));
+    RISCO_NIVEIS.forEach(([id,lbl])=> chips.appendChild(_chip(lbl, F.risco, v=>F.risco=v, id)));
+    chips.appendChild(_chip('Todos', F.risco, v=>F.risco=v, 'todos'));
     chips.appendChild(el(`<span class="xls-sep"></span>`));
-    chips.appendChild(_chip('Status: Todos', filtroStatus, v=>filtroStatus=v, 'todos'));
-    chips.appendChild(_chip('Ativos', filtroStatus, v=>filtroStatus=v, 'ativo'));
-    chips.appendChild(_chip('Inativos', filtroStatus, v=>filtroStatus=v, 'inativo'));
+    chips.appendChild(_chip('Status: Todos', F.status, v=>F.status=v, 'todos'));
+    chips.appendChild(_chip('Ativos', F.status, v=>F.status=v, 'ativo'));
+    chips.appendChild(_chip('Inativos', F.status, v=>F.status=v, 'inativo'));
   };
-  bar.querySelector('.dt-search-inp').oninput=(e)=>{ busca=e.target.value.trim().toLowerCase(); rebuild(); };
+  bar.querySelector('.dt-search-inp').oninput=(e)=>{ F.busca=e.target.value.trim().toLowerCase(); rebuild(); };
   bar.querySelector('#xls-csv').onclick=()=>_xlsExportCSV(getRows());
 
   const scroll = el('<div class="xls-scroll"></div>');
@@ -9117,13 +9120,13 @@ function _relAlunosExcel(w, secTitle, note){
 
   const getRows = ()=>{
     let arr = alunos.slice();
-    if(filtroEt!=='todos')    arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===filtroEt);
-    if(filtroRisco!=='todos') arr = arr.filter(a=>_riscoNivel(a)===filtroRisco);
-    if(filtroStatus!=='todos') arr = arr.filter(a=>_statusAluno(a).valor===filtroStatus);
-    if(busca){
+    if(F.et!=='todos')    arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===F.et);
+    if(F.risco!=='todos') arr = arr.filter(a=>_riscoNivel(a)===F.risco);
+    if(F.status!=='todos') arr = arr.filter(a=>_statusAluno(a).valor===F.status);
+    if(F.busca){
       arr = arr.filter(a=>{
         const bag = [a.nm, a.cad?.email, a.cad?.telefone, a.cad?.endereco?.cidade].join(' ').toLowerCase();
-        return bag.includes(busca);
+        return bag.includes(F.busca);
       });
     }
     return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
@@ -10773,15 +10776,20 @@ function _finRenderMatriculas(body){
     });
 
     const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:780px">
+    // v514: colunas Turma, Vencimento, Status aluno. Ordem: Aluno · Turma ·
+    // Plano · Valor · Vencimento · Desde · Ajustes · Status matrícula · Status aluno.
+    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:960px">
       <thead>
         <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
           <th style="padding:10px 12px;font-weight:700">Aluno</th>
+          <th style="padding:10px 8px;font-weight:700">Turma</th>
           <th style="padding:10px 8px;font-weight:700">Plano</th>
           <th style="padding:10px 8px;font-weight:700;text-align:right">Valor efetivo</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center">Vencimento</th>
           <th style="padding:10px 8px;font-weight:700">Desde</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center">Ajustes</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center">Matrícula</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center">Status aluno</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -10796,16 +10804,30 @@ function _finRenderMatriculas(body){
       if(m && m.valor_negociado != null && !m.isento) ajustes.push('💰 negociado');
       if(m && m.isento) ajustes.push('🎗️ isento');
       if(m && m.trava_reajuste) ajustes.push('🔒 travado');
-      const statusBadge = semPl
+      const badgeMatricula = semPl
         ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">SEM PLANO</span>'
         : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Matriculado</span>';
+      // v514: turmas do aluno (a.turmas populado por pullAll — array de nomes)
+      const turmas = Array.isArray(a.turmas) && a.turmas.length ? a.turmas.join(', ') : '—';
+      // v514: dia de vencimento (override do aluno tem precedência sobre o do plano)
+      const diaVenc = m ? (m.dia_vencimento || (plano && plano.dia_vencimento)) : null;
+      const vencCustom = m && m.dia_vencimento;
+      const vencTxt = diaVenc ? `Dia ${diaVenc}${vencCustom?' *':''}` : '—';
+      // v514: status ativo/inativo (auto 90d ou override manual)
+      const st = _statusAluno(a);
+      const badgeAluno = st.valor==='ativo'
+        ? '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Ativo</span>'
+        : `<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Inativo${st.origem==='manual'?'*':''}</span>`;
       const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${semPl?'background:rgba(229,57,47,0.04)':''}">
         <td style="padding:10px 12px;font-weight:700">${safeTxt(_nomeInst(a))}</td>
+        <td style="padding:10px 8px;font-size:12px">${safeTxt(turmas)}</td>
         <td style="padding:10px 8px">${safeTxt(plano ? plano.nome : '—')}</td>
         <td style="padding:10px 8px;text-align:right;font-weight:800">${valor != null ? moneyBR(valor) : '—'}</td>
+        <td style="padding:10px 8px;text-align:center" title="${vencCustom?'Vencimento customizado do aluno':'Herdado do plano'}">${safeTxt(vencTxt)}</td>
         <td style="padding:10px 8px">${m && m.inicio ? (m.inicio.slice(8,10)+'/'+m.inicio.slice(5,7)+'/'+m.inicio.slice(0,4)) : '—'}</td>
         <td style="padding:10px 8px;text-align:center;font-size:11.5px">${safeTxt(ajustes.join(' · ') || '—')}</td>
-        <td style="padding:10px 8px;text-align:center">${statusBadge}</td>
+        <td style="padding:10px 8px;text-align:center">${badgeMatricula}</td>
+        <td style="padding:10px 8px;text-align:center" title="${safeAttr(_statusAlunoTxt(a))}">${badgeAluno}</td>
       </tr>`);
       tr.onclick = ()=> _finAlunoPlanoSheet(a, ()=>{ _finReload(['matriculas','cobrancas']); });
       tbody.appendChild(tr);
@@ -10920,6 +10942,9 @@ function _finCobrancaSheet(c, onDone){
       <button class="btn-save" id="fc-pagar" style="margin-top:14px">Marcar como paga</button>
       <button class="btn-cad ghost" id="fc-isenta" style="margin-top:8px">Marcar como isenta</button>
     `:''}
+    ${c.status==='pago' || c.status==='isento' ? `
+      <button class="btn-cad ghost" id="fc-reverter" style="margin-top:14px">↩ Voltar pra pendente</button>
+    `:''}
     <button class="sheet-cancel" id="fc-close">Fechar</button>
   </div></div>`);
   const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
@@ -10954,6 +10979,21 @@ function _finCobrancaSheet(c, onDone){
           if(onDone) onDone({ status:'isento', obs: motivo });
         })
         .catch(e=>{ btnIsenta.disabled=false; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  // v514: reverter pra pendente — antes ficava só "Fechar" quando paga/isenta.
+  const btnReverter = sheet.querySelector('#fc-reverter');
+  if(btnReverter){
+    btnReverter.onclick = ()=>{
+      if(!confirm('Voltar esta cobrança pra pendente? Data e forma de pagamento serão limpas.')) return;
+      btnReverter.disabled=true; btnReverter.textContent='Salvando…';
+      sbProf.editarCobranca(c.id, { status:'pendente', data_pagamento:null, forma_pagamento:null })
+        .then(()=>{
+          toast('Voltou pra pendente ✔');
+          close();
+          if(onDone) onDone({ status:'pendente', data_pagamento:null, forma_pagamento:null });
+        })
+        .catch(e=>{ btnReverter.disabled=false; btnReverter.textContent='↩ Voltar pra pendente'; toast('Erro: '+(e.message||e)); });
     };
   }
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
@@ -13124,10 +13164,10 @@ function _gradAptosSection(w){
       <button class="grad-aptos-go" type="button">${btnLbl}</button>
     </div>`);
     row.querySelector('.grad-aptos-go').onclick = ()=>{
-      DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
+      _navPush(); DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
     };
     row.onclick = (e)=>{ if(e.target.classList.contains('grad-aptos-go')) return;
-      DB.alunoAberto = a; render(); window.scrollTo(0,0);
+      _navPush(); DB.alunoAberto = a; render(); window.scrollTo(0,0);
     };
     return row;
   };
@@ -13373,9 +13413,63 @@ function _profMaisSheet(){
 }
 
 /* ---------------- navegação ---------------- */
-function setRole(r){ DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
-function goAluno(id){ DB.navAluno=id; render(); window.scrollTo(0,0); }
+// v514: navigation stack via history.pushState/popstate. Snapshot dos
+// campos de navegação a cada goProf/goAluno/openAluno → botão de voltar
+// do celular funciona nativamente e "voltar" respeita origem (Menu Alunos >
+// Inativos > Ficha → voltar retorna pra Alunos com Inativos preservado).
+// _navPushing evita loop: quando popstate restaura, o render subsequente
+// não deve empurrar de novo.
+let _navPushing = false;
+function _navSnapshot(){
+  return {
+    role: DB.role,
+    navAluno: DB.navAluno,
+    navProf: DB.navProf,
+    alunoAberto: DB.alunoAberto ? { id: DB.alunoAberto.id } : null,
+    _alunoTab: DB._alunoTab,
+    alunosFiltro: DB.alunosFiltro ? { ...DB.alunosFiltro } : null,
+    produtoFormOpen: DB.produtoFormOpen,
+    cadastroAlunoOpen: DB.cadastroAlunoOpen,
+    lojaOpen: DB.lojaOpen,
+    meusPedidosOpen: DB.meusPedidosOpen,
+    _finTab: (typeof _finTab!=='undefined') ? _finTab : null,
+  };
+}
+function _navPush(){
+  if(_navPushing) return;
+  try { history.pushState(_navSnapshot(), ''); } catch(_){}
+}
+function _navRestore(state){
+  if(!state) return;
+  _navPushing = true;
+  try {
+    DB.role = state.role;
+    DB.navAluno = state.navAluno;
+    DB.navProf = state.navProf;
+    DB._alunoTab = state._alunoTab;
+    DB.alunosFiltro = state.alunosFiltro;
+    DB.produtoFormOpen = state.produtoFormOpen;
+    DB.cadastroAlunoOpen = state.cadastroAlunoOpen;
+    DB.lojaOpen = state.lojaOpen;
+    DB.meusPedidosOpen = state.meusPedidosOpen;
+    if(typeof _finTab!=='undefined' && state._finTab) _finTab = state._finTab;
+    // Reidrata alunoAberto pelo id (referência fresh, sem stale)
+    if(state.alunoAberto && state.alunoAberto.id){
+      const arr = (_profData && _profData.alunos) || [];
+      DB.alunoAberto = arr.find(a=>a.id===state.alunoAberto.id) || null;
+    } else {
+      DB.alunoAberto = null;
+    }
+    try { render(); } catch(_){}
+    try { window.scrollTo(0,0); } catch(_){}
+  } finally { _navPushing = false; }
+}
+window.addEventListener('popstate', e => _navRestore(e.state));
+
+function setRole(r){ _navPush(); DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
+function goAluno(id){ _navPush(); DB.navAluno=id; render(); window.scrollTo(0,0); }
 function goProf(id){
+  _navPush();
   // Ao trocar de menu, fecha telas em foco (ficha do aluno, cadastro, import etc).
   DB.navProf=id; DB.alunoAberto=null; DB._alunoTab=null;
   DB.produtoFormOpen=false; DB.cadastroAlunoOpen=false;
