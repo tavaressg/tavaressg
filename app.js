@@ -9923,6 +9923,7 @@ function profFinanceiro(){
     <button data-t="cobrancas" ${_finTab==='cobrancas'?'class="active"':''}>Cobranças</button>
     <button data-t="despesas"  ${_finTab==='despesas' ?'class="active"':''}>Despesas</button>
     <button data-t="planos"    ${_finTab==='planos'   ?'class="active"':''}>Planos</button>
+    <button data-t="matriculas" ${_finTab==='matriculas'?'class="active"':''}>Matrículas</button>
     <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
     <button data-t="categorias" ${_finTab==='categorias'?'class="active"':''}>Categorias</button>
   </div>`);
@@ -9941,6 +9942,7 @@ function profFinanceiro(){
     else if(_finTab==='cobrancas') _finRenderCobrancas(body);
     else if(_finTab==='despesas') _finRenderDespesas(body);
     else if(_finTab==='planos') _finRenderPlanos(body);
+    else if(_finTab==='matriculas') _finRenderMatriculas(body);
     else if(_finTab==='contratos') _finRenderContratos(body);
     else _finRenderCategorias(body);
   });
@@ -10504,16 +10506,14 @@ function _finRenderPlanos(body){
 /* ---- Sub-aba: Contratos ---- */
 function _finRenderContratos(body){
   const cts = _finContratos || [];
-  const ativo    = cts.filter(c=>c.status==='ativo');
-  const esperando= cts.filter(c=>c.status==='aguardando_aceite');
-  const expirado = cts.filter(c=>c.status==='expirado');
-  const cancelado= cts.filter(c=>c.status==='cancelado');
   const today = HOJE_ISO;
-  const vencendo30 = ativo.filter(c=> c.fim && c.fim <= _plus(today, 30) && c.fim >= today);
+  const isVencendo = c => c.status==='ativo' && c.fim && c.fim <= _plus(today, 30) && c.fim >= today;
+  const expiradosN = cts.filter(c=>c.status==='expirado').length;
+  const vencendoN = cts.filter(isVencendo).length;
 
-  if(expirado.length || vencendo30.length){
+  if(expiradosN || vencendoN){
     body.appendChild(el(`<div class="card card-pad" style="margin:6px 12px;background:var(--red-soft,#fee);border-left:4px solid var(--red);font-size:13px">
-      ⚠️ <b>${expirado.length}</b> contratos expirados · <b>${vencendo30.length}</b> vencem em 30 dias
+      ⚠️ <b>${expiradosN}</b> contratos expirados · <b>${vencendoN}</b> vencem em 30 dias
     </div>`));
   }
 
@@ -10521,46 +10521,161 @@ function _finRenderContratos(body){
   btn.onclick = ()=> _finContratoSheet(null, ()=>{ _finReload(true).then(()=>render()); });
   body.appendChild(btn);
 
-  const seg = el(`<div class="filter-seg">
-    <button data-f="ativo"    ${_finContrFiltro==='ativo'?'class="active"':''}>Ativos (${ativo.length})</button>
-    <button data-f="vencendo30" ${_finContrFiltro==='vencendo30'?'class="active"':''}>Vencendo 30d (${vencendo30.length})</button>
-    <button data-f="aguardando_aceite" ${_finContrFiltro==='aguardando_aceite'?'class="active"':''}>Aguardando (${esperando.length})</button>
-    <button data-f="expirado" ${_finContrFiltro==='expirado'?'class="active"':''}>Expirados (${expirado.length})</button>
-    <button data-f="cancelado"${_finContrFiltro==='cancelado'?'class="active"':''}>Cancelados (${cancelado.length})</button>
-  </div>`);
-  const list = el('<div class="list"></div>');
-  const paint = ()=>{
-    list.innerHTML='';
-    // v485: filtro "vencendo30" é derivado (status='ativo' + fim entre hoje e +30d).
-    const src = _finContrFiltro==='vencendo30' ? vencendo30 : cts.filter(c=>c.status===_finContrFiltro);
-    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum contrato neste status.</div>')); return; }
-    src.forEach(c=>{
-      const p = c.profiles || {};
-      const nome = p.apelido || p.nome_completo || 'aluno';
-      const pl = c.planos || {};
-      const numTxt = '#' + String(c.numero||0).padStart(3,'0');
-      const fimTxt = c.fim ? (c.fim.slice(8,10)+'/'+c.fim.slice(5,7)+'/'+c.fim.slice(0,4)) : '—';
-      const daysLeft = c.fim ? Math.round((new Date(c.fim) - new Date(today))/86400000) : null;
-      const alerta = (c.status==='ativo' && daysLeft!==null && daysLeft <= 30 && daysLeft >= 0)
-        ? ` <span style="font-size:10.5px;color:var(--red);font-weight:700">vence em ${daysLeft}d</span>` : '';
-      const badgeMenor = c.eh_menor ? ' <span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:1px 6px;border-radius:4px;font-weight:600">menor</span>' : '';
-      const row = el(`<div class="st-row" style="cursor:pointer">
-        <div class="st-mid"><div class="nm">${numTxt} · ${safeTxt(nome)}${badgeMenor}${alerta}</div>
-          <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(pl.nome||'—')} · até ${fimTxt}</span></div></div>
-        <div class="st-right">
-          <div style="font-size:14.5px;font-weight:800">${moneyBR(c.valor_congelado)}</div>
-        </div>
-      </div>`);
-      row.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(true).then(()=>render()); });
-      list.appendChild(row);
-    });
+  if(!cts.length){ body.appendChild(el('<div class="empty-line">Nenhum contrato cadastrado.</div>')); return; }
+
+  // v503: tabela unificada — mesmo padrão de Cobranças/Despesas/Planos.
+  // Ordenação: vencendo30 > ativo > aguardando > expirado > cancelado.
+  // Dentro por fim (mais urgente primeiro).
+  const statusRank = (c) => {
+    if(isVencendo(c)) return 0;
+    if(c.status==='ativo') return 1;
+    if(c.status==='aguardando_aceite') return 2;
+    if(c.status==='expirado') return 3;
+    return 4;   // cancelado
   };
-  seg.querySelectorAll('[data-f]').forEach(b=>{
-    b.onclick=()=>{ _finContrFiltro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); paint(); };
+  const sorted = cts.slice().sort((a,b) => {
+    const ra = statusRank(a), rb = statusRank(b);
+    if(ra !== rb) return ra - rb;
+    return (a.fim||'').localeCompare(b.fim||'');
   });
-  paint();
-  body.appendChild(seg);
-  body.appendChild(list);
+  const statusBadge = (c) => {
+    if(isVencendo(c)){
+      const days = Math.max(0, Math.round((new Date(c.fim)-new Date(today))/86400000));
+      return `<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Vence em ${days}d</span>`;
+    }
+    if(c.status==='ativo') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Ativo</span>';
+    if(c.status==='aguardando_aceite') return '<span style="font-size:10.5px;color:#b45309;background:rgba(245,158,11,0.15);padding:2px 8px;border-radius:10px;font-weight:700">Aguardando</span>';
+    if(c.status==='expirado') return '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">Expirado</span>';
+    return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Cancelado</span>';
+  };
+  const dmy = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)) : '—';
+
+  const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
+  const table = el(`<table class="fin-contr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:800px">
+    <thead>
+      <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700">Nº</th>
+        <th style="padding:10px 8px;font-weight:700">Aluno</th>
+        <th style="padding:10px 8px;font-weight:700">Plano</th>
+        <th style="padding:10px 8px;font-weight:700">Início</th>
+        <th style="padding:10px 8px;font-weight:700">Fim</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Menor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>`);
+  const tbody = table.querySelector('tbody');
+  sorted.forEach(c => {
+    const p = c.profiles || {};
+    const nome = p.apelido || p.nome_completo || 'aluno';
+    const pl = c.planos || {};
+    const numTxt = '#' + String(c.numero||0).padStart(3,'0');
+    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${c.status==='cancelado'||c.status==='expirado'?'opacity:0.55':''}">
+      <td style="padding:10px 12px;font-weight:700;color:var(--muted)">${numTxt}</td>
+      <td style="padding:10px 8px;font-weight:700">${safeTxt(nome)}</td>
+      <td style="padding:10px 8px">${safeTxt(pl.nome||'—')}</td>
+      <td style="padding:10px 8px">${dmy(c.inicio)}</td>
+      <td style="padding:10px 8px">${dmy(c.fim)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(c.valor_congelado)}</td>
+      <td style="padding:10px 8px;text-align:center">${c.eh_menor?'✓':'—'}</td>
+      <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
+    </tr>`);
+    tr.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(true).then(()=>render()); });
+    tbody.appendChild(tr);
+  });
+  wrap.appendChild(table);
+  body.appendChild(wrap);
+}
+
+/* ---- Sub-aba: Matrículas (v503) ----
+   Mostra todos os alunos ativos com plano vinculado. Destaca quem está SEM
+   plano (não vai gerar cobrança no cron). Norte pra migração dos 114. */
+function _finRenderMatriculas(body){
+  if(!_finBackend()){ body.innerHTML='<div class="empty-line">Só com backend ligado.</div>'; return; }
+
+  const holder = el('<div class="loading-center" style="padding:20px">Carregando alunos e matrículas…</div>');
+  body.appendChild(holder);
+
+  Promise.all([
+    sbProf.getAlunos(),   // já usado em outras telas — traz alunos ativos
+    sbProf.getAllMatriculas(),
+  ]).then(([alunos, matriculas])=>{
+    holder.remove();
+    const soAlunos = (alunos||[]).filter(a=>a.role==='aluno' || !a.role);
+    const mapMatr = {};
+    matriculas.forEach(m => { mapMatr[m.user_id] = m; });
+
+    const rows = soAlunos.map(a => ({ a, m: mapMatr[a.id] || null }));
+    const semPlano = rows.filter(r => !r.m || !r.m.planos);
+    const comPlano = rows.filter(r => r.m && r.m.planos);
+
+    // Card de alerta se tem gente sem plano
+    if(semPlano.length){
+      body.appendChild(el(`<div class="card card-pad" style="margin:6px 12px;background:var(--red-soft,#fee);border-left:4px solid var(--red);font-size:13px">
+        ⚠️ <b>${semPlano.length}</b> aluno${semPlano.length>1?'s':''} SEM plano cadastrado. Cron não gera cobrança pra eles.
+      </div>`));
+    }
+
+    // KPIs
+    body.appendChild(el(`<div class="fin-head">
+      <div class="lbl">Total de alunos</div><div class="big">${soAlunos.length}</div>
+      <div class="row">
+        <div class="c"><div class="v green">${comPlano.length}</div><div class="l">Com plano</div></div>
+        <div class="c"><div class="v red">${semPlano.length}</div><div class="l">Sem plano</div></div>
+        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.trava_reajuste).length}</div><div class="l">🔒 Trava</div></div>
+      </div></div>`));
+
+    // Tabela unificada — sem plano primeiro
+    const sorted = rows.slice().sort((a,b) => {
+      const rA = a.m && a.m.planos ? 1 : 0;
+      const rB = b.m && b.m.planos ? 1 : 0;
+      if(rA !== rB) return rA - rB;
+      return (_nomeInst(a.a)||'').localeCompare(_nomeInst(b.a)||'');
+    });
+
+    const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
+    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:780px">
+      <thead>
+        <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+          <th style="padding:10px 12px;font-weight:700">Aluno</th>
+          <th style="padding:10px 8px;font-weight:700">Plano</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:right">Valor efetivo</th>
+          <th style="padding:10px 8px;font-weight:700">Desde</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center">Ajustes</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>`);
+    const tbody = table.querySelector('tbody');
+    sorted.forEach(({a, m}) => {
+      const plano = m && m.planos;
+      const semPl = !plano;
+      const valor = semPl ? null
+        : (m.valor_negociado != null ? Number(m.valor_negociado) : Number(plano.valor));
+      const ajustes = [];
+      if(m && m.valor_negociado != null && !m.isento) ajustes.push('💰 negociado');
+      if(m && m.isento) ajustes.push('🎗️ isento');
+      if(m && m.trava_reajuste) ajustes.push('🔒 travado');
+      const statusBadge = semPl
+        ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700">SEM PLANO</span>'
+        : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Matriculado</span>';
+      const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${semPl?'background:rgba(229,57,47,0.04)':''}">
+        <td style="padding:10px 12px;font-weight:700">${safeTxt(_nomeInst(a))}</td>
+        <td style="padding:10px 8px">${safeTxt(plano ? plano.nome : '—')}</td>
+        <td style="padding:10px 8px;text-align:right;font-weight:800">${valor != null ? moneyBR(valor) : '—'}</td>
+        <td style="padding:10px 8px">${m && m.inicio ? (m.inicio.slice(8,10)+'/'+m.inicio.slice(5,7)+'/'+m.inicio.slice(0,4)) : '—'}</td>
+        <td style="padding:10px 8px;text-align:center;font-size:11.5px">${safeTxt(ajustes.join(' · ') || '—')}</td>
+        <td style="padding:10px 8px;text-align:center">${statusBadge}</td>
+      </tr>`);
+      tr.onclick = ()=> _finAlunoPlanoSheet(a, ()=>{ _finReload(true).then(()=>render()); });
+      tbody.appendChild(tr);
+    });
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+  }).catch(e=>{ holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
 }
 
 function _plus(iso, dias){

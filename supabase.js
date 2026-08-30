@@ -1458,6 +1458,14 @@
       if (error) throw error;
       return data;
     }),
+    // v503: todas as matrículas da academia num único fetch. Usado pela aba
+    // Matrículas pra mostrar "quem tá em qual plano" e destacar sem plano.
+    getMatriculas: wrap(async () => {
+      const { data, error } = await SB.from('aluno_plano')
+        .select('*, planos(id,nome,valor,parcelas), profiles!user_id(id,apelido,nome_completo,ativo,nascimento)');
+      if (error) throw error;
+      return data || [];
+    }),
     salvarAlunoPlano: wrap(async (ap) => {
       const u = (await SB.auth.getUser()).data.user;
       // v495 (0046): snapshot valor_matricula quando é matrícula nova ou plano trocou.
@@ -1734,6 +1742,18 @@
       const { data, error } = await SB.rpc('gerar_cobrancas_mes', { p_ref });
       if (error) throw error;
       return data;
+    }),
+
+    // v503: todas as matrículas da academia — cruzamento aluno × plano.
+    // Usado na sub-aba Matrículas pra identificar alunos SEM plano cadastrado.
+    getAllMatriculas: wrap(async () => {
+      const acad = await myAcademyId();
+      if (!acad) return [];
+      const { data, error } = await SB.from('aluno_plano')
+        .select('user_id, valor_negociado, trava_reajuste, trava_motivo, isento, inicio, fim, planos(id,nome,valor,parcelas,frequencia)')
+        .in('user_id', (await SB.from('profiles').select('id').eq('academy_id', acad)).data.map(p=>p.id));
+      if (error) throw error;
+      return data || [];
     }),
 
     // v492 Sprint 4: agregação anual pro dashboard rico (12 meses + categorias).
