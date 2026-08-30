@@ -9,6 +9,63 @@
 
 ## Concluídas ✓
 
+### v511 (supabase.js v86) — corte de egress: Auth cacheado + refetch em cascata desligado + Financeiro seletivo (2026-08-30)
+
+Investigação motivada por Egress do Supabase em **206%** do Free plan (10.2 GB
+de 5 GB permitidos, 5M requests/24h no dashboard, Auth com 620k/dia). O gráfico
+descartou o suspeito óbvio: Postgres com 271 requests/24h prova que o banco mal
+é usado — o vazamento é em Auth (620k) e API Gateway (4.4M).
+
+**Auth cacheado (supabase.js v86 — o maior fix).** `supabase.js` tinha 15
+chamadas de `SB.auth.getUser()` — usado em toda mutation pra pegar o `user.id`
+que carimba `marcado_por`/`criado_por`. `getUser()` **valida contra o servidor
+Auth em cada chamada** (network roundtrip). Fix: helper `_authUser()` que usa
+`SB.auth.getSession()` (lê do `localStorage`, 0 network — o supabase-js já
+refresha o token sozinho antes de expirar). Drop-in replacement. Esperado
+cortar ~99% dos 620k Auth/dia (só resta o refresh horário automático).
+
+**Refetch em cascata desligado (v511).** `onDadosMudaram` era chamado pelo
+adapter depois de QUALQUER mutation e disparava `_loadProfData()`
+(getAlunos+getKPIs) + `_loadRelData()` — 3+ queries por clique, sem tela
+pedindo. Agora só invalida caches (`_profTs=0`); refetch acontece quando a
+próxima tela precisar (todos `_load*` já têm gate 30s). Financeiro já tinha
+esse padrão desde v509 — generalizado pro resto.
+
+**Piso focus/visibilitychange 10s→5min.** Dois handlers estavam bound em
+`focus` E `visibilitychange` — `_refetchAoVoltar` (piso 10s, chamava
+`onDadosMudaram`) e `_refreshOnFocus` (piso 30s, chamava `sbSync.pullAll`).
+Cenário do vazamento: professor com PWA aberto alt-tabando pro WhatsApp a cada
+30s, cada volta disparava pullAll+getAlunos+getKPIs+getRel. Piso subiu pra
+5 min nos dois handlers.
+
+**Financeiro `_finReload(what)` seletivo.** Antes cada mutação (marcar paga,
+editar valor, criar despesa, mudar plano etc) refazia **as 8 queries** do
+Financeiro em paralelo (cobranças + despesas + planos + contratos + categorias
++ recorrentes + matrículas + turmas). Agora `_finReload` aceita seleção:
+`_finReload('cobrancas')`, `_finReload(['despesas','rec'])`, `_finReload(true)`
+(tudo — só no boot). 15 hot callers migrados. Bônus: mês shift só refaz
+`cobrancas` (getCobrancas filtra por mês; despesas/planos/etc não).
+
+**Badge do bottom bar mais leve.** Contagem de contratos expirados + cobranças
+vencidas usava `_finReload(true)` no boot da tabbar — 8 queries só pra
+desenhar uma bolinha. Agora `_finReload(['cobrancas','contratos'])` — 2.
+
+**Cache 60s por aluno em `_erpFinanceiroAluno`.** Abrir 5 fichas seguidas
+fazia 10 queries (`getAlunoPlano` + `getCobrancas` por aluno, sem cache).
+Cache local `_erpFinCache[user_id] = {ts, data}` com TTL 60s.
+
+**`getCobrancas` com `.limit(500)`.** Teto de segurança contra query
+runaway se a base crescer (114 alunos × 1 cobrança/mês = 114 linhas hoje,
+folga de 4×). `select` mantido em `*` porque várias colunas são consumidas
+em diferentes telas.
+
+**Fora de escopo (deixados pra depois):**
+- Realtime Supabase — piso 5min faz papel semelhante enquanto sub-5min não é UX crítico.
+- Optimistic updates além de cobrança (v509) — despesas/planos/contratos/matrículas ainda esperam server.
+- Morphdom / event delegation — mudança arquitetural grande, sem justificativa depois destes cortes.
+- Navigation history (bug do "Voltar" perdendo contexto Alunos > Inativos > Ficha) — independente do egress, ainda pendente.
+- RPC `fin_counts()` — evitou migration nova; badge ainda faz 2 queries em vez de 1 count.
+
 ### v488 + migration 0044 — Sprint 2: dia_vencimento por aluno + upload PDF contrato + tela Categorias + plano sticky + badge menu (2026-08-28)
 
 Cinco melhorias que fecham o essencial do Financeiro V2 (Sprint 2 do plano

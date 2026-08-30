@@ -5304,32 +5304,20 @@ function _profGraduarApply(a, faixa, graus, tipo){
   if(!DEMO && typeof sbProf!=='undefined'){ try{ sbProf.graduarAluno(a.id, faixa, graus, tipo, DB.professor.nome||'Professor'); }catch(e){} }
 }
 
-/* Chamado pelo adapter depois de QUALQUER escrita (ver supabase.js): zera os caches
-   de 30s e refaz o fetch. Sem isso a tela ficava com o dado velho até um reload —
-   no PWA, fechar e abrir o app. Mantém os dados antigos na tela até o novo chegar. */
+/* v511: onDadosMudaram só INVALIDA caches — não refetch. Antes cada mutação
+   disparava getAlunos+getKPIs+getRel mesmo sem tela pedindo. Agora o próximo
+   render pede quando precisa (_loadProfData/_loadRelData/_finReload já têm
+   gate). Financeiro já era assim desde v509. Aplicado ao resto. */
 window.onDadosMudaram = function(){
-  _profTs = 0; _relTs = 0;
-  _loadProfData();
-  if(_relData) _loadRelData();
-  // v509: financeiro SAIU do refetch automático. Cada edição fazia 8 queries
-  // (cobranças + despesas + planos + contratos + categorias + recorrentes +
-  // matrículas + turmas) — pesado. Agora só invalida o cache, refetch acontece
-  // quando o user muda de aba/mês/reabrir. Optimistic update local cuida da
-  // consistência imediata (ver saveField em _finRenderCobrancas).
-  _finTs = 0;
+  _profTs = 0; _relTs = 0; _finTs = 0;
 };
-/* Aba/PWA volta ao foco → refaz o fetch (o F5 automático). Piso de 10s pra alt-tab
-   frequente não virar rajada de query; `focus` e `visibilitychange` disparam juntos
-   e o piso também serve de dedupe entre os dois. */
+/* v511: piso 10s→5min. Alt-tab não é sinal de dados obsoletos — refetch
+   agressivo aqui gerava rajadas de query a cada troca de aba do professor. */
 let _refetchTs = 0;
 function _refetchAoVoltar(){
   if(document.visibilityState !== 'visible') return;
-  // v427: sem sessão não há o que refazer. Sem esta linha, o aluno que alternava
-  // pro gerenciador de senhas e voltava perdia o e-mail/senha já digitados: o
-  // focus disparava getAlunos(), que SEM sessão resolve com [] (myAcademyId()
-  // retorna null) em vez de rejeitar — o .then() rodava e o render() limpava o form.
   if(!DB.sbUser) return;
-  if(Date.now() - _refetchTs < 10000) return;
+  if(Date.now() - _refetchTs < 300000) return;   // 5min
   _refetchTs = Date.now();
   window.onDadosMudaram();
 }
@@ -10370,7 +10358,6 @@ function _finRenderCobrancas(body){
     const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
     const plano = matr && matr.planos ? matr.planos.nome : '—';
-    const podeExcluir = c.status==='pendente' || c.status==='atrasado';
     const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
       <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
@@ -10384,7 +10371,7 @@ function _finRenderCobrancas(body){
       <td style="padding:10px 8px;text-align:center;white-space:nowrap">
         <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
         <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
-        ${podeExcluir ? '<button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir cobrança">🗑️</button>' : ''}
+        <button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir cobrança">🗑️</button>
       </td>
     </tr>`);
     // Bind actions — todas com optimistic update
@@ -15449,7 +15436,9 @@ if (DEMO || TESTMODE) {
       if(document.visibilityState !== 'visible') return;
       if(!DB.sbUser || !_cloudReady) return;
       const agora = Date.now();
-      if(agora - _lastPullFocus < 30000) return;
+      // v511: piso 30s→5min. Alt-tab do professor a cada 30s puxava pullAll
+      // (baixa profile+grad+config+checkins+matriculas) — vilão do egress.
+      if(agora - _lastPullFocus < 300000) return;
       _lastPullFocus = agora;
       const antes = _hashSyncState();
       sbSync.pullAll(DB.sbUser.id).then(()=>{

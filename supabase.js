@@ -83,6 +83,15 @@
     } catch (_) { return null; }
   }
 
+  // v510: getSession() lê do localStorage (0 network); getUser() valida contra
+  // o servidor toda vez. Cortou ~600k requests/24h de Auth. O supabase-js já
+  // refresha o token sozinho antes de expirar, então getSession retorna sempre
+  // um user válido enquanto a sessão viva. Drop-in replacement de getUser().
+  async function _authUser() {
+    const { data } = await SB.auth.getSession();
+    return { data: { user: data.session ? data.session.user : null } };
+  }
+
   // ---- helpers de erro padronizados (§6: try/catch → toast) ----
   function wrap(fn) {
     return async function () {
@@ -131,7 +140,7 @@
 
     // P1: troca de senha no 1º login.
     mustChangePassword: wrap(async () => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       if (!u) return false;
       const { data } = await SB.from('profiles').select('must_change_pw').eq('id', u.id).single();
       return !!(data && data.must_change_pw);
@@ -572,7 +581,7 @@
     // professor edita/aprova (RLS techniques_update_prof). Hook pra o item 3 do
     // plano (fluxo de validação); UI vai vir depois.
     proporTecnica: wrap(async ({ jp, cat, sub, pt }) => {
-      const u = (await SB.auth.getUser()).data.user; if (!u) return null;
+      const u = (await _authUser()).data.user; if (!u) return null;
       const acad = await myAcademyId();
       const trad = ['nage','osaekomi','shime','kansetsu'].includes(cat) ? 'kodokan' : 'jiu-jitsu';
       const id = 'usr-' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'').slice(0, 12) : String(Date.now()));
@@ -588,7 +597,7 @@
     // txid (0030): identificador curto p/ conciliar com o extrato do banco — mesmo
     // valor injetado no campo 62.05 do BR Code mostrado ao aluno.
     registrarPedido: wrap(async (itens, total, txid) => {
-      const u = (await SB.auth.getUser()).data.user; if (!u) return null;
+      const u = (await _authUser()).data.user; if (!u) return null;
       const acad = await myAcademyId();
       const { data, error } = await SB.from('pedidos')
         .insert({ user_id: u.id, academy_id: acad, itens, total, status: 'pendente', canal: 'whatsapp', txid: txid || null })
@@ -598,7 +607,7 @@
     }),
     // Histórico de compras do PRÓPRIO aluno (RLS pedidos_self_rw já restringe).
     getMeusPedidos: wrap(async () => {
-      const u = (await SB.auth.getUser()).data.user; if (!u) return [];
+      const u = (await _authUser()).data.user; if (!u) return [];
       const { data, error } = await SB.from('pedidos')
         .select('id,itens,total,status,canal,txid,criado_em')
         .eq('user_id', u.id).order('criado_em', { ascending: false }).limit(50);
@@ -1130,7 +1139,7 @@
     // no histórico sem mudar a faixa atual — regra decidida no protótipo.
     salvarGraduacao: wrap(async (g) => {
       const acad = await myAcademyId();
-      const { data: u } = await SB.auth.getUser();
+      const { data: u } = await _authUser();
       const row = {
         user_id: g.user_id, academy_id: acad,
         faixa: g.faixa, graus: g.graus || 0, tipo: g.tipo || 'grau',
@@ -1459,7 +1468,7 @@
       return data || [];
     }),
     salvarAlunoPlano: wrap(async (ap) => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       // v495 (0046): snapshot valor_matricula quando é matrícula nova ou plano trocou.
       // Pega valor do plano atual. Usado pra auto-trava de anual e fallback quando
       // trava_reajuste=true sem valor_negociado.
@@ -1525,7 +1534,7 @@
       return data || [];
     }),
     salvarContrato: wrap(async (c) => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       const acad = await myAcademyId();
       // Congela valor e frequência do plano no momento da criação.
       const { data: pl } = await SB.from('planos').select('valor,frequencia').eq('id', c.plano_id).single();
@@ -1610,7 +1619,7 @@
     marcarCobrancaPaga: wrap(async (id, { data_pagamento, forma_pagamento, obs }) => {
       if (!data_pagamento) throw new Error('Data de pagamento obrigatória');
       if (!forma_pagamento) throw new Error('Forma de pagamento obrigatória');
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       const { error } = await SB.from('mensalidades').update({
         status: 'pago',
         data_pagamento, forma_pagamento,
@@ -1633,7 +1642,7 @@
     // v508: edição inline genérica — patch parcial de qualquer campo editável.
     // Se muda status pra 'pago', garante data_pagamento (default hoje).
     editarCobranca: wrap(async (id, patch) => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       const row = {};
       if (patch.valor !== undefined) row.valor = Number(patch.valor);
       if (patch.status !== undefined) row.status = patch.status;
@@ -1683,7 +1692,7 @@
       return data || [];
     }),
     salvarDespesa: wrap(async (d) => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       const acad = await myAcademyId();
       const row = {
         academy_id: acad,
@@ -1723,7 +1732,7 @@
       return data || [];
     }),
     salvarDespesaRecorrente: wrap(async (r) => {
-      const u = (await SB.auth.getUser()).data.user;
+      const u = (await _authUser()).data.user;
       const acad = await myAcademyId();
       const row = {
         academy_id: acad,
@@ -1873,7 +1882,7 @@
   }
 
   async function myAcademyId() {
-    const u = (await SB.auth.getUser()).data.user; if (!u) return null;
+    const u = (await _authUser()).data.user; if (!u) return null;
     const { data } = await SB.from('profiles').select('academy_id').eq('id', u.id).single();
     return data ? data.academy_id : null;
   }
@@ -1978,7 +1987,7 @@
         applicationServerKey: sbPush._b64(sbPush.VAPID_PUBLIC),
       });
       const j = sub.toJSON();
-      const { data: u } = await SB.auth.getUser();
+      const { data: u } = await _authUser();
       if (!u?.user) throw new Error('sem sessão');
       const { error } = await SB.from('push_subscriptions').upsert({
         user_id: u.user.id,
@@ -2020,7 +2029,7 @@
       if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
         return { ok: false, motivo: 'sem_permissao' };
       }
-      const { data: u } = await SB.auth.getUser();
+      const { data: u } = await _authUser();
       if (!u?.user) return { ok: false, motivo: 'sem_sessao' };
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return { ok: false, motivo: 'sem_sw' };
@@ -2073,7 +2082,7 @@
 
     // Marca o aviso como lido (alimenta o backoff: 4 sem abrir → pausa 15 dias).
     marcarAberto: wrap(async () => {
-      const { data: u } = await SB.auth.getUser();
+      const { data: u } = await _authUser();
       if (!u?.user) return;
       await SB.from('push_log').update({ aberto_em: new Date().toISOString() })
         .eq('user_id', u.user.id).is('aberto_em', null);
