@@ -9919,26 +9919,39 @@ function profFinanceiro(){
     const nomeEl = mesBar.querySelector('#fm-nome');
     if(nomeEl) nomeEl.textContent = _finMesNome();
   };
-  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); atualizaMesNome(); _finReload('cobrancas'); };
-  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); atualizaMesNome(); _finReload('cobrancas'); };
+  // v518: helpers pra calcular sempre o PRÓXIMO mês do mês corrente selecionado.
+  // Antes: proxMes era bakeado 1 vez no HTML — se user mudava mês, o botão
+  // continuava apontando pro antigo (ex: Julho na tela, botão "Preparar outubro").
+  const calcProxMes = ()=>{
+    const [y,m] = _finMes().split('-').map(Number);
+    const proxD = new Date(y, m, 1);   // m é 1-indexed no _finMes, e Date usa 0-indexed → soma +1 natural
+    return proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
+  };
+  const atualizaPrep = ()=>{
+    const prox = calcProxMes();
+    const prepEl = w.querySelector('#fm-prep');
+    if(prepEl) prepEl.innerHTML = `🗓 Preparar ${safeTxt(_finMesNome(prox))}`;
+  };
+  const atualizaTudo = ()=>{ atualizaMesNome(); atualizaPrep(); _finReload('cobrancas'); };
+  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); atualizaTudo(); };
+  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); atualizaTudo(); };
   const btnHoje = mesBar.querySelector('#fm-hoje');
-  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; atualizaMesNome(); _finReload('cobrancas'); };
+  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; atualizaTudo(); };
   w.appendChild(mesBar);
 
-  const [y,m] = _finMes().split('-').map(Number);
-  const proxD = new Date(y, m, 1);
-  const proxMes = proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
-  const proxNome = _finMesNome(proxMes);
-  const prep = el(`<button class="btn-cad" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(proxNome)}</button>`);
+  const prep = el(`<button class="btn-cad" id="fm-prep" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(_finMesNome(calcProxMes()))}</button>`);
   prep.onclick = ()=>{
+    const proxMes = calcProxMes();   // v518: recalcula na hora do clique
+    const proxNome = _finMesNome(proxMes);
     if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
-    prep.disabled=true; const orig=prep.textContent; prep.textContent='Gerando…';
+    prep.disabled=true; const orig=prep.innerHTML; prep.textContent='Gerando…';
     sbProf.gerarCobrancasDoMes(proxMes)
       .then(n => {
         toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
+        prep.disabled=false; prep.innerHTML=orig;
         _finReload('cobrancas');
       })
-      .catch(e=>{ prep.disabled=false; prep.textContent=orig; toast('Erro: '+(e.message||e)); });
+      .catch(e=>{ prep.disabled=false; prep.innerHTML=orig; toast('Erro: '+(e.message||e)); });
   };
   w.appendChild(prep);
 
@@ -10753,7 +10766,9 @@ function _finRenderMatriculas(body){
     sbProf.getAllMatriculas(),
   ]).then(([alunos, matriculas])=>{
     holder.remove();
-    const soAlunos = (alunos||[]).filter(a=>a.role==='aluno' || !a.role);
+    // v518: mostra TODOS (aluno + dono + professor). Antes filtrava só aluno —
+    // sumia dono/professor da visão financeira mesmo eles pagando mensalidade.
+    const soAlunos = (alunos||[]);
     const mapMatr = {};
     matriculas.forEach(m => { mapMatr[m.user_id] = m; });
 
