@@ -1788,7 +1788,7 @@
           .in('user_id', profIds),
         SB.from('contratos')
           .select('id, user_id, plano_id, inicio, fim, status, valor_congelado, numero')
-          .in('user_id', profIds).eq('status', 'ativo'),
+          .in('user_id', profIds).in('status', ['ativo','aguardando_aceite']),
       ]);
       if (mR.error) throw mR.error;
       // Enriquece cada matrícula com o contrato ativo (o mais recente por fim).

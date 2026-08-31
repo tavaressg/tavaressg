@@ -7841,16 +7841,16 @@ function _erpFinanceiroAluno(a, refresh){
 
 /* --- Sheet: matricular aluno num plano --- */
 function _finAlunoPlanoSheet(a, onDone){
-  // v518: também carrega contratos ATIVOS do aluno pra permitir vincular a
-  // matrícula a um contrato existente. TÉRMINO da coluna Matriculas passa a
-  // vir do fim do plano OU do contrato — professor sabe quando renovar antes.
+  // v518/v521: carrega contratos vinculáveis do aluno (ativo OU aguardando
+  // assinatura — professor quer linkar assim que cria, sem esperar PDF).
+  // Sem filtro no getContratos porque só aceita 1 status — filtra client-side.
   Promise.all([
     sbProf.getPlanos(),
     sbProf.getAlunoPlano(a.id),
-    sbProf.getContratos({ user_id: a.id, status: 'ativo' }),
+    sbProf.getContratos({ user_id: a.id }),
   ]).then(([planos, ap, contratos])=>{
     ap = ap || {};
-    const ctsAtivos = (contratos||[]).filter(c=>c.status==='ativo');
+    const ctsAtivos = (contratos||[]).filter(c=>c.status==='ativo' || c.status==='aguardando_aceite');
     // v499: sem filtro por público (coluna removida). Mostra todos os planos ativos.
     const ativos = planos.filter(p=>p.ativo!==false);
     const opts = ativos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
@@ -7858,7 +7858,8 @@ function _finAlunoPlanoSheet(a, onDone){
       const num = c.numero ? '#'+String(c.numero).padStart(3,'0') : '';
       const fimBR = c.fim ? (c.fim.slice(8,10)+'/'+c.fim.slice(5,7)+'/'+c.fim.slice(0,4)) : '—';
       const plNome = c.planos && c.planos.nome ? ' · '+c.planos.nome : '';
-      return `<option value="${c.id}" data-fim="${c.fim||''}" data-inicio="${c.inicio||''}" data-valor="${c.valor_congelado||''}" data-plano="${c.plano_id||''}">${num}${safeTxt(plNome)} · até ${fimBR}</option>`;
+      const stTag = c.status==='aguardando_aceite' ? ' (aguardando assinatura)' : '';
+      return `<option value="${c.id}" data-fim="${c.fim||''}" data-inicio="${c.inicio||''}" data-valor="${c.valor_congelado||''}" data-plano="${c.plano_id||''}">${num}${safeTxt(plNome)} · até ${fimBR}${stTag}</option>`;
     }).join('');
     const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano do aluno">
       <div class="sheet-grip"></div>
