@@ -10417,18 +10417,22 @@ function _finRenderCobrancas(body){
   // OPTIMISTIC UPDATE local + repinta APENAS a linha alterada. Sem redraw
   // global. Se a ação falhar, reverte e mostra toast.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1100px">
+  // v522: coluna "Plano" virou "Categoria" — mostra origem real (mensalidade
+  // do plano, venda loja, avulsa, contrato). Antes era o nome do plano
+  // fixo, dava a entender que TODAS as cobranças eram mensalidade, mesmo
+  // as vendas a prazo (só um emoji ao canto delatava). "Origem" (emoji)
+  // absorvida na nova Categoria. "Tipo" renomeada pra "Forma pgto".
+  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1080px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Aluno</th>
         <th style="padding:10px 8px;font-weight:700">Turma</th>
-        <th style="padding:10px 8px;font-weight:700">Plano</th>
+        <th style="padding:10px 8px;font-weight:700">Categoria</th>
         <th style="padding:10px 8px;font-weight:700">Vencimento</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
         <th style="padding:10px 8px;font-weight:700">Pago em</th>
-        <th style="padding:10px 8px;font-weight:700">Tipo</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Origem</th>
+        <th style="padding:10px 8px;font-weight:700;white-space:nowrap">Forma pgto</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
       </tr>
     </thead>
@@ -10442,25 +10446,30 @@ function _finRenderCobrancas(body){
     const p = c.profiles || {};
     const nomeCompleto = p.nome_completo || p.apelido || 'aluno';
     const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
-    const origem = c.pedido_id ? '🛍' : (c.contrato_id ? '📄' : (c.avulsa ? '＋' : ''));
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
     const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
-    const plano = matr && matr.planos ? matr.planos.nome : '—';
+    // v522: Categoria = origem real da cobrança (mensalidade, venda loja,
+    // avulsa, contrato). Antes só mostrava nome do plano — enganava porque
+    // até venda a prazo aparecia com o plano do aluno na coluna.
+    let categoria;
+    if(c.pedido_id) categoria = '🛍 Venda loja';
+    else if(c.contrato_id) categoria = '📄 '+((matr && matr.planos)?matr.planos.nome:'Contrato');
+    else if(c.avulsa) categoria = '＋ Avulsa';
+    else categoria = '📋 '+((matr && matr.planos)?matr.planos.nome:'Mensalidade');
     const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
       <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
-      <td style="padding:10px 8px;font-size:12px">${safeTxt(plano)}</td>
+      <td style="padding:10px 8px;font-size:12px">${safeTxt(categoria)}</td>
       <td style="padding:10px 8px">${dmyLong(c.venc)}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
       <td style="padding:10px 8px">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
       <td style="padding:10px 8px;font-size:12px">${safeTxt(forma) || '—'}</td>
-      <td style="padding:10px 8px;text-align:center;font-size:15px" title="${c.pedido_id?'Loja':c.contrato_id?'Contrato':c.avulsa?'Avulsa':''}">${origem || '—'}</td>
       <td style="padding:10px 8px;text-align:center;white-space:nowrap">
         <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
         <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
-        <button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir cobrança">🗑️</button>
+        <button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="${c.pedido_id?'Cancelar venda (restaura estoque)':'Excluir cobrança'}">🗑️</button>
       </td>
     </tr>`);
     // Bind actions — todas com optimistic update
@@ -10468,12 +10477,27 @@ function _finRenderCobrancas(body){
     tr.querySelector('[data-act="desconto"]').onclick = ()=> _finCobrancaDescontoSheet(c, (novoValor)=> optimisticUpdate(c.id, { valor: novoValor }));
     const btnDel = tr.querySelector('[data-act="del"]');
     if(btnDel) btnDel.onclick = ()=>{
-      const nome = p.apelido || p.nome_completo || 'aluno';
+      const nome = p.nome_completo || p.apelido || 'aluno';
+      // v522: se a cobrança veio de uma venda (pedido_id), excluir só a cobrança
+      // deixaria o pedido + estoque órfãos. Cancela o pedido (restaura estoque
+      // via RPC cancelar_pedido). A cobrança some junto pela cascata do backend.
+      if(c.pedido_id){
+        if(!confirm(`Cancelar venda de ${nome} — ${moneyBR(c.valor)}?\n\nO estoque do produto será RESTAURADO e a cobrança removida. Não dá pra desfazer.`)) return;
+        sbProf.cancelarVendaEstornar(c.pedido_id)
+          .then(()=>{
+            toast('Venda cancelada, estoque restaurado ✔');
+            const idx = _finCobrancas.findIndex(x => x.id === c.id);
+            if(idx >= 0) _finCobrancas.splice(idx, 1);
+            tr.remove();
+            if(_loadPedidos) _loadPedidos(true);
+          })
+          .catch(err=> toast('Erro ao cancelar venda: '+(err.message||err)));
+        return;
+      }
       if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
       sbProf.excluirCobranca(c.id)
         .then(()=>{
           toast('Cobrança excluída');
-          // Remove local + tira do DOM sem refetch
           const idx = _finCobrancas.findIndex(x => x.id === c.id);
           if(idx >= 0) _finCobrancas.splice(idx, 1);
           tr.remove();

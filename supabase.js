@@ -1373,6 +1373,9 @@
     confirmarPedido: wrap(async (id) => { const { error } = await SB.rpc('confirmar_pedido', { p_id: id }); if (error) throw error; }),
     // Cancela o pedido (sem baixa).
     cancelarPedido: wrap(async (id) => { const { error } = await SB.rpc('cancelar_pedido', { p_id: id }); if (error) throw error; }),
+    // v522 (0053): cancela venda a prazo com estorno de estoque + apaga
+    // mensalidade linkada. Bloqueia se cobrança já foi paga.
+    cancelarVendaEstornar: wrap(async (pedidoId) => { const { error } = await SB.rpc('cancelar_venda_estornar', { p_pedido_id: pedidoId }); if (error) throw error; }),
     // v460 (0038): venda presencial iniciada pela gestão. Cliente pode ser aluno
     // (userId) OU avulso (nome livre). Grava pedido 'concluido' + baixa estoque
     // + audita numa transação. Retorna pedido_id.
@@ -1859,7 +1862,7 @@
         const p = c.profiles || {};
         const id = c.user_id;
         if (!byAluno[id]) byAluno[id] = {
-          id, nome: p.apelido || p.nome_completo || 'aluno',
+          id, nome: p.nome_completo || p.apelido || 'aluno',   // v522: prefere nome completo
           telefone: p.telefone || null, meses: 0, total: 0,
         };
         byAluno[id].meses += 1;
