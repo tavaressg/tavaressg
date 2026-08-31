@@ -10829,14 +10829,76 @@ function _finRenderMatriculas(body){
       </div>`));
     }
 
-    // KPIs
+    // KPIs — card principal (Total alunos)
     body.appendChild(el(`<div class="fin-head">
       <div class="lbl">Total de alunos</div><div class="big">${soAlunos.length}</div>
       <div class="row">
         <div class="c"><div class="v green">${comPlano.length}</div><div class="l">Com plano</div></div>
         <div class="c"><div class="v red">${semPlano.length}</div><div class="l">Sem plano</div></div>
         <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.trava_reajuste).length}</div><div class="l">🔒 Trava</div></div>
+        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.isento).length}</div><div class="l">🎗️ Isentos</div></div>
       </div></div>`));
+
+    // v519: 5 cards financeiros. Calculado no cliente a partir do cache de
+    // matriculas + contratos + cobrancas ja carregados. Sem query extra.
+    const hojeD = new Date();
+    const hojeSlice = HOJE_ISO;
+    // MRR — Monthly Recurring Revenue: contribuicao mensal de cada matricula.
+    // Mensal = valor; Anual = valor/12; Parcelado N = valor/N durante N meses.
+    // Isento nao conta. Usa valor_negociado quando existe.
+    const mrr = comPlano.reduce((s,{m}) => {
+      if(!m || m.isento) return s;
+      const pl = m.planos || {};
+      const val = Number(m.valor_negociado != null ? m.valor_negociado : pl.valor) || 0;
+      let mensal = val;
+      if(pl.parcelas && pl.parcelas > 1) mensal = val / pl.parcelas;
+      else if(pl.frequencia === 'anual') mensal = val / 12;
+      return s + mensal;
+    }, 0);
+    const ticket = comPlano.filter(r=>r.m && !r.m.isento).length
+      ? mrr / comPlano.filter(r=>r.m && !r.m.isento).length : 0;
+    // Contratos vencendo em <90d (ativos)
+    const cts = (_finContratos || []);
+    const vencendoCts = cts.filter(c => {
+      if(c.status !== 'ativo' || !c.fim) return false;
+      const dias = Math.round((new Date(c.fim+'T12:00:00') - hojeD) / 86400000);
+      return dias >= 0 && dias < 90;
+    });
+    const vencendoValor = vencendoCts.reduce((s,c)=>s+Number(c.valor_congelado||0), 0);
+    // Inadimplencia do mes corrente (cobrancas pendentes com vencimento no passado)
+    const cobs = (_finCobrancas || []);
+    const inadCobs = cobs.filter(c=>c.status==='pendente' && c.venc && c.venc < hojeSlice);
+    const inadValor = inadCobs.reduce((s,c)=>s+Number(c.valor||0), 0);
+    // Oportunidade perdida: alunos sem plano * ticket medio
+    const oportunidade = semPlano.length * ticket;
+    // Card grid
+    body.appendChild(el(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:6px 12px 12px">
+      <div class="card card-pad" style="padding:12px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">💰 Receita mensal (MRR)</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px">${moneyBR(mrr)}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Anuais dividem por 12 · isentos não contam</div>
+      </div>
+      <div class="card card-pad" style="padding:12px">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">🎯 Ticket médio</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px">${moneyBR(ticket)}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">MRR ÷ alunos pagantes</div>
+      </div>
+      <div class="card card-pad" style="padding:12px;${vencendoCts.length?'border-left:4px solid #b45309':''}">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">⏰ Contratos vencendo &lt;90d</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;${vencendoCts.length?'color:#b45309':''}">${vencendoCts.length}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${vencendoCts.length?moneyBR(vencendoValor)+' em risco':'Nenhum contrato terminando em breve'}</div>
+      </div>
+      <div class="card card-pad" style="padding:12px;${inadCobs.length?'border-left:4px solid var(--red)':''}">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">🔴 Inadimplência</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;${inadCobs.length?'color:var(--red)':''}">${inadCobs.length}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${inadCobs.length?moneyBR(inadValor)+' vencido':'Ninguém em atraso'}</div>
+      </div>
+      <div class="card card-pad" style="padding:12px;${semPlano.length?'border-left:4px solid var(--red)':''}">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">💸 Oportunidade perdida</div>
+        <div style="font-size:22px;font-weight:800;margin-top:4px;${semPlano.length?'color:var(--red)':''}">${moneyBR(oportunidade)}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${semPlano.length} sem plano × ticket médio</div>
+      </div>
+    </div>`));
 
     // Tabela unificada — sem plano primeiro
     const sorted = rows.slice().sort((a,b) => {
