@@ -10449,18 +10449,19 @@ function _finRenderCobrancas(body){
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
     const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
-    // v522: Categoria = origem real da cobrança (mensalidade, venda loja,
-    // avulsa, contrato). Antes só mostrava nome do plano — enganava porque
-    // até venda a prazo aparecia com o plano do aluno na coluna.
+    // v522/v523: Categoria = origem real da cobrança (mensalidade, venda
+    // loja, avulsa, contrato). Sem ícones — layout institucional/gerencial,
+    // tudo em MAIÚSCULAS.
+    const _up = (s) => String(s||'').toUpperCase();
     let categoria;
-    if(c.pedido_id) categoria = '🛍 Venda loja';
-    else if(c.contrato_id) categoria = '📄 '+((matr && matr.planos)?matr.planos.nome:'Contrato');
-    else if(c.avulsa) categoria = '＋ Avulsa';
-    else categoria = '📋 '+((matr && matr.planos)?matr.planos.nome:'Mensalidade');
+    if(c.pedido_id) categoria = 'VENDA LOJA';
+    else if(c.contrato_id) categoria = 'CONTRATO'+((matr && matr.planos)?' · '+_up(matr.planos.nome):'');
+    else if(c.avulsa) categoria = 'AVULSA';
+    else categoria = 'MENSALIDADE'+((matr && matr.planos)?' · '+_up(matr.planos.nome):'');
     const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
       <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
-      <td style="padding:10px 8px;font-size:12px">${safeTxt(categoria)}</td>
+      <td style="padding:10px 8px;font-size:11.5px;font-weight:700;letter-spacing:0.03em">${safeTxt(categoria)}</td>
       <td style="padding:10px 8px">${dmyLong(c.venc)}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
