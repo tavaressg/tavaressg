@@ -1778,11 +1778,26 @@
     getAllMatriculas: wrap(async () => {
       const acad = await myAcademyId();
       if (!acad) return [];
-      const { data, error } = await SB.from('aluno_plano')
-        .select('user_id, valor_negociado, trava_reajuste, trava_motivo, isento, inicio, fim, planos(id,nome,valor,parcelas,frequencia)')
-        .in('user_id', (await SB.from('profiles').select('id').eq('academy_id', acad)).data.map(p=>p.id));
-      if (error) throw error;
-      return data || [];
+      // v518: incluir dia_vencimento (do aluno_plano E do plano), valor_matricula.
+      // v518: buscar contrato ativo por aluno em paralelo — pra saber TÉRMINO
+      // do compromisso e permitir "adiantar contato antes do fim".
+      const profIds = (await SB.from('profiles').select('id').eq('academy_id', acad)).data.map(p=>p.id);
+      const [mR, cR] = await Promise.all([
+        SB.from('aluno_plano')
+          .select('user_id, valor_negociado, valor_matricula, trava_reajuste, trava_motivo, isento, inicio, fim, dia_vencimento, planos(id,nome,valor,parcelas,frequencia,dia_vencimento)')
+          .in('user_id', profIds),
+        SB.from('contratos')
+          .select('id, user_id, plano_id, inicio, fim, status, valor_congelado, numero')
+          .in('user_id', profIds).eq('status', 'ativo'),
+      ]);
+      if (mR.error) throw mR.error;
+      // Enriquece cada matrícula com o contrato ativo (o mais recente por fim).
+      const ctByUser = {};
+      (cR.data || []).forEach(c => {
+        const cur = ctByUser[c.user_id];
+        if(!cur || (c.fim || '') > (cur.fim || '')) ctByUser[c.user_id] = c;
+      });
+      return (mR.data || []).map(m => ({ ...m, contrato: ctByUser[m.user_id] || null }));
     }),
 
     // v492 Sprint 4: agregação anual pro dashboard rico (12 meses + categorias).

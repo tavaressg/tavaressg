@@ -7841,15 +7841,37 @@ function _erpFinanceiroAluno(a, refresh){
 
 /* --- Sheet: matricular aluno num plano --- */
 function _finAlunoPlanoSheet(a, onDone){
-  Promise.all([ sbProf.getPlanos(), sbProf.getAlunoPlano(a.id) ]).then(([planos, ap])=>{
+  // v518: também carrega contratos ATIVOS do aluno pra permitir vincular a
+  // matrícula a um contrato existente. TÉRMINO da coluna Matriculas passa a
+  // vir do fim do plano OU do contrato — professor sabe quando renovar antes.
+  Promise.all([
+    sbProf.getPlanos(),
+    sbProf.getAlunoPlano(a.id),
+    sbProf.getContratos({ user_id: a.id, status: 'ativo' }),
+  ]).then(([planos, ap, contratos])=>{
     ap = ap || {};
+    const ctsAtivos = (contratos||[]).filter(c=>c.status==='ativo');
     // v499: sem filtro por público (coluna removida). Mostra todos os planos ativos.
     const ativos = planos.filter(p=>p.ativo!==false);
     const opts = ativos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
+    const ctOpts = ctsAtivos.map(c=>{
+      const num = c.numero ? '#'+String(c.numero).padStart(3,'0') : '';
+      const fimBR = c.fim ? (c.fim.slice(8,10)+'/'+c.fim.slice(5,7)+'/'+c.fim.slice(0,4)) : '—';
+      const plNome = c.planos && c.planos.nome ? ' · '+c.planos.nome : '';
+      return `<option value="${c.id}" data-fim="${c.fim||''}" data-inicio="${c.inicio||''}" data-valor="${c.valor_congelado||''}" data-plano="${c.plano_id||''}">${num}${safeTxt(plNome)} · até ${fimBR}</option>`;
+    }).join('');
     const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Plano do aluno">
       <div class="sheet-grip"></div>
       <div class="sheet-title">Plano · ${safeTxt(_nomeInst(a))}</div>
-      <label class="flbl">Plano</label>
+      ${ctsAtivos.length ? `
+      <label class="flbl">📄 Vincular a contrato (opcional)</label>
+      <select class="inp" id="ap-contrato">
+        <option value="">— sem vínculo —</option>
+        ${ctOpts}
+      </select>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Escolher preenche valor, início e fim automaticamente.</div>
+      `:''}
+      <label class="flbl" style="margin-top:10px">Plano</label>
       <select class="inp" id="ap-plano">
         <option value="">—</option>
         ${opts}
@@ -7879,11 +7901,26 @@ function _finAlunoPlanoSheet(a, onDone){
       </div>
       <label class="flbl" style="margin-top:10px">Início do plano</label>
       <input class="inp" id="ap-inicio" type="date" value="${ap.inicio||HOJE_ISO}">
+      <label class="flbl" style="margin-top:10px">Fim do plano (opcional — em branco = recorrente sem fim)</label>
+      <input class="inp" id="ap-fim" type="date" value="${ap.fim||''}">
       <label class="flbl" style="margin-top:10px">Observação</label>
       <input class="inp" id="ap-obs" maxlength="200" value="${safeAttr(ap.obs||'')}">
       <button class="btn-save" id="ap-save" style="margin-top:14px">Salvar</button>
       <button class="sheet-cancel" id="ap-close">Cancelar</button>
     </div></div>`);
+    // v518: dropdown contrato prefill (só se tem contratos ativos)
+    const selCt = sheet.querySelector('#ap-contrato');
+    if(selCt){
+      selCt.onchange = ()=>{
+        const opt = selCt.selectedOptions[0];
+        if(!opt || !opt.value) return;
+        const {fim, inicio, valor, plano} = opt.dataset;
+        if(plano) sheet.querySelector('#ap-plano').value = plano;
+        if(valor) sheet.querySelector('#ap-valor').value = valor;
+        if(inicio) sheet.querySelector('#ap-inicio').value = inicio;
+        if(fim) sheet.querySelector('#ap-fim').value = fim;
+      };
+    }
     if(ap.plano_id) sheet.querySelector('#ap-plano').value = ap.plano_id;
     if(ap.trava_motivo) sheet.querySelector('#ap-trava-motivo').value = ap.trava_motivo;
     // Toggle trava-wrap
@@ -7911,6 +7948,7 @@ function _finAlunoPlanoSheet(a, onDone){
         trava_motivo: travaOn ? sheet.querySelector('#ap-trava-motivo').value : null,
         trava_desde: travaOn ? (ap.trava_desde || HOJE_ISO) : null,
         inicio: sheet.querySelector('#ap-inicio').value,
+        fim: sheet.querySelector('#ap-fim').value || null,
         obs: sheet.querySelector('#ap-obs').value.trim() || null,
       }).then(()=>{ toast('Plano salvo ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
@@ -10758,6 +10796,13 @@ function _finRenderMatriculas(body){
   // v516: garante cache das turmas (mesmo padrão do resto do app — _turmasArr)
   if(typeof _loadTurmas==='function') _loadTurmas();
 
+  // v518: token contra duplicação. _finPaintBody é chamado 2x (cache imediato +
+  // refresh async) — cada chamada dispara este Promise.all. Sem token, os dois
+  // .then appendavam no MESMO body → 2 tabelas visíveis. O 2º render bumpa o
+  // token; a 1ª resposta ao voltar vê o token diferente e descarta.
+  const token = (Date.now() + Math.random());
+  body.dataset.matrToken = String(token);
+
   const holder = el('<div class="loading-center" style="padding:20px">Carregando alunos e matrículas…</div>');
   body.appendChild(holder);
 
@@ -10765,6 +10810,7 @@ function _finRenderMatriculas(body){
     sbProf.getAlunos(),   // já usado em outras telas — traz alunos ativos
     sbProf.getAllMatriculas(),
   ]).then(([alunos, matriculas])=>{
+    if(body.dataset.matrToken !== String(token)) return;   // stale — descarta
     holder.remove();
     // v518: mostra TODOS (aluno + dono + professor). Antes filtrava só aluno —
     // sumia dono/professor da visão financeira mesmo eles pagando mensalidade.
@@ -10803,7 +10849,7 @@ function _finRenderMatriculas(body){
     const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
     // v514: colunas Turma, Vencimento, Status aluno. Ordem: Aluno · Turma ·
     // Plano · Valor · Vencimento · Desde · Ajustes · Status matrícula · Status aluno.
-    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1040px">
+    const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1160px">
       <thead>
         <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
           <th style="padding:10px 12px;font-weight:700">Aluno</th>
@@ -10812,6 +10858,7 @@ function _finRenderMatriculas(body){
           <th style="padding:10px 8px;font-weight:700;text-align:right;white-space:nowrap">Valor efetivo</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap">Vencimento</th>
           <th style="padding:10px 8px;font-weight:700">Desde</th>
+          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap">Término</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center">Ajustes</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:110px">Matrícula</th>
           <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:100px">Status aluno</th>
@@ -10839,6 +10886,19 @@ function _finRenderMatriculas(body){
       const turmas = (Array.isArray(a.turmas) && a.turmas.length)
         ? a.turmas.map(id => _tMapM[id] || id).join(', ')
         : '—';
+      // v518: Término = fim do aluno_plano OU do contrato ativo. Cor destacada
+      // se vence em < 90d (facilita "adiantar contato antes do fim do contrato").
+      const fimISO = (m && m.fim) || (m && m.contrato && m.contrato.fim) || null;
+      const linkContrato = m && m.contrato ? ` <span title="Vinculado ao contrato #${m.contrato.numero||''}" style="font-size:10px;color:var(--muted)">📄</span>` : '';
+      let fimTxt = '—', fimStyle = '';
+      if(fimISO){
+        const d = new Date(fimISO+'T12:00:00');
+        const hoje = new Date();
+        const dias = Math.round((d - hoje) / 86400000);
+        fimTxt = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+        if(dias < 0) fimStyle = 'color:var(--red);font-weight:700';
+        else if(dias < 90) fimStyle = 'color:#b45309;font-weight:700';   // amber warning
+      }
       // v514: dia de vencimento (override do aluno tem precedência sobre o do plano)
       const diaVenc = m ? (m.dia_vencimento || (plano && plano.dia_vencimento)) : null;
       const vencCustom = m && m.dia_vencimento;
@@ -10855,6 +10915,7 @@ function _finRenderMatriculas(body){
         <td style="padding:10px 8px;text-align:right;font-weight:800">${valor != null ? moneyBR(valor) : '—'}</td>
         <td style="padding:10px 8px;text-align:center" title="${vencCustom?'Vencimento customizado do aluno':'Herdado do plano'}">${safeTxt(vencTxt)}</td>
         <td style="padding:10px 8px">${m && m.inicio ? (m.inicio.slice(8,10)+'/'+m.inicio.slice(5,7)+'/'+m.inicio.slice(0,4)) : '—'}</td>
+        <td style="padding:10px 8px;text-align:center;white-space:nowrap;${fimStyle}" title="${fimISO?(m.contrato?'Vencimento do contrato · '+(new Date(fimISO+'T12:00:00')<new Date()?'EXPIRADO':((Math.round((new Date(fimISO+'T12:00:00')-new Date())/86400000))+'d restantes')):'Fim da matrícula'):'Sem prazo definido'}">${safeTxt(fimTxt)}${linkContrato}</td>
         <td style="padding:10px 8px;text-align:center;font-size:11.5px">${safeTxt(ajustes.join(' · ') || '—')}</td>
         <td style="padding:10px 8px;text-align:center">${badgeMatricula}</td>
         <td style="padding:10px 8px;text-align:center" title="${safeAttr(_statusAlunoTxt(a))}">${badgeAluno}</td>
