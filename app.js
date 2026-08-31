@@ -7760,7 +7760,7 @@ function _erpPlanoMini(a, refresh){
       const p = ap.planos;
       const val = ap.valor_negociado != null ? ap.valor_negociado : (ap.valor_matricula || p.valor);
       const dia = ap.dia_vencimento || p.dia_vencimento;
-      const travaBadge = ap.trava_reajuste ? ' <span style="font-size:10.5px;color:var(--muted)" title="Trava reajuste">🔒</span>' : '';
+      const travaBadge = ap.trava_reajuste ? ' <span style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:0.03em" title="Trava de reajuste">TRAVA</span>' : '';
       body.innerHTML = `
         <div style="font-weight:700;font-size:13px;margin-bottom:2px">${safeTxt(p.nome)}${ap.isento?' <span style="font-size:10.5px;color:var(--good)">(isento)</span>':''}${travaBadge}</div>
         <div style="color:var(--muted);font-size:12px">${moneyBR(val)} · dia ${dia}</div>
@@ -7796,11 +7796,11 @@ function _erpFinanceiroAluno(a, refresh){
       const val = ap.valor_negociado != null ? ap.valor_negociado : p.valor;
       const negBadge = ap.valor_negociado != null ? ' <span style="font-size:10.5px;color:var(--muted)">(negociado)</span>' : '';
       const isBadge = ap.isento ? ' <span style="font-size:10.5px;color:var(--good)">(isento)</span>' : '';
-      body.appendChild(el(`<div class="ficha-r"><span>📋 Plano</span><b>${safeTxt(p.nome)}${isBadge}</b></div>`));
-      body.appendChild(el(`<div class="ficha-r"><span>💰 Valor</span><b>${moneyBR(val)}${negBadge}</b></div>`));
+      body.appendChild(el(`<div class="ficha-r"><span>Plano</span><b>${safeTxt(p.nome)}${isBadge}</b></div>`));
+      body.appendChild(el(`<div class="ficha-r"><span>Valor</span><b>${moneyBR(val)}${negBadge}</b></div>`));
       const diaEfet = ap.dia_vencimento || p.dia_vencimento;
       const diaBadge = ap.dia_vencimento ? ' <span style="font-size:10.5px;color:var(--muted)">(customizado)</span>' : '';
-      body.appendChild(el(`<div class="ficha-r"><span>📅 Vence</span><b>Dia ${diaEfet}${diaBadge}</b></div>`));
+      body.appendChild(el(`<div class="ficha-r"><span>Vencimento</span><b>Dia ${diaEfet}${diaBadge}</b></div>`));
       // v495: badge trava reajuste. Se travado + valor plano > valor efetivo, mostra economia.
       if(ap.trava_reajuste){
         const motivoTxt = { bolsa:'Bolsa', familia:'Família', seguranca_publica:'Segurança pública', fidelidade:'Fidelidade', convenio:'Convênio', outro:'Outro' }[ap.trava_motivo] || 'Trava manual';
@@ -7808,13 +7808,13 @@ function _erpFinanceiroAluno(a, refresh){
         const efetivo = ap.valor_negociado != null ? ap.valor_negociado : (ap.valor_matricula || planoAtual);
         const diff = planoAtual - efetivo;
         const diffTxt = diff > 0.01 ? ` <span style="font-size:10.5px;color:var(--good)">(−${moneyBR(diff)}/mês)</span>` : '';
-        body.appendChild(el(`<div class="ficha-r" style="background:var(--card-alt,rgba(0,0,0,0.03));padding:6px 8px;border-radius:6px;margin-top:4px"><span>🔒 Trava reajuste</span><b style="font-weight:600;font-size:12.5px">${motivoTxt}${diffTxt}</b></div>`));
+        body.appendChild(el(`<div class="ficha-r" style="background:var(--card-alt,rgba(0,0,0,0.03));padding:6px 8px;border-radius:6px;margin-top:4px"><span>Trava reajuste</span><b style="font-weight:600;font-size:12.5px">${motivoTxt}${diffTxt}</b></div>`));
       }
       // v494 Sprint 6 item 6: notas gerais (obs) do plano — bolsa condicional,
       // motivo do desconto, contexto. Campo existia no schema desde v481 mas
       // não aparecia em lugar nenhum.
-      if(ap.obs) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>📝 Obs</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.obs)}</b></div>`));
-      if(ap.isento && ap.isento_motivo) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>🎗️ Motivo</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.isento_motivo)}</b></div>`));
+      if(ap.obs) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>Obs</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.obs)}</b></div>`));
+      if(ap.isento && ap.isento_motivo) body.appendChild(el(`<div class="ficha-r" style="align-items:flex-start"><span>Motivo isenção</span><b style="font-weight:500;font-size:12.5px;text-align:right;max-width:65%">${safeTxt(ap.isento_motivo)}</b></div>`));
     } else {
       body.appendChild(el('<div style="padding:8px;color:var(--muted);font-size:13px">Sem plano cadastrado. Toque em "Definir plano" para matricular.</div>'));
     }
@@ -7887,7 +7887,7 @@ function _finAlunoPlanoSheet(a, onDone){
       <div class="sec-title" style="margin:14px 0 6px;font-size:11px">Trava de reajuste</div>
       <label class="flbl" style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="ap-trava" ${ap.trava_reajuste?'checked':''}>
-        <span>🔒 Travar reajuste automático <span style="color:var(--muted);font-weight:500">(aluno não pega reajustes do plano)</span></span>
+        <span>Travar reajuste automático <span style="color:var(--muted);font-weight:500">(aluno não pega reajustes do plano)</span></span>
       </label>
       <div id="ap-trava-wrap" style="display:${ap.trava_reajuste?'block':'none'};margin-top:8px">
         <label class="flbl">Motivo da trava</label>
@@ -10861,8 +10861,8 @@ function _finRenderMatriculas(body){
       <div class="row">
         <div class="c"><div class="v green">${comPlano.length}</div><div class="l">Com plano</div></div>
         <div class="c"><div class="v red">${semPlano.length}</div><div class="l">Sem plano</div></div>
-        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.trava_reajuste).length}</div><div class="l">🔒 Trava</div></div>
-        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.isento).length}</div><div class="l">🎗️ Isentos</div></div>
+        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.trava_reajuste).length}</div><div class="l">TRAVA</div></div>
+        <div class="c"><div class="v">${comPlano.filter(r=>r.m && r.m.isento).length}</div><div class="l">ISENTOS</div></div>
       </div></div>`));
 
     // v519: 5 cards financeiros. Calculado no cliente a partir do cache de
@@ -10900,27 +10900,27 @@ function _finRenderMatriculas(body){
     // Card grid
     body.appendChild(el(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:6px 12px 12px">
       <div class="card card-pad" style="padding:12px">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">💰 Receita mensal (MRR)</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">Receita mensal (MRR)</div>
         <div style="font-size:22px;font-weight:800;margin-top:4px">${moneyBR(mrr)}</div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Anuais dividem por 12 · isentos não contam</div>
       </div>
       <div class="card card-pad" style="padding:12px">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">🎯 Ticket médio</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">Ticket médio</div>
         <div style="font-size:22px;font-weight:800;margin-top:4px">${moneyBR(ticket)}</div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">MRR ÷ alunos pagantes</div>
       </div>
       <div class="card card-pad" style="padding:12px;${vencendoCts.length?'border-left:4px solid #b45309':''}">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">⏰ Contratos vencendo &lt;90d</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">Contratos vencendo &lt;90d</div>
         <div style="font-size:22px;font-weight:800;margin-top:4px;${vencendoCts.length?'color:#b45309':''}">${vencendoCts.length}</div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${vencendoCts.length?moneyBR(vencendoValor)+' em risco':'Nenhum contrato terminando em breve'}</div>
       </div>
       <div class="card card-pad" style="padding:12px;${inadCobs.length?'border-left:4px solid var(--red)':''}">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">🔴 Inadimplência</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">Inadimplência</div>
         <div style="font-size:22px;font-weight:800;margin-top:4px;${inadCobs.length?'color:var(--red)':''}">${inadCobs.length}</div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${inadCobs.length?moneyBR(inadValor)+' vencido':'Ninguém em atraso'}</div>
       </div>
       <div class="card card-pad" style="padding:12px;${semPlano.length?'border-left:4px solid var(--red)':''}">
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">💸 Oportunidade perdida</div>
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:700">Oportunidade perdida</div>
         <div style="font-size:22px;font-weight:800;margin-top:4px;${semPlano.length?'color:var(--red)':''}">${moneyBR(oportunidade)}</div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${semPlano.length} sem plano × ticket médio</div>
       </div>
@@ -10965,9 +10965,9 @@ function _finRenderMatriculas(body){
       const valor = semPl ? null
         : (m.valor_negociado != null ? Number(m.valor_negociado) : Number(plano.valor));
       const ajustes = [];
-      if(m && m.valor_negociado != null && !m.isento) ajustes.push('💰 negociado');
-      if(m && m.isento) ajustes.push('🎗️ isento');
-      if(m && m.trava_reajuste) ajustes.push('🔒 travado');
+      if(m && m.valor_negociado != null && !m.isento) ajustes.push('NEGOCIADO');
+      if(m && m.isento) ajustes.push('ISENTO');
+      if(m && m.trava_reajuste) ajustes.push('TRAVADO');
       const badgeMatricula = semPl
         ? '<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">SEM PLANO</span>'
         : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Matriculado</span>';
