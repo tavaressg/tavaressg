@@ -11713,6 +11713,9 @@ function _finContratoSheet(c, onDone){
     <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
     <label class="flbl" style="margin-top:10px">Fim</label>
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
+    <label class="flbl" style="margin-top:10px">Valor negociado do contrato (R$)</label>
+    <input class="inp" id="ct-valor" type="number" step="0.01" min="0" placeholder="Em branco = valor cheio do plano" value="${c.valor_congelado != null ? c.valor_congelado : ''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Este valor fica congelado no contrato — cascata do cron respeita se aluno_plano não tem valor negociado próprio.</div>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
     ${!editar ? `
@@ -11770,6 +11773,39 @@ function _finContratoSheet(c, onDone){
   const selPlano = sheet.querySelector('#ct-plano');
   if(editar && selPlano && c.plano_id) selPlano.value = c.plano_id;
 
+  // v526: auto-preenche o campo "Valor" com o valor do plano escolhido
+  // quando o campo está vazio. Só sobrescreve o vazio — se o professor
+  // já digitou algo, respeita.
+  const inpValor = sheet.querySelector('#ct-valor');
+  if(selPlano && inpValor){
+    const prefillValor = ()=>{
+      if(inpValor.value.trim()) return;   // já tem valor digitado, não mexe
+      const pl = planos.find(p => p.id === selPlano.value);
+      if(pl && pl.valor != null) inpValor.placeholder = 'Ex: '+pl.valor+' (valor cheio do plano)';
+    };
+    selPlano.addEventListener('change', prefillValor);
+    prefillValor();
+  }
+
+  // v526: resolve aluno mais resiliente. Datalist às vezes não preserva
+  // data-id no <option> matched; falha silenciosa fazia o Salvar dar erro
+  // "Preencha aluno". Fallback: procura no array alunos por _nomeInst
+  // (case-insensitive, ignora espaços extras).
+  const _resolveAlunoId = () => {
+    const inp = sheet.querySelector('#ct-aluno-nome');
+    if(!inp) return null;
+    const nomeDig = inp.value.trim();
+    if(!nomeDig) return null;
+    // 1) tenta match exato no datalist
+    const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
+    if(opt && opt.dataset.id) return opt.dataset.id;
+    // 2) fallback: normaliza e procura no array
+    const norm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+    const alvo = norm(nomeDig);
+    const found = alunos.find(a => norm(_nomeInst(a)) === alvo);
+    return found ? found.id : null;
+  };
+
   // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
   // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
   const chkMenor = sheet.querySelector('#ct-menor');
@@ -11779,10 +11815,8 @@ function _finContratoSheet(c, onDone){
       const on = chkMenor.checked;
       respWrap.style.display = on ? '' : 'none';
       if(on){
-        // v494 Sprint 6 item 5: aluno vem do datalist agora
-        const nomeDig = sheet.querySelector('#ct-aluno-nome').value.trim();
-        const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
-        const uid = opt ? opt.dataset.id : null;
+        // v526: resolve resiliente (mesmo helper do submit)
+        const uid = _resolveAlunoId();
         const a = alunos.find(x=>x.id===uid);
         const r = a && a.cad && a.cad.responsavel;
         if(r){
@@ -11803,13 +11837,13 @@ function _finContratoSheet(c, onDone){
   const btnSave = sheet.querySelector('#ct-save');
   if(btnSave){
     btnSave.onclick = ()=>{
-      // v494 Sprint 6 item 5: resolve aluno pelo datalist
-      const nomeDig = sheet.querySelector('#ct-aluno-nome').value.trim();
-      const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
-      const user_id = opt ? opt.dataset.id : null;
+      // v526: resolve resiliente (datalist + fallback pelo nome normalizado)
+      const user_id = _resolveAlunoId();
       const plano_id = sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
+      const valorTxt = sheet.querySelector('#ct-valor').value.trim();
+      const valor_congelado = valorTxt ? Number(valorTxt) : null;   // null → adapter usa valor do plano
       if(!user_id || !plano_id || !inicio || !fim){ toast('Preencha aluno, plano e datas'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
       const eh_menor = chkMenor && chkMenor.checked;
@@ -11825,7 +11859,7 @@ function _finContratoSheet(c, onDone){
         };
       }
       btnSave.disabled=true; btnSave.textContent='Criando…';
-      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
+      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, valor_congelado, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
         .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };
@@ -11841,10 +11875,12 @@ function _finContratoSheet(c, onDone){
       const plano_id = sheet.querySelector('#ct-plano') && sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
+      const valorTxt = sheet.querySelector('#ct-valor').value.trim();
+      const valor_congelado = valorTxt ? Number(valorTxt) : null;
       if(!plano_id || !inicio || !fim){ toast('Datas + plano obrigatórios'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
       btnSaveEdit.disabled=true; btnSaveEdit.textContent='Salvando…';
-      sbProf.salvarContrato({ id:c.id, user_id:c.user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim() })
+      sbProf.salvarContrato({ id:c.id, user_id:c.user_id, plano_id, inicio, fim, valor_congelado, obs: sheet.querySelector('#ct-obs').value.trim() })
         .then(()=>{ toast('Contrato atualizado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSaveEdit.disabled=false; btnSaveEdit.textContent='Salvar alterações'; toast('Erro: '+(e.message||e)); });
     };
