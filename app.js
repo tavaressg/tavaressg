@@ -10449,24 +10449,24 @@ function _finRenderCobrancas(body){
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
     const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
-    // v522/v523: Categoria = origem real da cobrança (mensalidade, venda
-    // loja, avulsa, contrato). Sem ícones — layout institucional/gerencial,
-    // tudo em MAIÚSCULAS.
+    // v522/v523/v524: Categoria só destaca origens NÃO-mensalidade (VENDA
+    // LOJA, CONTRATO, AVULSA). Mensalidade recorrente mostra só o nome do
+    // plano — o professor já sabe que é mensalidade, prefixo era ruído.
     const _up = (s) => String(s||'').toUpperCase();
     let categoria;
     if(c.pedido_id) categoria = 'VENDA LOJA';
     else if(c.contrato_id) categoria = 'CONTRATO'+((matr && matr.planos)?' · '+_up(matr.planos.nome):'');
     else if(c.avulsa) categoria = 'AVULSA';
-    else categoria = 'MENSALIDADE'+((matr && matr.planos)?' · '+_up(matr.planos.nome):'');
+    else categoria = (matr && matr.planos) ? _up(matr.planos.nome) : 'MENSALIDADE';
     const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
       <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
-      <td style="padding:10px 8px;font-size:11.5px;font-weight:700;letter-spacing:0.03em">${safeTxt(categoria)}</td>
-      <td style="padding:10px 8px">${dmyLong(c.venc)}</td>
-      <td style="padding:10px 8px;text-align:right;font-weight:800;color:${cor}">${moneyBR(c.valor)}</td>
-      <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
-      <td style="padding:10px 8px">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
-      <td style="padding:10px 8px;font-size:12px">${safeTxt(forma) || '—'}</td>
+      <td style="padding:10px 8px;font-size:11.5px;font-weight:700;letter-spacing:0.03em;white-space:nowrap">${safeTxt(categoria)}</td>
+      <td style="padding:10px 8px;white-space:nowrap">${dmyLong(c.venc)}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;white-space:nowrap;color:${cor}">${moneyBR(c.valor)}</td>
+      <td style="padding:10px 8px;text-align:center;white-space:nowrap">${statusBadge(c)}</td>
+      <td style="padding:10px 8px;white-space:nowrap">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
+      <td style="padding:10px 8px;font-size:12px;white-space:nowrap">${safeTxt(forma) || '—'}</td>
       <td style="padding:10px 8px;text-align:center;white-space:nowrap">
         <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
         <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
