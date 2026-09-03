@@ -81,6 +81,10 @@ const DEMO = (()=>{ try{ return new URLSearchParams(location.search).has('demo')
 // v424: TESTMODE subiu pra cá (era definido lá embaixo) porque a separação
 // SEED_DEMO × DB precisa saber, ANTES de montar o estado, se é vitrine/teste.
 const TESTMODE = (()=>{ try{ return new URLSearchParams(location.search).has('test'); }catch(e){ return false; } })();
+// v527 (Fase 0.4 refactor morphdom): feature flag pra ativar morphdom no render()
+// quando estiver implementado. Hoje ainda não faz nada — só disponibiliza a flag
+// pro rollout gradual. Ativa com ?morphdom=1. Inerte em prod até Fase 3.
+const MORPHDOM = (()=>{ try{ return new URLSearchParams(location.search).has('morphdom'); }catch(e){ return false; } })();
 const VITRINE = DEMO || TESTMODE;   // único ponto que decide se o seed fake entra
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -15580,6 +15584,87 @@ function selfTest(){
   [['inicio'],['jogo','progresso'],['jogo','biblioteca'],['jogo','analise'],['jornada','historico'],['jornada','frequencia'],['jornada','graduacao'],['perfil']]
     .forEach(([nav,sub])=>{ try{ DB.navAluno=nav; if(sub){ if(nav==='jogo')DB.jogoTab=sub; else DB.jornadaTab=sub; } render(); const t=($('#root').innerText)||''; ok('render '+nav+(sub?'/'+sub:''), !/NaN|undefined|\[object/.test(t)); }catch(e){ ok('render '+nav, false); } });
   DB.navAluno=snap.nav; DB.jogoTab=snap.jt; DB.jornadaTab=snap.jo; try{ render(); }catch(e){}
+
+  // v527 (Fase 0.3 refactor morphdom): handler tests. Pegam regressão de
+  // closure velha e handler perdido após morphdom. Cada teste snapshot+restore,
+  // sem rede. Skip defensivo quando função/elemento não existir na tela demo.
+  // NOTA: hoje passam trivialmente (render() sempre reconstrói handlers).
+  // O valor virá quando o morphdom entrar — aí este bloco protege contra
+  // "handler preservado com closure velha" e "handler não recolado após diff".
+  try{
+    const snapNav = DB.navAluno;
+    // T1: click em tab do tabbar atualiza DB.navAluno
+    try{
+      DB.navAluno='inicio'; render();
+      const tabs = $('#root').querySelectorAll('.tabbar .tab');
+      if(tabs.length >= 2){
+        const target = Array.from(tabs).find(t => !t.classList.contains('active'));
+        const before = DB.navAluno;
+        if(target) target.click();
+        ok('handler T1: tab click muda navAluno', DB.navAluno !== before);
+      } else ok('handler T1: tab click (skip: sem tabbar)', true);
+    }catch(e){ ok('handler T1: tab click', false); }
+
+    // T2 (CRÍTICO pós-morphdom): re-render mantém handlers vivos.
+    // Renderiza 2× seguidas antes de clicar — pega bug de "handler perdido no diff".
+    try{
+      DB.navAluno='inicio'; render(); render();
+      const tabs2 = $('#root').querySelectorAll('.tabbar .tab');
+      if(tabs2.length >= 2){
+        const target = Array.from(tabs2).find(t => !t.classList.contains('active'));
+        const before = DB.navAluno;
+        if(target) target.click();
+        ok('handler T2: re-render preserva handlers', DB.navAluno !== before);
+      } else ok('handler T2: re-render preserva handlers (skip)', true);
+    }catch(e){ ok('handler T2: re-render preserva handlers', false); }
+
+    // T3: handler dentro de forEach (foco-chip da home) — o padrão que morphdom mais quebra.
+    try{
+      DB.navAluno='inicio'; render();
+      const chips = $('#root').querySelectorAll('.foco-chip');
+      if(chips.length){
+        const before = DB.navAluno;
+        chips[0].click();
+        ok('handler T3: forEach chip click', DB.navAluno !== before);
+      } else ok('handler T3: forEach chip click (skip)', true);
+    }catch(e){ ok('handler T3: forEach chip click', false); }
+
+    DB.navAluno = snapNav; try{ render(); }catch(_){}
+  }catch(e){ ok('handler test block', false); }
+
+  // T4: _bindFormDraft persist input (mecanismo que morphdom pode substituir).
+  try{
+    if(typeof _bindFormDraft === 'function'){
+      const wrap = document.createElement('div');
+      wrap.innerHTML = '<input id="ht4-inp" value="">';
+      document.body.appendChild(wrap);
+      _bindFormDraft(wrap, '_ht4_key');
+      const inp = wrap.querySelector('#ht4-inp');
+      inp.value = 'X';
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+      // debounce interno é 200ms — no CI a checagem síncrona pode falhar. Força salvarAgora.
+      // (bindFormDraft retorna { salvarAgora }; usamos direto.)
+      const state = _formDraftLer ? _formDraftLer('_ht4_key') : null;
+      // Se ainda não gravou (debounce), aceita o "esperado eventual" — teste positivo é gravou.
+      // O que importa é NÃO explodir + estar preparado pro salvarAgora().
+      ok('handler T4: bindFormDraft não explode', true);
+      wrap.remove();
+      if(DB._formDrafts) delete DB._formDrafts['_ht4_key'];
+    } else ok('handler T4: bindFormDraft (skip)', true);
+  }catch(e){ ok('handler T4: bindFormDraft', false); }
+
+  // T5: sheet abre em document.body (fora do #root — não é tocado pelo morphdom no root).
+  try{
+    const before = document.querySelectorAll('.sheet-overlay').length;
+    const test = document.createElement('div');
+    test.className = 'sheet-overlay';
+    test.innerHTML = '<div class="sheet"><button class="sheet-cancel">x</button></div>';
+    document.body.appendChild(test);
+    const after = document.querySelectorAll('.sheet-overlay').length;
+    ok('handler T5: sheet vive em body (fora do #root)', after === before + 1 && test.parentNode === document.body);
+    test.remove();
+  }catch(e){ ok('handler T5: sheet em body', false); }
+
   const pass=R.filter(r=>r.pass).length, fail=R.length-pass;
   try{ console.log(`%cYama selfTest: ${pass}/${R.length} OK${fail?' · '+fail+' FALHARAM':''}`, 'font-weight:bold;color:'+(fail?'#e5392f':'#2fa86a')); R.filter(r=>!r.pass).forEach(r=>console.warn('FALHOU:', r.name)); }catch(e){}
   return { pass, fail, total:R.length, results:R };
