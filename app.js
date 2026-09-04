@@ -10170,17 +10170,58 @@ function _finPaintOk(body, seq){
   return !!body && body.isConnected && seq === _finPaintSeq;
 }
 
+// Pinta o conteúdo da aba ativa DENTRO de `target`. Extraído do _finPaintBody
+// (v543) para poder rodar tanto no body real quanto num container de staging.
+function _finPintarAba(target){
+  if(_finTab==='dashboard') _finRenderDashboard(target);
+  else if(_finTab==='cobrancas') _finRenderCobrancas(target);
+  else if(_finTab==='despesas') _finRenderDespesas(target);
+  else if(_finTab==='planos') _finRenderPlanos(target);
+  else if(_finTab==='matriculas') _finRenderMatriculas(target);
+  else if(_finTab==='contratos') _finRenderContratos(target);
+  else _finRenderCategorias(target);
+}
+
+/* v543 — abas habilitadas para morphdom. Para entrar aqui, a aba precisa de
+   DUAS propriedades:
+
+     (a) 100% event delegation — zero `.onclick=`/`addEventListener` nos nós que
+         ela cria. Morphdom preserva nós por identidade, e um handler colado
+         direto no nó ou é perdido (nó substituído) ou fica com closure velha
+         (nó preservado). Handlers no router (`data-click`) atravessam o morph
+         sem nada disso — provado em tests/morphdom-fin-body.spec.mjs cenário 5.
+
+     (b) render SÍNCRONO — nada de `.then()` appendando depois. O morph pinta
+         num container de staging que é DESCARTADO após o diff; uma resposta
+         async appendaria no staging morto. Dashboard e Matrículas fazem fetch
+         dentro do render, então ficam de fora até serem reescritas.
+
+   Fora desta lista a aba usa o caminho antigo (innerHTML='' + append), que
+   continua correto. Adicionar aba aqui sem checar (a) e (b) reintroduz
+   exatamente os bugs de v530-v541. */
+const _FIN_TABS_MORPH = ['categorias', 'planos'];
+
 function _finPaintBody(body){
   if(!body) return;
   _finPaintSeq++;   // v542: invalida respostas async de pinturas anteriores
+  // v543: morphdom ESCOPADO — só nos filhos do body, só nas abas da allowlist.
+  // childrenOnly preserva o próprio body, então as closures de profFinanceiro
+  // que o referenciam continuam válidas (era exatamente o que quebrava quando
+  // o morphdom rodava no #root inteiro — ver tests/morphdom-render.spec.mjs).
+  const podeMorph = MORPHDOM
+    && typeof morphdom === 'function'
+    && body.isConnected                       // staging só faz sentido com body vivo
+    && _FIN_TABS_MORPH.includes(_finTab);
+  if(podeMorph){
+    try {
+      const staging = body.cloneNode(false);
+      _finPintarAba(staging);
+      morphdom(body, staging, { childrenOnly: true });
+      return;
+    } catch(_){ /* cai no caminho antigo */ }
+  }
   body.innerHTML='';
-  if(_finTab==='dashboard') _finRenderDashboard(body);
-  else if(_finTab==='cobrancas') _finRenderCobrancas(body);
-  else if(_finTab==='despesas') _finRenderDespesas(body);
-  else if(_finTab==='planos') _finRenderPlanos(body);
-  else if(_finTab==='matriculas') _finRenderMatriculas(body);
-  else if(_finTab==='contratos') _finRenderContratos(body);
-  else _finRenderCategorias(body);
+  _finPintarAba(body);
 }
 
 /* ---- Sub-aba: Dashboard (Sprint 4) ---- */
