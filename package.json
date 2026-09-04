@@ -1,0 +1,12 @@
+{
+  "name": "yama-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:morphdom": "node tests/morphdom-render.spec.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

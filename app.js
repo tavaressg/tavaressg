@@ -211,7 +211,10 @@ function bindCPF(inp){
 // Campo de data em pt-BR sem picker do OS. Guarda no atributo data-iso pra facilitar leitura.
 // Uso: dateBRField(id, isoValue, {placeholder?}) → HTML string; dateBRRead(el) → 'YYYY-MM-DD' ou ''.
 function _isoToBR(iso){ if(!iso||typeof iso!=='string') return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[3]}/${m[2]}/${m[1]}`:''; }
-function _brToIso(br){ if(!br) return ''; const m=String(br).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m?`${m[3]}-${m[2]}-${m[1]}`:''; }
+// v539: _brToIso duplicado com linha 3662 (validador estrito) foi removido daqui.
+// Em browser (sloppy mode) o segundo vencia — ordem de execução — mas com
+// package.json `type: module`, node --check reclama de duplicate declaration.
+// A versão estrita em 3662 é a que era efetivamente usada em runtime.
 function dateBRField(id, isoValue, opts){
   const ph=(opts&&opts.placeholder)||'dd/mm/aaaa';
   return `<input class="inp" id="${id}" type="text" inputmode="numeric" maxlength="10" placeholder="${ph}" value="${safeAttr(_isoToBR(isoValue))}">`;
@@ -1788,15 +1791,25 @@ function render(){
     else target.appendChild(renderProfessor());
   };
 
-  // v538: morphdom DESATIVADO — nossa implementação criava body detached
-  // (morphdom reusa fromNode do root em vez de mover newRoot's children),
-  // fazendo _finPaintBody pintar em elementos fora do DOM. Cada fix
-  // introduzia um novo sintoma. Precisa refactor arquitetural (event
-  // delegation completo em TODAS as telas + testes jsdom rigorosos)
-  // antes de reativar. Fica inerte por enquanto — flag ?morphdom=1 idem.
-  // Event delegation (Fase 1) permanece — funciona standalone.
-  root.innerHTML = '';
-  buildInto(root);
+  // v539: morphdom RE-ATIVADO após entender o contrato via jsdom test.
+  // Regra descoberta em tests/morphdom-render.spec.mjs CASO 4:
+  // morphdom reusa old node por id-match, novo fica órfão. Consequência:
+  // código NÃO PODE capturar body em closure entre renders — sempre
+  // lookup fresh no #fin-body. profFinanceiro/tab click/_finReload.then
+  // já foram ajustados pra respeitar isso.
+  if (MORPHDOM && typeof morphdom === 'function'){
+    const newRoot = root.cloneNode(false);
+    buildInto(newRoot);
+    try {
+      morphdom(root, newRoot);
+    } catch(e){
+      root.innerHTML = '';
+      buildInto(root);
+    }
+  } else {
+    root.innerHTML = '';
+    buildInto(root);
+  }
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
@@ -10003,8 +10016,9 @@ function _finReload(what){
     if(_finRenderingInProgress) return;
     // v512: se estamos NA tela do Financeiro, repaint SÓ o body (moldura estável —
     // topbar/sidebar/mesBar/tabs não piscam). Fora dele, renderBg normal.
+    // v539: sem passar body — _finPaintBody faz lookup fresh (safe pra morphdom).
     const finBody = document.querySelector('.fin-body');
-    if(finBody && typeof _finPaintBody === 'function') _finPaintBody(finBody);
+    if(finBody && typeof _finPaintBody === 'function') _finPaintBody();
     else try { renderBg(); } catch(_){}
   });
 }
@@ -10083,27 +10097,23 @@ function profFinanceiro(){
     <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
     <button data-t="categorias" ${_finTab==='categorias'?'class="active"':''}>Categorias</button>
   </div>`);
-  // v512: clicar em aba repinta SÓ o body (mesBar + tabs + prep ficam parados).
-  // Antes: render() inteiro reconstruía topbar/sidebar/mesBar/tabs — flash total.
+  // v539: tab click NUNCA passa body closure — lookup fresh no _finPaintBody.
+  // Provado em tests/morphdom-render.spec.mjs CASO 4: morphdom reusa body
+  // antigo por id-match; body closure fica órfão.
   tabs.querySelectorAll('[data-t]').forEach(b=>{
     b.onclick=()=>{
       _finTab=b.dataset.t;
       tabs.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('active', x.dataset.t===_finTab));
-      _finPaintBody(body);
+      _finPaintBody();
     };
   });
   w.appendChild(tabs);
 
-  // v531 (fix morphdom): id no body pra lookup fresh dentro do _finPaintBody.
-  // Com morphdom ativo, `body` local vira detached se render() morfar o root
-  // (morphdom preserva o body ANTIGO no DOM; o body NOVO fica orfão). Sem id +
-  // getElementById, os appendChild caem no orfão e nada aparece.
   const body = el('<div class="fin-body" id="fin-body"></div>');
   w.appendChild(body);
 
-  // v512: se temos cache, pinta IMEDIATO sem "Carregando…". Refresh em background
-  // (gate 15s). Antes _finReload(true) forçava fetch toda entrada — flash duplo
-  // (loading → apaga → dado) mesmo com dado fresco no cache.
+  // v539: pinta o body FRESH direto (ainda no meio da construção, seguro).
+  // NÃO usa Promise pra deferir — sync é ok porque body é o próprio.
   const temCache = _finCobrancas !== null;
   if(temCache){
     _finPaintBody(body);
@@ -10113,23 +10123,24 @@ function profFinanceiro(){
 
   _finRenderingInProgress = true;
   _finReload().then(()=>{
-    _finPaintBody(body);
+    // v539: SEM body closure — lookup fresh (por conta do morphdom que pode
+    // ter reusado o body antigo entre o kickoff e o resolve).
+    _finPaintBody();
     _finRenderingInProgress = false;
   }).catch(()=>{ _finRenderingInProgress = false; });
 
   return w;
 }
 
-// v512/v535: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
-// refetch em background — mantém a moldura estável.
-// NOTA: NÃO fazer lookup por id aqui! profFinanceiro chama _finPaintBody num
-// body FRESH que ainda não está no DOM (ele só entra depois de w ser
-// appendChildeado ao root). Se buscarmos #fin-body no meio disso, achamos o
-// body ANTIGO que será removido pelo próximo morphdom — pintaríamos no
-// zumbi. O caller deve passar o body correto.
+// v539: _finPaintBody sem param usa lookup fresh (#fin-body). Se param body
+// FOR passado (chamada síncrona durante profFinanceiro construction), usa ele
+// — é o body fresh que está sendo montado, garantidamente NÃO tem old id
+// match no DOM ainda (ele nem entrou). Regra: passa body só quando você
+// SABE que é a construção; caso contrário chama sem arg.
 function _finPaintBody(body){
-  if(!body) return;
-  body.innerHTML='';
+  const target = body || document.getElementById('fin-body');
+  if(!target) return;
+  target.innerHTML='';
   if(_finTab==='dashboard') _finRenderDashboard(body);
   else if(_finTab==='cobrancas') _finRenderCobrancas(body);
   else if(_finTab==='despesas') _finRenderDespesas(body);
