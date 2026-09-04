@@ -11078,18 +11078,21 @@ function _plus(iso, dias){
 }
 
 /* ---- Sub-aba: Categorias (CRUD dedicado) — Sprint 2 v488 ---- */
+// v529 (Fase 2 refactor morphdom): tela piloto migrada pra event delegation.
+// Nenhum .onclick= aqui — tudo despachado pelo router (_dlgHandlers).
+// Handlers registrados FORA da função (uma vez só, no boot).
+// Zero closure local capturando `c` do forEach — dado é lido fresh do
+// _finCategorias via data-id no momento do clique. Padrão que morphdom
+// preserva sem risco de stale reference.
 function _finRenderCategorias(body){
   const cats = _finCategorias || [];
   const receitas = cats.filter(c=>c.tipo==='receita');
   const despesas = cats.filter(c=>c.tipo==='despesa');
 
-  const btnRow = el('<div style="display:flex;gap:8px;margin:0 12px 8px"></div>');
-  const btnR = el('<button class="btn-cad" style="flex:1">＋ Receita</button>');
-  btnR.onclick = ()=> _finCategoriaInlineSheet('receita', ()=>{ _finReload('categorias'); });
-  const btnD = el('<button class="btn-cad" style="flex:1">＋ Despesa</button>');
-  btnD.onclick = ()=> _finCategoriaInlineSheet('despesa', ()=>{ _finReload('categorias'); });
-  btnRow.appendChild(btnR); btnRow.appendChild(btnD);
-  body.appendChild(btnRow);
+  body.appendChild(el(`<div style="display:flex;gap:8px;margin:0 12px 8px">
+    <button class="btn-cad" data-click="finCatNova" data-tipo="receita" style="flex:1">＋ Receita</button>
+    <button class="btn-cad" data-click="finCatNova" data-tipo="despesa" style="flex:1">＋ Despesa</button>
+  </div>`));
 
   const secao = (titulo, arr, tipo) => {
     body.appendChild(el(`<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">${titulo} (${arr.length})</div>`));
@@ -11099,29 +11102,39 @@ function _finRenderCategorias(body){
     }
     const list = el('<div class="list"></div>');
     arr.forEach(c=>{
-      const row = el(`<div class="st-row" style="cursor:pointer">
+      list.appendChild(el(`<div class="st-row" data-click="finCatEdit" data-id="${safeAttr(c.id)}" style="cursor:pointer">
         <div class="st-mid"><div class="nm">${safeTxt(c.nome)}</div>
           <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${c.ativo===false?'inativa':'ativa'}</span></div></div>
         <div class="st-right">
-          <button class="btn-cad ghost" data-act="toggle" style="padding:6px 10px;font-size:11.5px">${c.ativo===false?'Ativar':'Desativar'}</button>
+          <button class="btn-cad ghost" data-click="finCatToggle" data-id="${safeAttr(c.id)}" style="padding:6px 10px;font-size:11.5px">${c.ativo===false?'Ativar':'Desativar'}</button>
         </div>
-      </div>`);
-      const btnToggle = row.querySelector('[data-act="toggle"]');
-      btnToggle.onclick = (e)=>{
-        e.stopPropagation();
-        btnToggle.disabled=true;
-        sbProf.salvarCategoria({ id:c.id, nome:c.nome, tipo:c.tipo, ativo: c.ativo===false })
-          .then(()=>{ toast(c.ativo===false?'Categoria reativada':'Categoria desativada'); _finReload('categorias'); })
-          .catch(e=>{ btnToggle.disabled=false; toast('Erro: '+(e.message||e)); });
-      };
-      row.onclick = ()=> _finCategoriaEditSheet(c, ()=>{ _finReload('categorias'); });
-      list.appendChild(row);
+      </div>`));
     });
     body.appendChild(list);
   };
   secao('Receitas', receitas, 'receita');
   secao('Despesas', despesas, 'despesa');
 }
+
+// Handlers da tela Categorias (Fase 2). Registrados UMA vez no load do módulo.
+// Router dispara via data-click no root; leitura de dado é sempre fresh via
+// _finCategorias.find(...) — sem risco de closure stale pós-morphdom.
+_dlgRegister('finCatNova', (el) => {
+  _finCategoriaInlineSheet(el.dataset.tipo, () => { _finReload('categorias'); });
+});
+_dlgRegister('finCatEdit', (el) => {
+  const c = (_finCategorias||[]).find(x => x.id === el.dataset.id);
+  if(!c) return;
+  _finCategoriaEditSheet(c, () => { _finReload('categorias'); });
+});
+_dlgRegister('finCatToggle', (el) => {
+  const c = (_finCategorias||[]).find(x => x.id === el.dataset.id);
+  if(!c) return;
+  el.disabled = true;
+  sbProf.salvarCategoria({ id:c.id, nome:c.nome, tipo:c.tipo, ativo: c.ativo===false })
+    .then(()=>{ toast(c.ativo===false?'Categoria reativada':'Categoria desativada'); _finReload('categorias'); })
+    .catch(err=>{ el.disabled=false; toast('Erro: '+(err.message||err)); });
+});
 
 // Editar categoria existente (renomear)
 function _finCategoriaEditSheet(c, onDone){
