@@ -128,17 +128,28 @@ function _dlgMake(evt, attr){
   };
 }
 function _dlgInstall(){
-  // v532 (fix morphdom): attach em `document`, não em `#root`. Se morphdom
-  // ou qualquer render substituir/recriar o root, os listeners em document
-  // sobrevivem. Gate `root.contains(el)` dentro do dispatcher preserva o
-  // escopo — clicks em sheet (body) não disparam handler de tela.
   if(_dlgInstalled) return;
   _dlgInstalled = true;
   document.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
   document.addEventListener('change', _dlgMake('change', 'data-change'), false);
   document.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
   document.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
+  try{ console.log('[dlg] installed on document'); }catch(_){}
 }
+// v533 (debug): função global pro user rodar no console e ver o estado do router.
+// Uso: __dlgDebug()  — reporta se listener instalou, quantos data-click existem, etc.
+window.__dlgDebug = function(){
+  const root = document.getElementById('root');
+  const dc = root ? root.querySelectorAll('[data-click]') : [];
+  const handlers = Object.keys(_dlgHandlers || {});
+  console.log('[dlg] installed:', _dlgInstalled);
+  console.log('[dlg] handlers registered:', handlers);
+  console.log('[dlg] data-click elements in #root:', dc.length);
+  dc.forEach((el, i) => console.log('  ['+i+']', el.tagName, 'data-click=', el.dataset.click, 'data-id=', el.dataset.id, 'text=', el.textContent.trim().slice(0, 30)));
+  console.log('[dlg] MORPHDOM flag:', typeof MORPHDOM !== 'undefined' ? MORPHDOM : 'undef');
+  console.log('[dlg] morphdom lib:', typeof morphdom);
+  return { installed: _dlgInstalled, dcCount: dc.length, handlers };
+};
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 let HOJE_ISO = isoOf(hoje);
