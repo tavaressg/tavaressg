@@ -10094,7 +10094,11 @@ function profFinanceiro(){
   });
   w.appendChild(tabs);
 
-  const body = el('<div class="fin-body"></div>');
+  // v531 (fix morphdom): id no body pra lookup fresh dentro do _finPaintBody.
+  // Com morphdom ativo, `body` local vira detached se render() morfar o root
+  // (morphdom preserva o body ANTIGO no DOM; o body NOVO fica orfão). Sem id +
+  // getElementById, os appendChild caem no orfão e nada aparece.
+  const body = el('<div class="fin-body" id="fin-body"></div>');
   w.appendChild(body);
 
   // v512: se temos cache, pinta IMEDIATO sem "Carregando…". Refresh em background
@@ -10116,9 +10120,13 @@ function profFinanceiro(){
   return w;
 }
 
-// v512: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
-// refetch em background — mantém a moldura estável.
+// v512/v531: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
+// refetch em background — mantém a moldura estável. v531: refaz lookup por id se
+// o body passado estiver detached (morphdom preservou o body ANTIGO no DOM).
 function _finPaintBody(body){
+  if(body && !body.isConnected){
+    body = document.getElementById('fin-body') || body;
+  }
   if(!body) return;
   body.innerHTML='';
   if(_finTab==='dashboard') _finRenderDashboard(body);
@@ -10916,6 +10924,10 @@ function _finRenderMatriculas(body){
     sbProf.getAlunos(),   // já usado em outras telas — traz alunos ativos
     sbProf.getAllMatriculas(),
   ]).then(([alunos, matriculas])=>{
+    // v531 (fix morphdom): body pode ter virado detached se render() morfou o
+    // root entre o kickoff e o resolve. Recupera do DOM.
+    if(!body.isConnected) body = document.getElementById('fin-body') || body;
+    if(!body.isConnected) return;   // não recuperou → tela mudou, discard
     if(body.dataset.matrToken !== String(token)) return;   // stale — descarta
     holder.remove();
     // v518: mostra TODOS (aluno + dono + professor). Antes filtrava só aluno —
