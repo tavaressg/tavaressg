@@ -10141,13 +10141,14 @@ function profFinanceiro(){
   return w;
 }
 
-// v512/v531: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
-// refetch em background — mantém a moldura estável. v531: refaz lookup por id se
-// o body passado estiver detached (morphdom preservou o body ANTIGO no DOM).
+// v512/v535: pinta só o body da aba ativa. Chamado ao clicar em aba e ao terminar
+// refetch em background — mantém a moldura estável.
+// NOTA: NÃO fazer lookup por id aqui! profFinanceiro chama _finPaintBody num
+// body FRESH que ainda não está no DOM (ele só entra depois de w ser
+// appendChildeado ao root). Se buscarmos #fin-body no meio disso, achamos o
+// body ANTIGO que será removido pelo próximo morphdom — pintaríamos no
+// zumbi. O caller deve passar o body correto.
 function _finPaintBody(body){
-  if(body && !body.isConnected){
-    body = document.getElementById('fin-body') || body;
-  }
   if(!body) return;
   body.innerHTML='';
   if(_finTab==='dashboard') _finRenderDashboard(body);
