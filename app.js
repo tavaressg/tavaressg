@@ -10141,13 +10141,13 @@ function _finPaintBody(body){
   const target = body || document.getElementById('fin-body');
   if(!target) return;
   target.innerHTML='';
-  if(_finTab==='dashboard') _finRenderDashboard(body);
-  else if(_finTab==='cobrancas') _finRenderCobrancas(body);
-  else if(_finTab==='despesas') _finRenderDespesas(body);
-  else if(_finTab==='planos') _finRenderPlanos(body);
-  else if(_finTab==='matriculas') _finRenderMatriculas(body);
-  else if(_finTab==='contratos') _finRenderContratos(body);
-  else _finRenderCategorias(body);
+  if(_finTab==='dashboard') _finRenderDashboard(target);
+  else if(_finTab==='cobrancas') _finRenderCobrancas(target);
+  else if(_finTab==='despesas') _finRenderDespesas(target);
+  else if(_finTab==='planos') _finRenderPlanos(target);
+  else if(_finTab==='matriculas') _finRenderMatriculas(target);
+  else if(_finTab==='contratos') _finRenderContratos(target);
+  else _finRenderCategorias(target);
 }
 
 /* ---- Sub-aba: Dashboard (Sprint 4) ---- */
