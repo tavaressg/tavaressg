@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:morphdom": "node tests/morphdom-render.spec.mjs"
+    "check": "node --check app.js && node --check supabase.js && node --check sw.js",
+    "test:morphdom": "node tests/morphdom-render.spec.mjs",
+    "test:fin-gate": "node tests/fin-reload-gate.spec.mjs",
+    "test": "npm run check && npm run test:fin-gate && npm run test:morphdom"
   },
   "devDependencies": {
-    "jsdom": "^25.0.1"
+    "jsdom": "^25.0.0"
   }
 }

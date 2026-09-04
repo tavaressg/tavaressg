@@ -5399,7 +5399,9 @@ function _profGraduarApply(a, faixa, graus, tipo){
    render pede quando precisa (_loadProfData/_loadRelData/_finReload já têm
    gate). Financeiro já era assim desde v509. Aplicado ao resto. */
 window.onDadosMudaram = function(){
-  _profTs = 0; _relTs = 0; _finTs = 0;
+  _profTs = 0; _relTs = 0;
+  // v542: gate do Financeiro virou por chave — invalida todas.
+  try{ Object.keys(_finTsK).forEach(k => { delete _finTsK[k]; }); }catch(_){}
 };
 /* v511: piso 10s→5min. Alt-tab não é sinal de dados obsoletos — refetch
    agressivo aqui gerava rajadas de query a cada troca de aba do professor. */
@@ -9967,7 +9969,13 @@ let _finPlanos = null, _finContratos = null, _finDespesas = null;
 let _finCobrancas = null, _finCategorias = null, _finRec = null;
 let _finMatriculas = null, _finTurmasMap = null;   // v504: cache pra tabela Cobranças rica
 let _finRenderingInProgress = false;   // v507: guard anti-loop de renderBg
-let _finTs = 0;
+// v542: gate POR CHAVE (era um _finTs global que o seletivo queimava — ver
+// _finChavesParaBuscar). { cobrancas: ts, planos: ts, ... }
+const _finTsK = {};
+// v542: geração de pintura. _finPaintBody incrementa a cada repaint; telas que
+// fazem fetch async capturam a geração e descartam a resposta se ela mudou
+// (troca de aba, refetch, saída do Financeiro). Ver _finPaintOk.
+let _finPaintSeq = 0;
 let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
 let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
 let _finDespFiltro = 'a_pagar';
@@ -9984,31 +9992,52 @@ function _finMesShift(delta){
   const d = new Date(y, m-1+delta, 1);
   _finMesRef = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
 }
-// v510: _finReload aceita seleção de queries pra recarregar. Cortou ~70% do
-// egress do Financeiro (antes cada mutação refazia 8 queries pra 1 mudar).
-//   _finReload()              → gate 15s, refaz tudo se expirou
-//   _finReload(true)          → força tudo (boot/reload manual)
-//   _finReload('cobrancas')   → força só cobrancas
-//   _finReload(['a','b'])     → força só as listadas
-// Chaves: cobrancas · despesas · planos · contratos · categorias · rec · matriculas · turmas
+/* v510: _finReload aceita seleção de queries pra recarregar. Cortou ~70% do
+   egress do Financeiro (antes cada mutação refazia 8 queries pra 1 mudar).
+     _finReload()              → busca só as chaves stale (>15s) ou nunca buscadas
+     _finReload(true)          → força tudo (boot/reload manual)
+     _finReload('cobrancas')   → força só cobrancas
+     _finReload(['a','b'])     → força só as listadas
+
+   v542 — a decisão de QUAIS chaves buscar saiu daqui pra _finChavesParaBuscar,
+   função PURA e testável sem rede: ver tests/fin-reload-gate.spec.mjs.
+
+   BUG que ela conserta (v510→v541): o gate era um `_finTs` ÚNICO e global, e
+   toda chamada — inclusive seletiva — o carimbava. Sequência real em prod:
+     1. tabbarProf() dispara _finReload(['cobrancas','contratos'])  → carimba _finTs
+     2. profFinanceiro() dispara _finReload() (full)                → gate bloqueia
+     3. planos/despesas/categorias/matriculas/rec/turmas NUNCA carregam por 15s
+   Resultado: abas mostrando "Nenhum plano cadastrado" com 7 planos no banco.
+
+   Agora o gate é POR CHAVE. Contrato preservado:
+     _finReload()        → busca só as chaves stale (>15s) ou nunca buscadas
+     _finReload('x')     → força x (seletivo sempre força, como antes)
+     _finReload(true)    → força tudo (como antes) */
+const _FIN_CHAVES = ['cobrancas','despesas','planos','contratos','categorias','rec','matriculas','turmas'];
+const _FIN_TTL = 15000;
+function _finChavesParaBuscar(what, tsPorChave, agora){
+  if(what === true) return _FIN_CHAVES.slice();                       // força tudo
+  if(typeof what === 'string') return [what];                          // força uma
+  if(Array.isArray(what)) return what.slice();                         // força as listadas
+  return _FIN_CHAVES.filter(k => !tsPorChave[k] || (agora - tsPorChave[k]) >= _FIN_TTL);
+}
+
 function _finReload(what){
-  const forceAll = what === true;
-  const isSelective = typeof what === 'string' || Array.isArray(what);
   if(DEMO || typeof sbProf==='undefined' || !sbProf.getCobrancas) return Promise.resolve();
-  if(!forceAll && !isSelective && Date.now() - _finTs < 15000) return Promise.resolve();
-  _finTs = Date.now();
+  const chaves = _finChavesParaBuscar(what, _finTsK, Date.now());
+  if(!chaves.length) return Promise.resolve();
   const mes = _finMes();
-  const wanted = isSelective ? (Array.isArray(what) ? what : [what]) : null;
-  const want = k => !wanted || wanted.includes(k);
+  const want = k => chaves.includes(k);
+  const ok = k => { _finTsK[k] = Date.now(); };   // só carimba a chave efetivamente buscada
   const tasks = [];
-  if(want('cobrancas'))  tasks.push(sbProf.getCobrancas({ mes }).then(r=>{ _finCobrancas = r; }).catch(()=>{}));
-  if(want('despesas'))   tasks.push(sbProf.getDespesas().then(r=>{ _finDespesas = r; }).catch(()=>{}));
-  if(want('planos'))     tasks.push(sbProf.getPlanos().then(r=>{ _finPlanos = r; }).catch(()=>{}));
-  if(want('contratos'))  tasks.push(sbProf.getContratos().then(r=>{ _finContratos = r; }).catch(()=>{}));
-  if(want('categorias')) tasks.push(sbProf.getCategorias().then(r=>{ _finCategorias = r; }).catch(()=>{}));
-  if(want('rec') && sbProf.getDespesasRecorrentes) tasks.push(sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; }).catch(()=>{}));
-  if(want('matriculas') && sbProf.getAllMatriculas) tasks.push(sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; }).catch(()=>{}));
-  if(want('turmas'))     tasks.push(sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); }).catch(()=>{}));
+  if(want('cobrancas'))  tasks.push(sbProf.getCobrancas({ mes }).then(r=>{ _finCobrancas = r; ok('cobrancas'); }).catch(()=>{}));
+  if(want('despesas'))   tasks.push(sbProf.getDespesas().then(r=>{ _finDespesas = r; ok('despesas'); }).catch(()=>{}));
+  if(want('planos'))     tasks.push(sbProf.getPlanos().then(r=>{ _finPlanos = r; ok('planos'); }).catch(()=>{}));
+  if(want('contratos'))  tasks.push(sbProf.getContratos().then(r=>{ _finContratos = r; ok('contratos'); }).catch(()=>{}));
+  if(want('categorias')) tasks.push(sbProf.getCategorias().then(r=>{ _finCategorias = r; ok('categorias'); }).catch(()=>{}));
+  if(want('rec') && sbProf.getDespesasRecorrentes) tasks.push(sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; ok('rec'); }).catch(()=>{}));
+  if(want('matriculas') && sbProf.getAllMatriculas) tasks.push(sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; ok('matriculas'); }).catch(()=>{}));
+  if(want('turmas'))     tasks.push(sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); ok('turmas'); }).catch(()=>{}));
   return Promise.all(tasks).then(()=>{
     if(_finRenderingInProgress) return;
     // v512: se estamos NA tela do Financeiro, repaint SÓ o body (moldura estável —
@@ -10126,8 +10155,24 @@ function profFinanceiro(){
   return w;
 }
 
+/* v542 — guarda para telas do Financeiro que fazem fetch DENTRO do render
+   (Dashboard e Matrículas). Sem isso, a resposta que chega depois do usuário
+   trocar de aba appenda o conteúdo velho POR CIMA da aba nova.
+
+   Por que o token antigo (body.dataset.matrToken, v518) não bastava:
+   `body.innerHTML=''` limpa os FILHOS mas não o dataset do próprio body — a
+   resposta stale passava na guarda ao trocar de aba. A geração (_finPaintSeq)
+   é externa ao DOM, então nenhuma limpeza de innerHTML a ressuscita.
+
+   Uso: `const seq = _finPaintSeq;` no topo do render, e
+        `if(!_finPaintOk(body, seq)) return;` na entrada do .then */
+function _finPaintOk(body, seq){
+  return !!body && body.isConnected && seq === _finPaintSeq;
+}
+
 function _finPaintBody(body){
   if(!body) return;
+  _finPaintSeq++;   // v542: invalida respostas async de pinturas anteriores
   body.innerHTML='';
   if(_finTab==='dashboard') _finRenderDashboard(body);
   else if(_finTab==='cobrancas') _finRenderCobrancas(body);
@@ -10157,6 +10202,10 @@ function _finRenderDashboard(body){
   if(!btnNextY.disabled) btnNextY.onclick = ()=>{ _finDashAno = ano+1; _finDashData=null; render(); };
   body.appendChild(yBar);
 
+  // v542: mesma guarda de Matrículas. O Dashboard NÃO tinha nenhuma — clicar
+  // nele e trocar de aba rápido appendava os 6 blocos por cima da aba nova.
+  const seq = _finPaintSeq;
+
   const holder = el('<div class="loading-center" style="padding:20px">Carregando…</div>');
   body.appendChild(holder);
 
@@ -10164,7 +10213,8 @@ function _finRenderDashboard(body){
     sbProf.getFinResumoAnual(ano),
     sbProf.getInadimplentesDetalhado(6),
   ]).then(([resumo, inad])=>{
-    _finDashData = resumo; _finDashInad = inad;
+    _finDashData = resumo; _finDashInad = inad;   // cache vale mesmo se a pintura foi descartada
+    if(!_finPaintOk(body, seq)) return;
     holder.remove();
     body.appendChild(_finDashChartAnual(resumo, ano));
     body.appendChild(_finDashDRE(resumo, ano));   // Sprint 5
@@ -10172,7 +10222,10 @@ function _finRenderDashboard(body){
     body.appendChild(_finDashFluxoCaixa());       // Sprint 5
     body.appendChild(_finDashInadTabela(inad));
     body.appendChild(_finDashExport(resumo, ano)); // Sprint 5
-  }).catch(e=>{ holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
+  }).catch(e=>{
+    if(!_finPaintOk(body, seq)) return;
+    holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>';
+  });
 }
 
 // DRE simplificada (Sprint 5) — mês corrente do ano do dashboard vs mês anterior
@@ -10917,12 +10970,9 @@ function _finRenderMatriculas(body){
   // v516: garante cache das turmas (mesmo padrão do resto do app — _turmasArr)
   if(typeof _loadTurmas==='function') _loadTurmas();
 
-  // v518: token contra duplicação. _finPaintBody é chamado 2x (cache imediato +
-  // refresh async) — cada chamada dispara este Promise.all. Sem token, os dois
-  // .then appendavam no MESMO body → 2 tabelas visíveis. O 2º render bumpa o
-  // token; a 1ª resposta ao voltar vê o token diferente e descarta.
-  const token = (Date.now() + Math.random());
-  body.dataset.matrToken = String(token);
+  // v542: guarda por geração de pintura (substitui o token em dataset da v518,
+  // que não pegava troca de ABA porque innerHTML='' não limpa o dataset).
+  const seq = _finPaintSeq;
 
   const holder = el('<div class="loading-center" style="padding:20px">Carregando alunos e matrículas…</div>');
   body.appendChild(holder);
@@ -10931,11 +10981,7 @@ function _finRenderMatriculas(body){
     sbProf.getAlunos(),   // já usado em outras telas — traz alunos ativos
     sbProf.getAllMatriculas(),
   ]).then(([alunos, matriculas])=>{
-    // v531 (fix morphdom): body pode ter virado detached se render() morfou o
-    // root entre o kickoff e o resolve. Recupera do DOM.
-    if(!body.isConnected) body = document.getElementById('fin-body') || body;
-    if(!body.isConnected) return;   // não recuperou → tela mudou, discard
-    if(body.dataset.matrToken !== String(token)) return;   // stale — descarta
+    if(!_finPaintOk(body, seq)) return;   // trocou de aba / saiu da tela / repintou
     holder.remove();
     // v518: mostra TODOS (aluno + dono + professor). Antes filtrava só aluno —
     // sumia dono/professor da visão financeira mesmo eles pagando mensalidade.
