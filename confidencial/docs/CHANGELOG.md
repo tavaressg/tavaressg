@@ -9,6 +9,79 @@
 
 ## Concluídas ✓
 
+### v542 — três bugs do Financeiro: gate por chave + guarda de pintura async (2026-09-04)
+
+Fecha o ciclo v510→v541. Análise de impacto feita antes de tocar no código
+(mapeados os 20 call sites de `_finReload` e as 2 telas com fetch dentro do
+render); nada fora do bloco Financeiro foi alterado.
+
+**Bug 1 — abas vazias (Planos/Despesas/Categorias/Matrículas).** O gate de 15s
+era um `_finTs` **único e global**, e a chamada *seletiva* também o carimbava.
+Sequência real em prod: `tabbarProf()` dispara `_finReload(['cobrancas','contratos'])`
+e carimba o gate → `profFinanceiro()` dispara `_finReload()` (full) → gate
+bloqueia → `planos`/`despesas`/`categorias`/`matriculas`/`rec`/`turmas` **nunca
+carregam** por 15s. Sintoma: aba Planos dizendo "Nenhum plano cadastrado" com
+7 planos no banco (`_finPlanos === null`, mas `sbProf.getPlanos()` devolvendo 7).
+Existia desde a **v510**, mascarado porque Cobranças — a aba default — é uma
+das duas que o badge busca. Fix: gate **por chave** (`_finTsK`). A decisão saiu
+para a função pura `_finChavesParaBuscar(what, tsPorChave, agora)`. Contrato
+preservado: seletivo e `true` forçam como antes; só o `_finReload()` full deixa
+de ser bloqueado indevidamente.
+
+**Bug 2 — Matrículas vazando para outra aba.** A guarda era um token em
+`body.dataset.matrToken` (v518), mas `body.innerHTML=''` limpa os **filhos** e
+não o dataset do próprio body — ao trocar de aba o token seguia válido e a
+resposta atrasada appendava Matrículas por cima da aba nova.
+
+**Bug 3 — Dashboard vazando igual (não reportado, achado na auditoria).**
+`_finRenderDashboard` appendava 6 blocos no `.then` **sem guarda nenhuma**.
+
+Fix 2+3: **geração de pintura**. `_finPaintBody` incrementa `_finPaintSeq` a
+cada repaint; as telas assíncronas capturam a geração e descartam via
+`_finPaintOk(body, seq)` (checa body vivo + geração igual). Por viver fora do
+DOM, nenhuma limpeza de `innerHTML` a ressuscita. Cobre os três casos: troca de
+aba, saída da tela e repaint da mesma aba — este último era o único que o token
+da v518 pegava.
+
+**Limpeza:** removido o `getElementById('fin-body')` herdado das tentativas de
+morphdom (v531) — sem morphdom não tem função e podia recuperar um body de
+outro contexto.
+
+**Infra de teste nova:** `package.json` (type: module, devDep `jsdom`) +
+`tests/`. `npm test` roda `node --check` nos três arquivos + `fin-reload-gate`
+(7 cenários) + `morphdom-render` (5 casos). O spec do gate **extrai a função do
+`app.js` real** em vez de reimplementá-la, então quebra se alguém mexer no gate
+sem pensar. ⚠️ `package.json`, `tests/` e `node_modules/` **não sobem pro host** —
+`node_modules` está no `.gitignore`; os outros dois ficam versionados mas fora
+da allowlist de deploy.
+
+### v530–v541 — morphdom: tentativa, diagnóstico e recuo (2026-09-04)
+
+Tentativa de eliminar o flash de render trocando `root.innerHTML=''` por
+diff-render com morphdom, atrás da flag `?morphdom=1`. **Revertida na v541
+depois de 11 versões.**
+
+**Por que não funcionou:** o app tem ~600 handlers `.onclick=` em closures que
+capturam referências de DOM. Morphdom reusa nós por *id-match* — provado no
+`tests/morphdom-render.spec.mjs` (CASO 4: na 2ª entrada numa tela, o nó novo
+fica órfão e o antigo permanece no DOM com o conteúdo morfado). Toda referência
+capturada em closure vira ghost, e cada correção pontual criava um sintoma novo
+em outra tela.
+
+**Pré-requisito real para retomar:** migrar **todos** os handlers para event
+delegation *antes* de ligar o morphdom — semanas de trabalho dedicado, não um
+incremento.
+
+**O que ficou de útil (tudo no repo, inerte):**
+- `_dlgRegister`/`_dlgInstall` — router de event delegation em `document`,
+  despacha `data-click`/`data-change`/`data-input`/`data-submit`. Funciona
+  standalone, sem morphdom. Base pronta para o refactor futuro.
+- Categorias e Planos migradas para `data-click` (rodam normalmente sem morphdom).
+- `vendor/morphdom.min.js` (12 KB, MIT, SRI no `index.html`).
+- `tests/morphdom-render.spec.mjs` — documenta o contrato descoberto.
+- Flag `?morphdom=1` continua definida, sem efeito.
+- `__dlgDebug()` — inspeção do router no console.
+
 ### v511 (supabase.js v86) — corte de egress: Auth cacheado + refetch em cascata desligado + Financeiro seletivo (2026-08-30)
 
 Investigação motivada por Egress do Supabase em **206%** do Free plan (10.2 GB
