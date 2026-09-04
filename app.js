@@ -1755,24 +1755,48 @@ function render(){
   document.body.setAttribute('data-role', DB.role||'aluno'); // hook do shell responsivo do professor (§7)
   // páginas cheias do professor não têm sidebar → zera o padding fantasma da .phone (desktop)
   root.classList.toggle('no-anim', sameView);
-  root.innerHTML = '';
-  // Login (Fase 0): só dispara quando o backend está ligado e não há sessão (authOpen).
-  // Offline authOpen é sempre false → inerte. Sem este branch a tela de login nunca aparecia no cutover.
-  if (DB.authOpen){ root.appendChild(renderAuth()); return; }
-  if (DB.trocarSenhaOpen){ root.appendChild(renderTrocarSenha()); return; }
-  if (DB.onboardingOpen){ root.appendChild(renderOnboarding()); return; }
-  if (DB.retroOpen){ root.appendChild(renderRetro()); return; }
-  // renderPresenca removido do roteador — presença agora é parte do flow unificado
-  if (DB.lojaOpen){ root.appendChild(renderLoja()); return; }
-  if (DB.meusPedidosOpen){ root.appendChild(renderMeusPedidos()); return; }
-  // Páginas cheias do professor: mantém a sidebar (tabbarProf vira sidebar no desktop via MQ).
-  if (DB.produtoFormOpen){ root.appendChild(renderProdutoForm()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
-  if (DB.cadastroAlunoOpen){ root.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') root.appendChild(tabbarProf()); return; }
-  if (DB.shareOpen){ root.appendChild(renderShare()); return; }
-  if (DB.treinoAberto){ root.appendChild(renderTreinoDetalhe()); return; }
-  if (DB.flow){ root.appendChild(renderFlow(DB.flow)); return; }
-  if (DB.role === 'aluno') root.appendChild(renderAluno());
-  else root.appendChild(renderProfessor());
+
+  // v530 (Fase 3 refactor morphdom): monta os filhos num container e:
+  //   - MORPHDOM ligado (?morphdom=1) + lib presente → morphdom(root, novo)
+  //   - Default (comportamento antigo) → root.innerHTML='' + appendChild
+  // Prova de conceito com bandeira. Zero mudança pra quem não flag.
+  const buildInto = (target) => {
+    if (DB.authOpen){ target.appendChild(renderAuth()); return; }
+    if (DB.trocarSenhaOpen){ target.appendChild(renderTrocarSenha()); return; }
+    if (DB.onboardingOpen){ target.appendChild(renderOnboarding()); return; }
+    if (DB.retroOpen){ target.appendChild(renderRetro()); return; }
+    if (DB.lojaOpen){ target.appendChild(renderLoja()); return; }
+    if (DB.meusPedidosOpen){ target.appendChild(renderMeusPedidos()); return; }
+    if (DB.produtoFormOpen){ target.appendChild(renderProdutoForm()); if (DB.role!=='aluno') target.appendChild(tabbarProf()); return; }
+    if (DB.cadastroAlunoOpen){ target.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') target.appendChild(tabbarProf()); return; }
+    if (DB.shareOpen){ target.appendChild(renderShare()); return; }
+    if (DB.treinoAberto){ target.appendChild(renderTreinoDetalhe()); return; }
+    if (DB.flow){ target.appendChild(renderFlow(DB.flow)); return; }
+    if (DB.role === 'aluno') target.appendChild(renderAluno());
+    else target.appendChild(renderProfessor());
+  };
+
+  if (MORPHDOM && typeof morphdom === 'function'){
+    // clone superficial preserva as attrs (dataset.view, className, id) já
+    // setadas acima; morphdom faz o diff dos filhos e patcheia o mínimo.
+    const newRoot = root.cloneNode(false);
+    buildInto(newRoot);
+    try {
+      morphdom(root, newRoot, {
+        onBeforeElUpdated(from, to){
+          if (from.isEqualNode(to)) return false;   // idênticos, pula
+          return true;
+        },
+      });
+    } catch(e){
+      // fallback seguro se morphdom explodir: comportamento antigo
+      root.innerHTML = '';
+      buildInto(root);
+    }
+  } else {
+    root.innerHTML = '';
+    buildInto(root);
+  }
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
@@ -15741,6 +15765,11 @@ function selfTest(){
     btn.remove(); noop.remove();
     delete _dlgHandlers.__test_click__;
   }catch(e){ ok('handler T6: router event delegation', false); }
+
+  // T7 (Fase 3): morphdom lib carregada e disponível como window.morphdom.
+  // Flag MORPHDOM só ativa render em modo morphdom com ?morphdom=1 na URL.
+  try{ ok('morphdom lib carregada (Fase 3)', typeof morphdom === 'function'); }
+  catch(e){ ok('morphdom lib carregada (Fase 3)', false); }
 
   // T5: sheet abre em document.body (fora do #root — não é tocado pelo morphdom no root).
   try{
