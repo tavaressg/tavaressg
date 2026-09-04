@@ -10766,11 +10766,10 @@ function _finRenderDespesas(body){
 }
 
 /* ---- Sub-aba: Planos ---- */
+// v537 (Fase 5 refactor morphdom): Planos migrada pra event delegation.
 function _finRenderPlanos(body){
   const planos = _finPlanos || [];
-  const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo plano</button>');
-  btn.onclick = ()=> _finPlanoSheet(null, ()=>{ _finReload(['planos','matriculas','cobrancas']); });
-  body.appendChild(btn);
+  body.appendChild(el('<button class="btn-cad" data-click="finPlanoNovo" style="margin:0 12px 8px">＋ Novo plano</button>'));
 
   if(!planos.length){ body.appendChild(el('<div class="empty-line">Nenhum plano cadastrado. Toque em "＋ Novo plano".</div>')); return; }
   const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao:'💳 Cartão', outro:'➕ Outro' };
@@ -10809,7 +10808,7 @@ function _finRenderPlanos(body){
     return `📊 ${p.parcelas}× ${moneyBR((p.valor||0)/p.parcelas)}`;
   };
   sorted.forEach((p) => {
-    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
+    tbody.appendChild(el(`<tr data-click="finPlanoEdit" data-id="${safeAttr(p.id)}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${p.ativo===false?'opacity:0.55':''}">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(p.nome)}</td>
       <td style="padding:10px 8px">${safeTxt(p.frequencia||'—')}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(p.valor)}</td>
@@ -10818,13 +10817,21 @@ function _finRenderPlanos(body){
       <td style="padding:10px 8px">${p.forma_padrao ? safeTxt(FORMA_LBL[p.forma_padrao]||p.forma_padrao) : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${p.tem_contrato ? '✓' : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(p)}</td>
-    </tr>`);
-    tr.onclick = ()=> _finPlanoSheet(p, ()=>{ _finReload(['planos','matriculas','cobrancas']); });
-    tbody.appendChild(tr);
+    </tr>`));
   });
   wrap.appendChild(table);
   body.appendChild(wrap);
 }
+
+// v537: handlers da aba Planos (registrados 1x no load).
+_dlgRegister('finPlanoNovo', () => {
+  _finPlanoSheet(null, () => { _finReload(['planos','matriculas','cobrancas']); });
+});
+_dlgRegister('finPlanoEdit', (el) => {
+  const p = (_finPlanos||[]).find(x => x.id === el.dataset.id);
+  if(!p) return;
+  _finPlanoSheet(p, () => { _finReload(['planos','matriculas','cobrancas']); });
+});
 
 /* ---- Sub-aba: Contratos ---- */
 function _finRenderContratos(body){
