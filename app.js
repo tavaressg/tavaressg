@@ -86,6 +86,57 @@ const TESTMODE = (()=>{ try{ return new URLSearchParams(location.search).has('te
 // pro rollout gradual. Ativa com ?morphdom=1. Inerte em prod até Fase 3.
 const MORPHDOM = (()=>{ try{ return new URLSearchParams(location.search).has('morphdom'); }catch(e){ return false; } })();
 const VITRINE = DEMO || TESTMODE;   // único ponto que decide se o seed fake entra
+
+/* ============================================================
+   v528 — Router de event delegation (Fase 1 refactor morphdom)
+   ------------------------------------------------------------
+   Registra 1 listener global em #root pra despachar clicks/change/input
+   via `data-click="nome"`. Elimina o padrão `btn.onclick=()=>{...c...}`
+   em closures locais — necessário pra morphdom funcionar sem bugs.
+
+   Uso:
+     _dlgRegister('finPlano', (el, ev) => _finPlanoSheet(byId(el.dataset.id)));
+     // no HTML: <button data-click="finPlano" data-id="uuid">Editar</button>
+
+   COEXISTE com .onclick= atual — só disponibiliza a infra. Migração é
+   opt-in por tela na Fase 5. Sheets em document.body NÃO passam por aqui
+   (não estão em #root) — continuam com .onclick= direto.
+
+   Handler recebe (element_matched, event). Pode ler dados via el.dataset.*
+   Passar o `event` permite stopPropagation/preventDefault quando preciso.
+
+   Convention: nome do handler em camelCase (JS-style). data-id/data-op/etc
+   pra passar contexto.
+   ============================================================ */
+const _dlgHandlers = Object.create(null);
+let _dlgInstalled = false;
+function _dlgRegister(name, fn){
+  if(typeof name !== 'string' || typeof fn !== 'function') return;
+  _dlgHandlers[name] = fn;
+}
+function _dlgFire(name, el, ev){
+  const fn = _dlgHandlers[name];
+  if(fn) fn(el, ev);
+}
+function _dlgMake(evt, attr){
+  return (ev) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('['+attr+']');
+    if(!el) return;
+    const root = document.getElementById('root');
+    if(!root || !root.contains(el)) return;
+    _dlgFire(el.getAttribute(attr), el, ev);
+  };
+}
+function _dlgInstall(){
+  if(_dlgInstalled) return;
+  const root = document.getElementById('root');
+  if(!root) return;
+  _dlgInstalled = true;
+  root.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
+  root.addEventListener('change', _dlgMake('change', 'data-change'), false);
+  root.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
+  root.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
+}
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 let HOJE_ISO = isoOf(hoje);
@@ -1684,6 +1735,7 @@ function _closeAllSheets(){ document.querySelectorAll('.sheet-overlay').forEach(
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
   const root = $('#root');
+  _dlgInstall();                        // v528: garante router event-delegation ativo (idempotente)
   const curView = _viewKey();
   const sameView = root.dataset.view === curView;
   if (!sameView) _closeAllSheets();
@@ -15652,6 +15704,30 @@ function selfTest(){
       if(DB._formDrafts) delete DB._formDrafts['_ht4_key'];
     } else ok('handler T4: bindFormDraft (skip)', true);
   }catch(e){ ok('handler T4: bindFormDraft', false); }
+
+  // T6 (Fase 1 morphdom): router de event delegation despacha data-click.
+  // Prova que morphdom-ready pattern funciona no root atual.
+  try{
+    let fired = 0, lastId = null;
+    _dlgRegister('__test_click__', (el) => { fired++; lastId = el.dataset.id; });
+    const root = $('#root');
+    const btn = document.createElement('button');
+    btn.setAttribute('data-click', '__test_click__');
+    btn.setAttribute('data-id', 'abc123');
+    root.appendChild(btn);
+    btn.click();
+    ok('handler T6a: router despacha data-click', fired === 1 && lastId === 'abc123');
+    // 2º click continua funcionando (handler não é one-shot)
+    btn.click();
+    ok('handler T6b: router persiste entre clicks', fired === 2);
+    // Click FORA do data-click não dispara
+    const noop = document.createElement('button');
+    root.appendChild(noop);
+    noop.click();
+    ok('handler T6c: sem data-click não dispara', fired === 2);
+    btn.remove(); noop.remove();
+    delete _dlgHandlers.__test_click__;
+  }catch(e){ ok('handler T6: router event delegation', false); }
 
   // T5: sheet abre em document.body (fora do #root — não é tocado pelo morphdom no root).
   try{
