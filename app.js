@@ -121,19 +121,9 @@ function _dlgFire(name, el, ev){
 function _dlgMake(evt, attr){
   return (ev) => {
     const el = ev.target && ev.target.closest && ev.target.closest('['+attr+']');
-    if(!el){
-      // debug v533: só loga o click bruto se não achou data-*
-      if(evt==='click' && ev.target && ev.target.tagName === 'BUTTON'){
-        try{ console.log('[dlg] '+evt+' on BUTTON but no ['+attr+'] ancestor. target:', ev.target); }catch(_){}
-      }
-      return;
-    }
+    if(!el) return;
     const root = document.getElementById('root');
-    if(!root || !root.contains(el)){
-      try{ console.log('[dlg] '+evt+' matched ['+attr+']='+el.getAttribute(attr)+' but not in #root'); }catch(_){}
-      return;
-    }
-    try{ console.log('[dlg] dispatch '+evt+' '+attr+'='+el.getAttribute(attr)); }catch(_){}
+    if(!root || !root.contains(el)) return;
     _dlgFire(el.getAttribute(attr), el, ev);
   };
 }
@@ -144,7 +134,6 @@ function _dlgInstall(){
   document.addEventListener('change', _dlgMake('change', 'data-change'), false);
   document.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
   document.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
-  try{ console.log('[dlg] installed on document'); }catch(_){}
 }
 // v533 (debug): função global pro user rodar no console e ver o estado do router.
 // Uso: __dlgDebug()  — reporta se listener instalou, quantos data-click existem, etc.
