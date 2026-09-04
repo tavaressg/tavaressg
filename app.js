@@ -128,14 +128,16 @@ function _dlgMake(evt, attr){
   };
 }
 function _dlgInstall(){
+  // v532 (fix morphdom): attach em `document`, não em `#root`. Se morphdom
+  // ou qualquer render substituir/recriar o root, os listeners em document
+  // sobrevivem. Gate `root.contains(el)` dentro do dispatcher preserva o
+  // escopo — clicks em sheet (body) não disparam handler de tela.
   if(_dlgInstalled) return;
-  const root = document.getElementById('root');
-  if(!root) return;
   _dlgInstalled = true;
-  root.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
-  root.addEventListener('change', _dlgMake('change', 'data-change'), false);
-  root.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
-  root.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
+  document.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
+  document.addEventListener('change', _dlgMake('change', 'data-change'), false);
+  document.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
+  document.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
 }
 const hoje = DEMO ? new Date(2026, 5, 3) : (()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; })();
 const isoOf = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -1782,12 +1784,10 @@ function render(){
     const newRoot = root.cloneNode(false);
     buildInto(newRoot);
     try {
-      morphdom(root, newRoot, {
-        onBeforeElUpdated(from, to){
-          if (from.isEqualNode(to)) return false;   // idênticos, pula
-          return true;
-        },
-      });
+      // v532: sem fast-path isEqualNode — morphdom decide sozinho o que
+      // atualizar. Antes o skip trigger-happy pulava clicks em botões cujo
+      // markup parecia igual mas cujo click handler não subia ao root.
+      morphdom(root, newRoot);
     } catch(e){
       // fallback seguro se morphdom explodir: comportamento antigo
       root.innerHTML = '';
