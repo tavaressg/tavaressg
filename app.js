@@ -1788,25 +1788,15 @@ function render(){
     else target.appendChild(renderProfessor());
   };
 
-  if (MORPHDOM && typeof morphdom === 'function'){
-    // clone superficial preserva as attrs (dataset.view, className, id) já
-    // setadas acima; morphdom faz o diff dos filhos e patcheia o mínimo.
-    const newRoot = root.cloneNode(false);
-    buildInto(newRoot);
-    try {
-      // v532: sem fast-path isEqualNode — morphdom decide sozinho o que
-      // atualizar. Antes o skip trigger-happy pulava clicks em botões cujo
-      // markup parecia igual mas cujo click handler não subia ao root.
-      morphdom(root, newRoot);
-    } catch(e){
-      // fallback seguro se morphdom explodir: comportamento antigo
-      root.innerHTML = '';
-      buildInto(root);
-    }
-  } else {
-    root.innerHTML = '';
-    buildInto(root);
-  }
+  // v538: morphdom DESATIVADO — nossa implementação criava body detached
+  // (morphdom reusa fromNode do root em vez de mover newRoot's children),
+  // fazendo _finPaintBody pintar em elementos fora do DOM. Cada fix
+  // introduzia um novo sintoma. Precisa refactor arquitetural (event
+  // delegation completo em TODAS as telas + testes jsdom rigorosos)
+  // antes de reativar. Fica inerte por enquanto — flag ?morphdom=1 idem.
+  // Event delegation (Fase 1) permanece — funciona standalone.
+  root.innerHTML = '';
+  buildInto(root);
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
