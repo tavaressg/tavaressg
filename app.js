@@ -1791,25 +1791,22 @@ function render(){
     else target.appendChild(renderProfessor());
   };
 
-  // v539: morphdom RE-ATIVADO após entender o contrato via jsdom test.
-  // Regra descoberta em tests/morphdom-render.spec.mjs CASO 4:
-  // morphdom reusa old node por id-match, novo fica órfão. Consequência:
-  // código NÃO PODE capturar body em closure entre renders — sempre
-  // lookup fresh no #fin-body. profFinanceiro/tab click/_finReload.then
-  // já foram ajustados pra respeitar isso.
-  if (MORPHDOM && typeof morphdom === 'function'){
-    const newRoot = root.cloneNode(false);
-    buildInto(newRoot);
-    try {
-      morphdom(root, newRoot);
-    } catch(e){
-      root.innerHTML = '';
-      buildInto(root);
-    }
-  } else {
-    root.innerHTML = '';
-    buildInto(root);
-  }
+  // v541: morphdom DESATIVADO em definitivo. Tentativas v530-v540 (11 versões)
+  // não conseguiram fazer funcionar sem introduzir novos bugs em cada fix.
+  // Motivo raiz: app tem centenas de closures capturando refs de DOM em
+  // handlers .onclick=, e morphdom reusa nodes por id-match — o que
+  // sistematicamente detacha as refs que o app usa. Consertar tudo exige
+  // reescrever ~15k linhas pra event delegation puro. Fora do escopo hoje.
+  // Fica pra uma sessão dedicada com escopo semanas + testes por tela.
+  //
+  // O que fica útil da experiência:
+  //   - Router event delegation (Fase 1) — funciona standalone, boa base
+  //   - Categorias e Planos migradas pra data-click — rodam OK sem morphdom
+  //   - vendor/morphdom.min.js — pronto pra retomar quando fizer o refactor
+  //   - tests/morphdom-render.spec.mjs — documenta o contrato descoberto
+  //   - Flag ?morphdom=1 continua definida (inerte)
+  root.innerHTML = '';
+  buildInto(root);
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
@@ -10016,9 +10013,9 @@ function _finReload(what){
     if(_finRenderingInProgress) return;
     // v512: se estamos NA tela do Financeiro, repaint SÓ o body (moldura estável —
     // topbar/sidebar/mesBar/tabs não piscam). Fora dele, renderBg normal.
-    // v539: sem passar body — _finPaintBody faz lookup fresh (safe pra morphdom).
+    // v541: passa body direto — morphdom off, body ref sempre válida.
     const finBody = document.querySelector('.fin-body');
-    if(finBody && typeof _finPaintBody === 'function') _finPaintBody();
+    if(finBody && typeof _finPaintBody === 'function') _finPaintBody(finBody);
     else try { renderBg(); } catch(_){}
   });
 }
@@ -10097,14 +10094,15 @@ function profFinanceiro(){
     <button data-t="contratos" ${_finTab==='contratos'?'class="active"':''}>Contratos</button>
     <button data-t="categorias" ${_finTab==='categorias'?'class="active"':''}>Categorias</button>
   </div>`);
-  // v539: tab click NUNCA passa body closure — lookup fresh no _finPaintBody.
-  // Provado em tests/morphdom-render.spec.mjs CASO 4: morphdom reusa body
-  // antigo por id-match; body closure fica órfão.
+  // v541: volta ao padrão pré-morphdom — body é closure ref, sem lookup.
+  // Comportamento estável desde v512, provado em prod. Sem morphdom, root
+  // e children NUNCA são substituídos entre renders (innerHTML='' apaga
+  // TUDO, novo append reusa a mesma root). body ref permanece válida.
   tabs.querySelectorAll('[data-t]').forEach(b=>{
     b.onclick=()=>{
       _finTab=b.dataset.t;
       tabs.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('active', x.dataset.t===_finTab));
-      _finPaintBody();
+      _finPaintBody(body);
     };
   });
   w.appendChild(tabs);
@@ -10112,8 +10110,6 @@ function profFinanceiro(){
   const body = el('<div class="fin-body" id="fin-body"></div>');
   w.appendChild(body);
 
-  // v539: pinta o body FRESH direto (ainda no meio da construção, seguro).
-  // NÃO usa Promise pra deferir — sync é ok porque body é o próprio.
   const temCache = _finCobrancas !== null;
   if(temCache){
     _finPaintBody(body);
@@ -10123,31 +10119,23 @@ function profFinanceiro(){
 
   _finRenderingInProgress = true;
   _finReload().then(()=>{
-    // v539: SEM body closure — lookup fresh (por conta do morphdom que pode
-    // ter reusado o body antigo entre o kickoff e o resolve).
-    _finPaintBody();
+    _finPaintBody(body);
     _finRenderingInProgress = false;
   }).catch(()=>{ _finRenderingInProgress = false; });
 
   return w;
 }
 
-// v539: _finPaintBody sem param usa lookup fresh (#fin-body). Se param body
-// FOR passado (chamada síncrona durante profFinanceiro construction), usa ele
-// — é o body fresh que está sendo montado, garantidamente NÃO tem old id
-// match no DOM ainda (ele nem entrou). Regra: passa body só quando você
-// SABE que é a construção; caso contrário chama sem arg.
 function _finPaintBody(body){
-  const target = body || document.getElementById('fin-body');
-  if(!target) return;
-  target.innerHTML='';
-  if(_finTab==='dashboard') _finRenderDashboard(target);
-  else if(_finTab==='cobrancas') _finRenderCobrancas(target);
-  else if(_finTab==='despesas') _finRenderDespesas(target);
-  else if(_finTab==='planos') _finRenderPlanos(target);
-  else if(_finTab==='matriculas') _finRenderMatriculas(target);
-  else if(_finTab==='contratos') _finRenderContratos(target);
-  else _finRenderCategorias(target);
+  if(!body) return;
+  body.innerHTML='';
+  if(_finTab==='dashboard') _finRenderDashboard(body);
+  else if(_finTab==='cobrancas') _finRenderCobrancas(body);
+  else if(_finTab==='despesas') _finRenderDespesas(body);
+  else if(_finTab==='planos') _finRenderPlanos(body);
+  else if(_finTab==='matriculas') _finRenderMatriculas(body);
+  else if(_finTab==='contratos') _finRenderContratos(body);
+  else _finRenderCategorias(body);
 }
 
 /* ---- Sub-aba: Dashboard (Sprint 4) ---- */
