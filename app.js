@@ -10226,6 +10226,7 @@ const _FIN_MORPH = {
   contratos:  { pronto: () => true, pintar: (t) => _finRenderContratos(t) },
   despesas:   { pronto: () => true, pintar: (t) => _finRenderDespesas(t) },
   cobrancas:  { pronto: () => true, pintar: (t) => _finRenderCobrancas(t) },
+  dashboard:  { pronto: () => _finDashPronto(), pintar: (t) => _finDashPintarAtual(t) },
   matriculas: {
     pronto: () => !!(_finMatriculas && typeof _profData !== 'undefined' && _profData && _profData.alunos),
     pintar: (t) => _finMatriculasPintar(t, _profData.alunos, _finMatriculas),
@@ -10259,48 +10260,96 @@ function _finPaintBody(body){
 
 /* ---- Sub-aba: Dashboard (Sprint 4) ---- */
 let _finDashAno = null, _finDashData = null, _finDashInad = null;
+/* v550 — cache POR ANO. Antes `_finDashData`/`_finDashInad` guardavam o
+   resultado sem saber de qual ano ele era, então o handler de ano tinha que
+   zerar tudo (`_finDashData=null`) e refazer as duas queries a cada troca —
+   inclusive voltando pro ano que acabou de sair. Chaveando por ano, navegar
+   entre anos já visitados fica instantâneo, e a aba passa a poder pintar
+   síncrona (pré-requisito do morphdom). Mesmo raciocínio da v544 em Matrículas. */
+const _finDashCache = {};   // { [ano]: { resumo, inad } }
 function _finDashAnoAtual(){ return _finDashAno || new Date().getFullYear(); }
+function _finDashPronto(){ return !!_finDashCache[_finDashAnoAtual()]; }
+
 function _finRenderDashboard(body){
   if(!_finBackend()){ body.innerHTML='<div class="empty-line">Dashboard só com backend ligado.</div>'; return; }
   const ano = _finDashAnoAtual();
-  const anoCorrente = new Date().getFullYear();
 
-  // Seletor de ano
-  const yBar = el(`<div style="display:flex;align-items:center;gap:8px;margin:0 12px 10px">
-    <button class="btn-cad ghost" id="fy-prev" style="min-width:34px;padding:6px 8px">‹</button>
-    <div style="flex:1;text-align:center;font-weight:800;font-size:14.5px">${ano}</div>
-    <button class="btn-cad ghost" id="fy-next" style="min-width:34px;padding:6px 8px" ${ano>=anoCorrente?'disabled':''}>›</button>
-  </div>`);
-  yBar.querySelector('#fy-prev').onclick = ()=>{ _finDashAno = ano-1; _finDashData=null; render(); };
-  const btnNextY = yBar.querySelector('#fy-next');
-  if(!btnNextY.disabled) btnNextY.onclick = ()=>{ _finDashAno = ano+1; _finDashData=null; render(); };
-  body.appendChild(yBar);
+  const cache = _finDashCache[ano];
+  if(cache){
+    _finDashPintar(body, cache.resumo, cache.inad, ano, cache.fluxo);
+    return;
+  }
 
-  // v542: mesma guarda de Matrículas. O Dashboard NÃO tinha nenhuma — clicar
-  // nele e trocar de aba rápido appendava os 6 blocos por cima da aba nova.
+  // v542: guarda de geração — o Dashboard não tinha nenhuma até então, e
+  // clicar nele e trocar de aba rápido appendava os 6 blocos na aba nova.
   const seq = _finPaintSeq;
-
+  body.appendChild(_finDashBarraAno(ano));
   const holder = el('<div class="loading-center" style="padding:20px">Carregando…</div>');
   body.appendChild(holder);
 
   Promise.all([
     sbProf.getFinResumoAnual(ano),
     sbProf.getInadimplentesDetalhado(6),
-  ]).then(([resumo, inad])=>{
-    _finDashData = resumo; _finDashInad = inad;   // cache vale mesmo se a pintura foi descartada
+    _finDashFetchFluxo(),
+  ]).then(([resumo, inad, fluxo])=>{
+    // Aquece o cache mesmo se a pintura for descartada — a próxima visita
+    // a este ano já vem síncrona.
+    _finDashCache[ano] = { resumo, inad, fluxo };
+    _finDashData = resumo; _finDashInad = inad;
     if(!_finPaintOk(body, seq)) return;
     holder.remove();
-    body.appendChild(_finDashChartAnual(resumo, ano));
-    body.appendChild(_finDashDRE(resumo, ano));   // Sprint 5
-    body.appendChild(_finDashPizzas(resumo));
-    body.appendChild(_finDashFluxoCaixa());       // Sprint 5
-    body.appendChild(_finDashInadTabela(inad));
-    body.appendChild(_finDashExport(resumo, ano)); // Sprint 5
+    _finDashBlocos(body, resumo, inad, ano, fluxo);
   }).catch(e=>{
     if(!_finPaintOk(body, seq)) return;
     holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>';
   });
 }
+
+// Barra do seletor de ano. v550: handlers via delegation; o ano vai no
+// data-ano para o handler não depender de closure.
+function _finDashBarraAno(ano){
+  const anoCorrente = new Date().getFullYear();
+  return el(`<div style="display:flex;align-items:center;gap:8px;margin:0 12px 10px">
+    <button class="btn-cad ghost" data-click="finDashAno" data-ano="${ano-1}" style="min-width:34px;padding:6px 8px" aria-label="Ano anterior">‹</button>
+    <div style="flex:1;text-align:center;font-weight:800;font-size:14.5px">${ano}</div>
+    <button class="btn-cad ghost" ${ano>=anoCorrente?'disabled':'data-click="finDashAno" data-ano="'+(ano+1)+'"'} style="min-width:34px;padding:6px 8px" aria-label="Próximo ano">›</button>
+  </div>`);
+}
+
+function _finDashBlocos(body, resumo, inad, ano, fluxo){
+  body.appendChild(_finDashChartAnual(resumo, ano));
+  body.appendChild(_finDashDRE(resumo, ano));    // Sprint 5
+  body.appendChild(_finDashPizzas(resumo));
+  body.appendChild(_finDashFluxoCaixa(fluxo));   // Sprint 5
+  body.appendChild(_finDashInadTabela(inad));
+  body.appendChild(_finDashExport(resumo, ano)); // Sprint 5
+}
+
+// Pintura síncrona do Dashboard (só roda com o ano em cache).
+function _finDashPintar(body, resumo, inad, ano, fluxo){
+  body.appendChild(_finDashBarraAno(ano));
+  _finDashBlocos(body, resumo, inad, ano, fluxo);
+}
+
+// Entrada usada pelo _FIN_MORPH: resolve o cache do ano corrente e pinta.
+// Mantida como função nomeada (e não um bloco inline no mapa) porque o guard
+// segue a cadeia a partir do identificador em `pintar`.
+function _finDashPintarAtual(body){
+  const ano = _finDashAnoAtual();
+  const d = _finDashCache[ano];
+  if(!d) return;
+  _finDashPintar(body, d.resumo, d.inad, ano, d.fluxo);
+}
+
+/* v550: troca de ano. Antes chamava render(), que reconstruía a tela inteira
+   (topbar, sidebar, mesBar, tabs) para mudar um bloco — mesmo problema que o
+   seletor de mês tinha antes da v513. Agora repinta só o corpo da aba. */
+_dlgRegister('finDashAno', (el) => {
+  const ano = parseInt(el.dataset.ano, 10);
+  if(!Number.isFinite(ano)) return;
+  _finDashAno = ano;
+  _finRepintarAbaAtual();
+});
 
 // DRE simplificada (Sprint 5) — mês corrente do ano do dashboard vs mês anterior
 function _finDashDRE(resumo, ano){
@@ -10340,25 +10389,38 @@ function _finDashDRE(resumo, ano){
 }
 
 // Fluxo de caixa — projeção próximos 30 dias (Sprint 5)
-function _finDashFluxoCaixa(){
-  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
-  card.appendChild(el('<div style="font-weight:800;font-size:14px;margin-bottom:10px">Fluxo de caixa · próximos 30 dias</div>'));
-  const loading = el('<div class="loading-center" style="padding:6px 0">Carregando…</div>');
-  card.appendChild(loading);
+/* v550: busca do fluxo de caixa separada da pintura. Antes as duas queries
+   moravam DENTRO de _finDashFluxoCaixa e appendavam no card via .then — o que
+   fazia o Dashboard disparar 4 requisições por abertura (2 dele + 2 daqui) e
+   o impedia de pintar síncrono. Agora entram no mesmo Promise.all da aba e
+   vão pro cache junto. Foi o guard da allowlist que apontou este .then. */
+function _finDashFetchFluxo(){
   const in30 = _plus(HOJE_ISO, 30);
-  Promise.all([
+  return Promise.all([
     // Cobranças pendentes/atrasadas com venc entre hoje e +30d
     SB.from('mensalidades').select('valor,venc,status')
       .in('status',['pendente','atrasado']).gte('venc', HOJE_ISO).lte('venc', in30),
     // Despesas a pagar com data_lancamento entre hoje e +30d
     SB.from('despesas').select('valor,data_lancamento,status')
       .eq('status','a_pagar').gte('data_lancamento', HOJE_ISO).lte('data_lancamento', in30),
-  ]).then(([cR, dR])=>{
-    loading.remove();
-    const entradas = (cR.data||[]).reduce((s,c)=>s+(Number(c.valor)||0),0);
-    const saidas = (dR.data||[]).reduce((s,d)=>s+(Number(d.valor)||0),0);
+  ]).then(([cR, dR])=>({
+    entradas: (cR.data||[]).reduce((s,c)=>s+(Number(c.valor)||0),0),
+    saidas:   (dR.data||[]).reduce((s,d)=>s+(Number(d.valor)||0),0),
+    nCobs:    (cR.data||[]).length,
+    nDesp:    (dR.data||[]).length,
+  })).catch(()=> null);   // null → o card mostra o aviso, sem derrubar a aba
+}
+
+function _finDashFluxoCaixa(fluxo){
+  const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
+  card.appendChild(el('<div style="font-weight:800;font-size:14px;margin-bottom:10px">Fluxo de caixa · próximos 30 dias</div>'));
+  if(!fluxo){
+    card.appendChild(el('<div style="padding:6px 0;color:var(--muted);font-size:12.5px">Não foi possível carregar o fluxo.</div>'));
+    return card;
+  }
+  {
+    const { entradas, saidas, nCobs, nDesp } = fluxo;
     const saldo = entradas - saidas;
-    const nCobs = (cR.data||[]).length, nDesp = (dR.data||[]).length;
     card.appendChild(el(`
       <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px">
         <span>Entradas previstas <span style="color:var(--muted);font-size:11.5px">(${nCobs})</span></span>
@@ -10373,22 +10435,32 @@ function _finDashFluxoCaixa(){
         <span style="font-weight:800;color:${saldo>=0?'var(--good)':'var(--red)'}">${moneyBR(saldo)}</span>
       </div>
     `));
-  }).catch(e=>{ loading.textContent='Erro: '+(e.message||e); });
+  }
   return card;
 }
 
-// Botões de export (Sprint 5)
+// Botões de export (Sprint 5). v550: via delegation — os handlers pegam
+// resumo e ano do cache do Dashboard, sem closure.
 function _finDashExport(resumo, ano){
   const card = el('<div class="block" style="padding:14px 12px;margin:0 12px 12px"></div>');
   card.appendChild(el('<div style="font-weight:800;font-size:14px;margin-bottom:10px">Exportar</div>'));
-  const btnCSV = el('<button class="btn-cad ghost" style="width:100%;margin-bottom:8px">📊 CSV — resumo anual</button>');
-  btnCSV.onclick = ()=> _finExportCSV(resumo, ano);
-  const btnPDF = el('<button class="btn-cad ghost" style="width:100%">📄 PDF — DRE do mês</button>');
-  btnPDF.onclick = ()=> _finExportPDF(resumo, ano);
-  card.appendChild(btnCSV);
-  card.appendChild(btnPDF);
+  card.appendChild(el('<button class="btn-cad ghost" data-click="finDashExportCSV" style="width:100%;margin-bottom:8px">CSV — resumo anual</button>'));
+  card.appendChild(el('<button class="btn-cad ghost" data-click="finDashExportPDF" style="width:100%">PDF — DRE do mês</button>'));
   return card;
 }
+// v550: abre o link do WhatsApp já montado no data-wa.
+_dlgRegister('finAbrirWhatsapp', (el) => {
+  const url = el.dataset.wa;
+  if(url) window.open(url, '_blank', 'noopener');
+});
+_dlgRegister('finDashExportCSV', () => {
+  const ano = _finDashAnoAtual(); const d = _finDashCache[ano];
+  if(d) _finExportCSV(d.resumo, ano);
+});
+_dlgRegister('finDashExportPDF', () => {
+  const ano = _finDashAnoAtual(); const d = _finDashCache[ano];
+  if(d) _finExportPDF(d.resumo, ano);
+});
 function _finExportCSV(resumo, ano){
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const linhas = ['Mês;Receita;Despesa;Saldo'];
@@ -10543,20 +10615,19 @@ function _finDashInadTabela(inad){
   if(!inad.length){ card.appendChild(el('<div style="color:var(--muted);font-size:12.5px;padding:6px 0">Nenhum inadimplente 🎉</div>')); return card; }
   const list = el('<div class="list"></div>');
   inad.forEach(x=>{
+    // v550: botão do WhatsApp via delegation. O link já vinha pronto num
+    // data-wa; agora o próprio atributo dispara o handler.
     const wa = x.telefone ? _waLink({telefone:x.telefone, apelido:x.nome}) : null;
-    const row = el(`<div class="st-row">
+    list.appendChild(el(`<div class="st-row">
       <div class="st-mid">
         <div class="nm">${safeTxt(x.nome)}</div>
         <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${x.meses} m${x.meses>1?'eses':'ês'} vencido${x.meses>1?'s':''}</span></div>
       </div>
       <div class="st-right" style="display:flex;align-items:center;gap:8px">
         <div style="font-size:14.5px;font-weight:800;color:var(--red)">${moneyBR(x.total)}</div>
-        ${wa?`<button class="btn-cad ghost" data-wa="${safeAttr(wa)}" style="padding:6px 10px;font-size:12px">💬</button>`:''}
+        ${wa?`<button class="btn-cad ghost" data-click="finAbrirWhatsapp" data-wa="${safeAttr(wa)}" style="padding:6px 10px;font-size:12px" title="Cobrar pelo WhatsApp">💬</button>`:''}
       </div>
-    </div>`);
-    const waBtn = row.querySelector('[data-wa]');
-    if(waBtn) waBtn.onclick = ()=> window.open(waBtn.dataset.wa, '_blank', 'noopener');
-    list.appendChild(row);
+    </div>`));
   });
   card.appendChild(list);
   return card;

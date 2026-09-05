@@ -31,12 +31,39 @@ const linhas = src.split('\n');
 const iniMorph = src.indexOf('const _FIN_MORPH = {');
 assert.ok(iniMorph > 0, 'achou _FIN_MORPH no app.js');
 const blocoMorph = src.slice(iniMorph, src.indexOf('\n};', iniMorph));
+
+// Parse POR ENTRADA, não com um regex global sobre o bloco inteiro.
+// Um regex global casava `aba:` de uma entrada com o `pintar:` da SEGUINTE
+// quando a primeira não batia no formato esperado — e o guard passava
+// validando a função errada, em silêncio. Aconteceu na v550: um `pintar`
+// escrito como bloco `(t) => { ... }` fez o dashboard ser validado contra
+// _finMatriculasPintar e a aba matriculas sumir da checagem.
+// Agora: recorta o intervalo de cada entrada e falha alto se não parsear.
+const declaradas = [...blocoMorph.matchAll(/^\s{2}(\w+):\s*\{/gm)].map(m => ({
+  aba: m[1], ini: m.index,
+}));
+assert.ok(declaradas.length > 0, '_FIN_MORPH tem ao menos uma aba');
+
 const pintarPorAba = {};
-for (const m of blocoMorph.matchAll(/(\w+):\s*\{[\s\S]*?pintar:\s*\([^)]*\)\s*=>\s*(_fin\w+)\(/g)) {
-  pintarPorAba[m[1]] = m[2];
-}
+declaradas.forEach((d, i) => {
+  const fim = i + 1 < declaradas.length ? declaradas[i + 1].ini : blocoMorph.length;
+  const trecho = blocoMorph.slice(d.ini, fim);
+
+  const mPintar = trecho.match(/pintar:\s*\([^)]*\)\s*=>\s*(_fin\w+)\(/);
+  assert.ok(
+    mPintar,
+    `aba "${d.aba}": não consegui identificar a função de \`pintar\`. ` +
+    `Ela precisa ser uma chamada direta — \`pintar: (t) => _finAlgumaCoisa(t)\` — ` +
+    `e não um bloco \`(t) => { ... }\`, senão o guard não tem o que varrer. ` +
+    `Extraia o corpo para uma função nomeada.`
+  );
+  pintarPorAba[d.aba] = mPintar[1];
+});
+
 const allowlist = Object.keys(pintarPorAba);
-assert.ok(allowlist.length > 0, '_FIN_MORPH tem ao menos uma aba');
+// Toda aba declarada precisa ter sido parseada — se divergir, o parse comeu alguma.
+assert.equal(allowlist.length, declaradas.length,
+  `parseei ${allowlist.length} de ${declaradas.length} abas declaradas no _FIN_MORPH`);
 
 // ---------- mapeia aba → função de render (lido do _finPintarAba) ----------
 // Usado só na sanidade reversa (por que cada aba de fora está de fora).
