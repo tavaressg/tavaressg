@@ -8001,15 +8001,17 @@ function _finAlunoPlanoSheet(a, onDone){
       <button class="btn-save" id="ap-save" style="margin-top:14px">Salvar</button>
       <button class="sheet-cancel" id="ap-close">Cancelar</button>
     </div></div>`);
-    // v518: dropdown contrato prefill (só se tem contratos ativos)
+    // v518/v546: vincular contrato prefill plano e vigência. NÃO prefill o
+    // valor negociado: o contrato guarda o valor de TABELA do plano, e copiá-lo
+    // pro campo "negociado" sugeriria que o aluno paga o cheio — justamente a
+    // ambiguidade que motivou tirar o valor do form de contrato.
     const selCt = sheet.querySelector('#ap-contrato');
     if(selCt){
       selCt.onchange = ()=>{
         const opt = selCt.selectedOptions[0];
         if(!opt || !opt.value) return;
-        const {fim, inicio, valor, plano} = opt.dataset;
+        const {fim, inicio, plano} = opt.dataset;
         if(plano) sheet.querySelector('#ap-plano').value = plano;
-        if(valor) sheet.querySelector('#ap-valor').value = valor;
         if(inicio) sheet.querySelector('#ap-inicio').value = inicio;
         if(fim) sheet.querySelector('#ap-fim').value = fim;
       };
@@ -10212,6 +10214,7 @@ function _finPintarAba(target){
 const _FIN_MORPH = {
   categorias: { pronto: () => true, pintar: (t) => _finRenderCategorias(t) },
   planos:     { pronto: () => true, pintar: (t) => _finRenderPlanos(t) },
+  contratos:  { pronto: () => true, pintar: (t) => _finRenderContratos(t) },
   matriculas: {
     pronto: () => !!(_finMatriculas && typeof _profData !== 'undefined' && _profData && _profData.alunos),
     pintar: (t) => _finMatriculasPintar(t, _profData.alunos, _finMatriculas),
@@ -10949,9 +10952,7 @@ function _finRenderContratos(body){
     </div>`));
   }
 
-  const btn = el('<button class="btn-cad" style="margin:0 12px 8px">＋ Novo contrato</button>');
-  btn.onclick = ()=> _finContratoSheet(null, ()=>{ _finReload(['contratos','matriculas','cobrancas']); });
-  body.appendChild(btn);
+  body.appendChild(el('<button class="btn-cad" data-click="finContratoNovo" style="margin:0 12px 8px">＋ Novo contrato</button>'));
 
   if(!cts.length){ body.appendChild(el('<div class="empty-line">Nenhum contrato cadastrado.</div>')); return; }
 
@@ -10991,7 +10992,8 @@ function _finRenderContratos(body){
         <th style="padding:10px 8px;font-weight:700">Plano</th>
         <th style="padding:10px 8px;font-weight:700">Início</th>
         <th style="padding:10px 8px;font-weight:700">Fim</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:center">PDF</th>
+        <th style="padding:10px 8px;font-weight:700;text-align:right;white-space:nowrap" title="Valor de tabela do plano congelado na assinatura. O que o aluno paga fica em Matrículas.">Valor de tabela</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Menor</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
       </tr>
@@ -11001,25 +11003,40 @@ function _finRenderContratos(body){
   const tbody = table.querySelector('tbody');
   sorted.forEach(c => {
     const p = c.profiles || {};
-    const nome = p.apelido || p.nome_completo || 'aluno';
+    // v546: nome completo (era apelido) — coerente com o resto do Financeiro
+    const nome = p.nome_completo || p.apelido || 'aluno';
     const pl = c.planos || {};
     const numTxt = '#' + String(c.numero||0).padStart(3,'0');
-    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${c.status==='cancelado'||c.status==='expirado'?'opacity:0.55':''}">
+    // v546: coluna PDF — o documento assinado é o ponto central desta aba agora
+    const pdf = c.arquivo_url
+      ? '<span title="Contrato assinado anexado" style="color:var(--good);font-weight:700">✓</span>'
+      : '<span title="Aguardando o PDF assinado" style="color:var(--muted)">—</span>';
+    tbody.appendChild(el(`<tr data-click="finContratoEdit" data-id="${safeAttr(c.id)}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${c.status==='cancelado'||c.status==='expirado'?'opacity:0.55':''}">
       <td style="padding:10px 12px;font-weight:700;color:var(--muted)">${numTxt}</td>
       <td style="padding:10px 8px;font-weight:700">${safeTxt(nome)}</td>
       <td style="padding:10px 8px">${safeTxt(pl.nome||'—')}</td>
-      <td style="padding:10px 8px">${dmy(c.inicio)}</td>
-      <td style="padding:10px 8px">${dmy(c.fim)}</td>
-      <td style="padding:10px 8px;text-align:right;font-weight:800">${moneyBR(c.valor_congelado)}</td>
+      <td style="padding:10px 8px;white-space:nowrap">${dmy(c.inicio)}</td>
+      <td style="padding:10px 8px;white-space:nowrap">${dmy(c.fim)}</td>
+      <td style="padding:10px 8px;text-align:center">${pdf}</td>
+      <td style="padding:10px 8px;text-align:right;font-weight:800;color:var(--muted);white-space:nowrap">${moneyBR(c.valor_congelado)}</td>
       <td style="padding:10px 8px;text-align:center">${c.eh_menor?'✓':'—'}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
-    </tr>`);
-    tr.onclick = ()=> _finContratoSheet(c, ()=>{ _finReload(['contratos','matriculas','cobrancas']); });
-    tbody.appendChild(tr);
+    </tr>`));
   });
   wrap.appendChild(table);
   body.appendChild(wrap);
 }
+
+/* v546: handlers da aba Contratos via delegation. Lookup fresh no
+   _finContratos pelo data-id — sem closure capturando o `c` do forEach. */
+_dlgRegister('finContratoNovo', () => {
+  _finContratoSheet(null, ()=>{ _finReload(['contratos','matriculas','cobrancas']); });
+});
+_dlgRegister('finContratoEdit', (el) => {
+  const c = (_finContratos||[]).find(x => String(x.id) === el.dataset.id);
+  if(!c) return;
+  _finContratoSheet(c, ()=>{ _finReload(['contratos','matriculas','cobrancas']); });
+});
 
 /* ---- Sub-aba: Matrículas (v503) ----
    Mostra todos os alunos ativos com plano vinculado. Destaca quem está SEM
@@ -11972,9 +11989,10 @@ function _finContratoSheet(c, onDone){
     <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
     <label class="flbl" style="margin-top:10px">Fim</label>
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
-    <label class="flbl" style="margin-top:10px">Valor negociado do contrato (R$)</label>
-    <input class="inp" id="ct-valor" type="number" step="0.01" min="0" placeholder="Em branco = valor cheio do plano" value="${c.valor_congelado != null ? c.valor_congelado : ''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">Este valor fica congelado no contrato — cascata do cron respeita se aluno_plano não tem valor negociado próprio.</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:10px;padding:8px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:6px">
+      O contrato congela o <b>valor de tabela do plano</b> na data da assinatura (proteção contra reajuste).
+      O valor que o aluno efetivamente paga é definido em <b>Matrículas</b> → valor negociado.
+    </div>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
     ${!editar ? `
@@ -12032,19 +12050,6 @@ function _finContratoSheet(c, onDone){
   const selPlano = sheet.querySelector('#ct-plano');
   if(editar && selPlano && c.plano_id) selPlano.value = c.plano_id;
 
-  // v526: auto-preenche o campo "Valor" com o valor do plano escolhido
-  // quando o campo está vazio. Só sobrescreve o vazio — se o professor
-  // já digitou algo, respeita.
-  const inpValor = sheet.querySelector('#ct-valor');
-  if(selPlano && inpValor){
-    const prefillValor = ()=>{
-      if(inpValor.value.trim()) return;   // já tem valor digitado, não mexe
-      const pl = planos.find(p => p.id === selPlano.value);
-      if(pl && pl.valor != null) inpValor.placeholder = 'Ex: '+pl.valor+' (valor cheio do plano)';
-    };
-    selPlano.addEventListener('change', prefillValor);
-    prefillValor();
-  }
 
   // v526: resolve aluno mais resiliente. Datalist às vezes não preserva
   // data-id no <option> matched; falha silenciosa fazia o Salvar dar erro
@@ -12101,8 +12106,6 @@ function _finContratoSheet(c, onDone){
       const plano_id = sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
-      const valorTxt = sheet.querySelector('#ct-valor').value.trim();
-      const valor_congelado = valorTxt ? Number(valorTxt) : null;   // null → adapter usa valor do plano
       if(!user_id || !plano_id || !inicio || !fim){ toast('Preencha aluno, plano e datas'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
       const eh_menor = chkMenor && chkMenor.checked;
@@ -12118,7 +12121,9 @@ function _finContratoSheet(c, onDone){
         };
       }
       btnSave.disabled=true; btnSave.textContent='Criando…';
-      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, valor_congelado, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
+      // v546: sem valor_congelado — o adapter congela o valor de tabela do
+      // plano. Valor efetivo do aluno vive em aluno_plano.valor_negociado.
+      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
         .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };
@@ -12134,12 +12139,10 @@ function _finContratoSheet(c, onDone){
       const plano_id = sheet.querySelector('#ct-plano') && sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
-      const valorTxt = sheet.querySelector('#ct-valor').value.trim();
-      const valor_congelado = valorTxt ? Number(valorTxt) : null;
       if(!plano_id || !inicio || !fim){ toast('Datas + plano obrigatórios'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
       btnSaveEdit.disabled=true; btnSaveEdit.textContent='Salvando…';
-      sbProf.salvarContrato({ id:c.id, user_id:c.user_id, plano_id, inicio, fim, valor_congelado, obs: sheet.querySelector('#ct-obs').value.trim() })
+      sbProf.salvarContrato({ id:c.id, user_id:c.user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim() })
         .then(()=>{ toast('Contrato atualizado ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnSaveEdit.disabled=false; btnSaveEdit.textContent='Salvar alterações'; toast('Erro: '+(e.message||e)); });
     };
