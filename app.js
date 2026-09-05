@@ -10984,7 +10984,7 @@ function _finRenderContratos(body){
   const dmy = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)) : '—';
 
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-contr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:800px">
+  const table = el(`<table class="fin-contr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700">Nº</th>
@@ -10993,7 +10993,6 @@ function _finRenderContratos(body){
         <th style="padding:10px 8px;font-weight:700">Início</th>
         <th style="padding:10px 8px;font-weight:700">Fim</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">PDF</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:right;white-space:nowrap" title="Valor de tabela do plano congelado na assinatura. O que o aluno paga fica em Matrículas.">Valor de tabela</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Menor</th>
         <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
       </tr>
@@ -11018,7 +11017,6 @@ function _finRenderContratos(body){
       <td style="padding:10px 8px;white-space:nowrap">${dmy(c.inicio)}</td>
       <td style="padding:10px 8px;white-space:nowrap">${dmy(c.fim)}</td>
       <td style="padding:10px 8px;text-align:center">${pdf}</td>
-      <td style="padding:10px 8px;text-align:right;font-weight:800;color:var(--muted);white-space:nowrap">${moneyBR(c.valor_congelado)}</td>
       <td style="padding:10px 8px;text-align:center">${c.eh_menor?'✓':'—'}</td>
       <td style="padding:10px 8px;text-align:center">${statusBadge(c)}</td>
     </tr>`));
@@ -12026,10 +12024,23 @@ function _finContratoSheet(c, onDone){
       </div>
     ` : '')}
     ${editar ? `
-      <div class="sec-title" style="margin:14px 0 6px;font-size:11px">PDF assinado (V1 fluxo manual gov.br)</div>
-      <div id="ct-pdf-info" style="font-size:12.5px;color:var(--muted);margin-bottom:6px">${c.arquivo_url ? '📄 Contrato anexado' : 'Nenhum arquivo anexado ainda'}</div>
-      ${c.arquivo_url ? '<button class="btn-cad ghost" id="ct-ver-pdf" style="width:100%;margin-bottom:6px">📄 Ver PDF assinado</button>' : ''}
-      <input type="file" id="ct-pdf-file" accept="application/pdf" style="width:100%;padding:6px 0;font-size:12.5px">
+      <div class="sec-title" style="margin:16px 0 6px;font-size:11px">Contrato assinado</div>
+      <!-- v547: input[type=file] nativo trocado por área clicável. O <label>
+           envolvendo o input abre o seletor sem JS; o input fica oculto. -->
+      <label id="ct-pdf-drop" for="ct-pdf-file" style="
+        display:flex;align-items:center;gap:10px;cursor:pointer;
+        padding:12px 14px;border-radius:10px;
+        border:1.5px dashed var(--border,#d5d5da);
+        background:var(--card-alt,rgba(0,0,0,0.02));
+        transition:border-color .15s, background .15s">
+        <span id="ct-pdf-ico" style="font-size:20px;line-height:1">${c.arquivo_url ? '📄' : '⬆'}</span>
+        <span style="flex:1;min-width:0">
+          <span id="ct-pdf-titulo" style="display:block;font-weight:700;font-size:13px;color:var(--ink)">${c.arquivo_url ? 'Contrato anexado' : 'Anexar PDF assinado'}</span>
+          <span id="ct-pdf-info" style="display:block;font-size:11.5px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.arquivo_url ? 'Toque para substituir' : 'PDF até 10 MB · fluxo manual gov.br'}</span>
+        </span>
+      </label>
+      <input type="file" id="ct-pdf-file" accept="application/pdf" style="display:none">
+      ${c.arquivo_url ? '<button class="btn-cad ghost" id="ct-ver-pdf" style="width:100%;margin-top:8px">Ver PDF assinado</button>' : ''}
     ` : ''}
     ${!editar?`
       <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>
@@ -12182,16 +12193,42 @@ function _finContratoSheet(c, onDone){
   }
   const inpPdf = sheet.querySelector('#ct-pdf-file');
   if(inpPdf){
+    // v547: estados visuais na área de upload (ícone + título + subtítulo +
+    // borda), em vez do texto solto de antes.
+    const drop = sheet.querySelector('#ct-pdf-drop');
+    const ico = sheet.querySelector('#ct-pdf-ico');
+    const titulo = sheet.querySelector('#ct-pdf-titulo');
+    const info = sheet.querySelector('#ct-pdf-info');
+    const estado = (i, t, s, cor)=>{
+      if(ico) ico.textContent = i;
+      if(titulo) titulo.textContent = t;
+      if(info) info.textContent = s;
+      if(drop){
+        drop.style.borderColor = cor || 'var(--border,#d5d5da)';
+        drop.style.borderStyle = cor ? 'solid' : 'dashed';
+      }
+    };
     inpPdf.onchange = ()=>{
       const f = inpPdf.files && inpPdf.files[0];
       if(!f) return;
-      if(f.size > 10 * 1024 * 1024){ toast('Arquivo muito grande (máx 10 MB)'); inpPdf.value=''; return; }
-      const info = sheet.querySelector('#ct-pdf-info');
-      if(info) info.textContent='Enviando…';
+      if(f.size > 10 * 1024 * 1024){
+        estado('⚠', 'Arquivo muito grande', 'Máximo 10 MB — escolha outro', 'var(--red)');
+        toast('Arquivo muito grande (máx 10 MB)');
+        inpPdf.value='';
+        return;
+      }
+      const kb = f.size < 1024*1024
+        ? Math.round(f.size/1024) + ' KB'
+        : (f.size/1024/1024).toFixed(1) + ' MB';
+      estado('⏳', 'Enviando…', f.name + ' · ' + kb, null);
       sbProf.uploadContrato(c.id, f).then(()=>{
-        if(info) info.textContent='📄 Contrato anexado ✔';
-        toast('PDF enviado ✔'); if(onDone) onDone();
-      }).catch(e=>{ if(info) info.textContent='Erro no envio'; toast('Erro: '+(e.message||e)); });
+        estado('📄', 'Contrato anexado', f.name + ' · ' + kb, 'var(--good)');
+        toast('PDF enviado ✔');
+        if(onDone) onDone();
+      }).catch(e=>{
+        estado('⚠', 'Falha no envio', (e.message||String(e)).slice(0,60), 'var(--red)');
+        toast('Erro: '+(e.message||e));
+      });
     };
   }
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
