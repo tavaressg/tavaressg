@@ -1747,6 +1747,46 @@ function _announceRoute(viewKey){
 // Sheets vivem no <body> fora do #root — quando o usuário navega no menu, o render
 // limpa o root mas o overlay fica pendurado. Fecha explicitamente na troca de view.
 function _closeAllSheets(){ document.querySelectorAll('.sheet-overlay').forEach(n=> n.remove()); }
+/* v552 — tabela de rotas do render(). Era uma escada de `if (DB.xOpen)` dentro
+   do próprio render; virou dado para que o morphdom e o guard possam falar
+   sobre "a tela X" sem duplicar a condição em três lugares.
+
+   ORDEM IMPORTA: o primeiro `quando()` verdadeiro vence, exatamente como a
+   escada de ifs que ela substitui. A última entrada é o fallback.
+
+   `pintar` recebe o container (root real ou staging do morphdom) — nunca
+   assume `#root`, que é o que permite pintar fora do DOM antes do diff. */
+const _ROTAS = [
+  { chave:'auth',          quando: () => DB.authOpen,          pintar: (t) => t.appendChild(renderAuth()) },
+  { chave:'trocarSenha',   quando: () => DB.trocarSenhaOpen,   pintar: (t) => t.appendChild(renderTrocarSenha()) },
+  { chave:'onboarding',    quando: () => DB.onboardingOpen,    pintar: (t) => t.appendChild(renderOnboarding()) },
+  { chave:'retro',         quando: () => DB.retroOpen,         pintar: (t) => t.appendChild(renderRetro()) },
+  { chave:'loja',          quando: () => DB.lojaOpen,          pintar: (t) => t.appendChild(renderLoja()) },
+  { chave:'meusPedidos',   quando: () => DB.meusPedidosOpen,   pintar: (t) => t.appendChild(renderMeusPedidos()) },
+  // Páginas cheias do professor mantêm a sidebar (tabbarProf vira sidebar no desktop via MQ)
+  { chave:'produtoForm',   quando: () => DB.produtoFormOpen,   pintar: (t) => { t.appendChild(renderProdutoForm()); if (DB.role!=='aluno') t.appendChild(tabbarProf()); } },
+  { chave:'cadastroAluno', quando: () => DB.cadastroAlunoOpen, pintar: (t) => { t.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') t.appendChild(tabbarProf()); } },
+  { chave:'share',         quando: () => DB.shareOpen,         pintar: (t) => t.appendChild(renderShare()) },
+  { chave:'treino',        quando: () => DB.treinoAberto,      pintar: (t) => t.appendChild(renderTreinoDetalhe()) },
+  { chave:'flow',          quando: () => !!DB.flow,            pintar: (t) => t.appendChild(renderFlow(DB.flow)) },
+  { chave:'aluno',         quando: () => DB.role === 'aluno',  pintar: (t) => t.appendChild(renderAluno()) },
+  { chave:'professor',     quando: () => true,                 pintar: (t) => t.appendChild(renderProfessor()) },
+];
+function _rotaAtual(){ return _ROTAS.find(r => r.quando()) || null; }
+
+/* v552 — telas habilitadas para morphdom. Mesmos pré-requisitos do
+   _FIN_MORPH: delegation pura e pintura síncrona, ambos verificados por
+   tests/telas-morph-allowlist.spec.mjs. Uma tela entra aqui só depois de ter
+   TODOS os seus `.onclick=` convertidos para `data-click`.
+
+   Fora desta lista a tela usa innerHTML='' + append, que continua correto. */
+const _TELAS_MORPH = {
+  retro:       { pronto: () => true },
+  auth:        { pronto: () => true },
+  trocarSenha: { pronto: () => true },
+};
+let _telaPintada = null;   // chave da rota atualmente no DOM
+
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
   const root = $('#root');
@@ -1771,42 +1811,41 @@ function render(){
   // páginas cheias do professor não têm sidebar → zera o padding fantasma da .phone (desktop)
   root.classList.toggle('no-anim', sameView);
 
-  // v530 (Fase 3 refactor morphdom): monta os filhos num container e:
-  //   - MORPHDOM ligado (?morphdom=1) + lib presente → morphdom(root, novo)
-  //   - Default (comportamento antigo) → root.innerHTML='' + appendChild
-  // Prova de conceito com bandeira. Zero mudança pra quem não flag.
-  const buildInto = (target) => {
-    if (DB.authOpen){ target.appendChild(renderAuth()); return; }
-    if (DB.trocarSenhaOpen){ target.appendChild(renderTrocarSenha()); return; }
-    if (DB.onboardingOpen){ target.appendChild(renderOnboarding()); return; }
-    if (DB.retroOpen){ target.appendChild(renderRetro()); return; }
-    if (DB.lojaOpen){ target.appendChild(renderLoja()); return; }
-    if (DB.meusPedidosOpen){ target.appendChild(renderMeusPedidos()); return; }
-    if (DB.produtoFormOpen){ target.appendChild(renderProdutoForm()); if (DB.role!=='aluno') target.appendChild(tabbarProf()); return; }
-    if (DB.cadastroAlunoOpen){ target.appendChild(renderCadastroAluno()); if (DB.role!=='aluno') target.appendChild(tabbarProf()); return; }
-    if (DB.shareOpen){ target.appendChild(renderShare()); return; }
-    if (DB.treinoAberto){ target.appendChild(renderTreinoDetalhe()); return; }
-    if (DB.flow){ target.appendChild(renderFlow(DB.flow)); return; }
-    if (DB.role === 'aluno') target.appendChild(renderAluno());
-    else target.appendChild(renderProfessor());
-  };
+  /* v552 — morphdom no nível do roteador, mesma receita que funcionou no
+     Financeiro (v543-v550): allowlist por tela + guard que valida os
+     pré-requisitos, em vez de ligar tudo de uma vez como em v530-v541.
 
-  // v541: morphdom DESATIVADO em definitivo. Tentativas v530-v540 (11 versões)
-  // não conseguiram fazer funcionar sem introduzir novos bugs em cada fix.
-  // Motivo raiz: app tem centenas de closures capturando refs de DOM em
-  // handlers .onclick=, e morphdom reusa nodes por id-match — o que
-  // sistematicamente detacha as refs que o app usa. Consertar tudo exige
-  // reescrever ~15k linhas pra event delegation puro. Fora do escopo hoje.
-  // Fica pra uma sessão dedicada com escopo semanas + testes por tela.
-  //
-  // O que fica útil da experiência:
-  //   - Router event delegation (Fase 1) — funciona standalone, boa base
-  //   - Categorias e Planos migradas pra data-click — rodam OK sem morphdom
-  //   - vendor/morphdom.min.js — pronto pra retomar quando fizer o refactor
-  //   - tests/morphdom-render.spec.mjs — documenta o contrato descoberto
-  //   - Flag ?morphdom=1 continua definida (inerte)
+     Três condições, todas necessárias:
+       (a) a tela está em _TELAS_MORPH (100% delegation, sem `.onclick=`)
+       (b) `pronto()` diz que ela consegue pintar síncrona AGORA
+       (c) é a MESMA tela que já está no DOM
+
+     A (c) é a diferença em relação à tentativa antiga. Morfar entre telas
+     diferentes força morphdom a reconciliar árvores sem nada em comum — mais
+     lento que reconstruir, e sem ganho: trocar de tela já rola pro topo e o
+     usuário espera a mudança. O flash que incomoda é o REPAINT da mesma tela
+     (refetch chegando, mutação salva), e é só esse que o morphdom cobre. */
+  const rota = _rotaAtual();
+  const chave = rota ? rota.chave : null;
+  const buildInto = (target) => { if (rota) rota.pintar(target); };
+
+  const m = chave && _TELAS_MORPH[chave];
+  const podeMorph = MORPHDOM
+    && typeof morphdom === 'function'
+    && m && m.pronto()
+    && _telaPintada === chave;          // (c) só repaint da mesma tela
+
+  if(podeMorph){
+    try {
+      const staging = root.cloneNode(false);
+      buildInto(staging);
+      morphdom(root, staging, { childrenOnly: true });
+      return;                            // _telaPintada não muda: é a mesma
+    } catch(_){ /* cai no caminho antigo */ }
+  }
   root.innerHTML = '';
   buildInto(root);
+  _telaPintada = chave;
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
@@ -5141,29 +5180,63 @@ function renderAuth(){
   form.appendChild(el('<label class="flbl" style="margin-top:12px">Senha</label>'));
   const pwEl = el(`<input class="inp" type="password" id="a-pw" placeholder="Senha" autocomplete="current-password" style="margin-top:6px">`);
   form.appendChild(pwEl);
-  const btn = el('<button class="btn-register auth-btn">Entrar</button>');
-  btn.onclick = async ()=>{
-    const e=emEl.value.trim(), p=pwEl.value;
-    if(!e||!p){ toast('Preencha e-mail e senha'); return; }
-    btn.disabled=true; btn.textContent='Entrando…';
-    try{
-      const { user } = await sbAuth.signIn(e, p);
-      btn.textContent='Sincronizando…';
-      await _cloudLogin(user);   // pipeline único: migração legado → pullState → overlay → senha/onboarding
-    }catch(err){
-      btn.disabled=false; btn.textContent='Entrar';
-      const m=err.message||'';
-      toast(m.includes('Invalid login')?'E-mail ou senha incorretos':'Erro: '+m);
-    }
-  };
-  form.appendChild(btn);
-  const fg = el('<div class="auth-forgot">Esqueceu a senha?</div>');
-  fg.onclick = ()=>_authResetPw();
-  form.appendChild(fg);
+  // v552: migrado pra event delegation (ver _TELAS_MORPH). Os campos são lidos
+  // por id no momento do clique, não por closure.
+  form.appendChild(el('<button class="btn-register auth-btn" data-click="authEntrar">Entrar</button>'));
+  form.appendChild(el('<div class="auth-forgot" data-click="authEsqueciSenha" role="button" tabindex="0">Esqueceu a senha?</div>'));
   form.appendChild(el('<div class="auth-note">🥋 Use o e-mail e a senha entregues pela academia. Você troca a senha no primeiro acesso.</div>'));
   v.appendChild(form);
   return v;
 }
+
+/* v552: handlers do login via delegation. `el` é o próprio botão, então o
+   feedback de estado (disabled / "Entrando…") continua igual ao de antes. */
+_dlgRegister('authEntrar', async (el) => {
+  const em = document.getElementById('a-email');
+  const pw = document.getElementById('a-pw');
+  const e = em ? em.value.trim() : '';
+  const p = pw ? pw.value : '';
+  if(!e || !p){ toast('Preencha e-mail e senha'); return; }
+  el.disabled = true; el.textContent = 'Entrando…';
+  try{
+    const { user } = await sbAuth.signIn(e, p);
+    el.textContent = 'Sincronizando…';
+    await _cloudLogin(user);   // pipeline único: migração legado → pullState → overlay → senha/onboarding
+  }catch(err){
+    el.disabled = false; el.textContent = 'Entrar';
+    const m = err.message || '';
+    toast(m.includes('Invalid login') ? 'E-mail ou senha incorretos' : 'Erro: '+m);
+  }
+});
+_dlgRegister('authEsqueciSenha', () => _authResetPw());
+
+/* v552: troca de senha via delegation. `needCur` sai da PRESENÇA do campo no
+   DOM — ele só é renderizado quando a senha atual é exigida —, o que é mais
+   fiel do que recalcular a condição e arriscar divergir da tela. */
+_dlgRegister('trocarSenhaSalvar', async (el) => {
+  const cur = document.getElementById('ts-cur');
+  const i1 = document.getElementById('ts-pw1');
+  const i2 = document.getElementById('ts-pw2');
+  const p1 = i1 ? i1.value : '', p2 = i2 ? i2.value : '';
+  const needCur = !!cur;
+  const recovery = el.dataset.recovery === '1';
+  if(needCur && !cur.value){ toast('Informe a senha provisória atual'); return; }
+  if(p1.length<8){ toast('Senha: mínimo 8 caracteres'); return; }
+  if(!/[a-zA-Z]/.test(p1) || !/[0-9]/.test(p1)){ toast('A senha precisa ter letras e números'); return; }
+  if(needCur && p1===cur.value){ toast('A nova senha precisa ser diferente da provisória'); return; }
+  if(p1!==p2){ toast('As senhas não coincidem'); return; }
+  el.disabled=true; el.textContent='Salvando…';
+  try{
+    if(typeof sbAuth!=='undefined') await sbAuth.changePassword(p1, needCur ? cur.value : undefined);
+    DB.trocarSenhaOpen=false; DB.trocarSenhaRecovery=false;
+    if(!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen=true;
+    render(); toast('Senha definida ✔');
+  }catch(err){
+    el.disabled=false; el.textContent='Salvar e continuar';
+    toast(pwErrMsg(err));
+    try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
+  }
+});
 
 function _authResetPw(){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
@@ -5244,27 +5317,10 @@ function renderTrocarSenha(){
   form.appendChild(el('<label class="flbl" style="margin-top:12px">Confirmar senha</label>'));
   const pw2 = el(`<input class="inp" type="password" id="ts-pw2" placeholder="Repita a senha" autocomplete="new-password" style="margin-top:6px">`);
   form.appendChild(pw2);
-  const btn = el('<button class="btn-register auth-btn">Salvar e continuar</button>');
-  btn.onclick = async ()=>{
-    const p1=pw1.value, p2=pw2.value;
-    if(needCur && !cur.value){ toast('Informe a senha provisória atual'); return; }
-    if(p1.length<8){ toast('Senha: mínimo 8 caracteres'); return; }
-    if(!/[a-zA-Z]/.test(p1) || !/[0-9]/.test(p1)){ toast('A senha precisa ter letras e números'); return; }
-    if(needCur && p1===cur.value){ toast('A nova senha precisa ser diferente da provisória'); return; }
-    if(p1!==p2){ toast('As senhas não coincidem'); return; }
-    btn.disabled=true; btn.textContent='Salvando…';
-    try{
-      if(typeof sbAuth!=='undefined') await sbAuth.changePassword(p1, needCur ? cur.value : undefined);
-      DB.trocarSenhaOpen=false; DB.trocarSenhaRecovery=false;
-      if(!DB.eu.apelido || !DB.onboarded) DB.onboardingOpen=true;
-      render(); toast('Senha definida ✔');
-    }catch(err){
-      btn.disabled=false; btn.textContent='Salvar e continuar';
-      toast(pwErrMsg(err));
-      try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
-    }
-  };
-  form.appendChild(btn);
+  // v552: migrado pra event delegation. `data-recovery` carrega o contexto que
+  // antes vinha da closure — o handler precisa dele pra escolher a mensagem
+  // de erro logada.
+  form.appendChild(el(`<button class="btn-register auth-btn" data-click="trocarSenhaSalvar" data-recovery="${recovery?'1':''}">Salvar e continuar</button>`));
   form.appendChild(el(`<div class="auth-note">${recovery?'🔒 Após salvar, use a nova senha nos próximos logins.':'🔒 Você entrou com uma senha provisória. Defina a sua para manter a conta segura.'}</div>`));
   v.appendChild(form);
   return v;
