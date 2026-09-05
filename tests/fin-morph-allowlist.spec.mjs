@@ -66,40 +66,70 @@ function corpoDaFuncao(nome){
   return out.join('\n');
 }
 
+// Segue a cadeia de chamadas a partir da função de render, para não deixar
+// buraco: em v544 o `tr.onclick` de Matrículas migrou de _finRenderMatriculas
+// para a auxiliar _finMatriculasPintar, e um guard que só olhasse a função de
+// entrada teria dado OK indevido. Só entram funções top-level do próprio
+// arquivo (helpers de formatação e sheets ficam de fora — sheets vivem em
+// document.body, morphdom no fin-body não as toca).
+const TOPLEVEL = new Set(
+  linhas.filter(l => l.startsWith('function ')).map(l => l.slice(9, l.indexOf('(')))
+);
+function cadeia(nome, vistos = new Set()){
+  if (vistos.has(nome)) return [];
+  vistos.add(nome);
+  const corpo = corpoDaFuncao(nome);
+  const out = [{ nome, corpo }];
+  for (const m of corpo.matchAll(/\b(_fin[A-Za-z]+)\s*\(/g)) {
+    const chamada = m[1];
+    // Sheets abrem em document.body → fora do escopo do morph
+    if (/Sheet$/.test(chamada)) continue;
+    if (chamada === nome || !TOPLEVEL.has(chamada)) continue;
+    out.push(...cadeia(chamada, vistos));
+  }
+  return out;
+}
+
 // ---------- valida cada aba da allowlist ----------
 for (const aba of allowlist) {
   const fn = mapa[aba];
   assert.ok(fn, `aba "${aba}" da allowlist tem função de render mapeada em _finPintarAba`);
 
-  const corpo = corpoDaFuncao(fn);
+  const partes = cadeia(fn);
 
-  // (a) delegation pura
-  const handlers = corpo.match(/\.on(click|change|input|keydown|blur|focus|submit)\s*=|addEventListener\(/g) || [];
-  assert.equal(
-    handlers.length, 0,
-    `aba "${aba}" (${fn}) está na allowlist do morphdom mas tem ${handlers.length} handler(s) direto(s): ` +
-    `${[...new Set(handlers)].join(', ')}. Migre para data-click antes de habilitar o morph.`
-  );
+  for (const { nome, corpo } of partes) {
+    const onde = nome === fn ? '' : ` (via ${nome})`;
 
-  // (b) render síncrono
-  const asyncs = corpo.match(/\.then\(/g) || [];
-  assert.equal(
-    asyncs.length, 0,
-    `aba "${aba}" (${fn}) está na allowlist mas faz fetch async (${asyncs.length}x .then). ` +
-    `O morph usa container de staging descartável — append assíncrono se perde.`
-  );
+    // (a) delegation pura
+    const handlers = corpo.match(/\.on(click|change|input|keydown|blur|focus|submit)\s*=|addEventListener\(/g) || [];
+    assert.equal(
+      handlers.length, 0,
+      `aba "${aba}"${onde} está na allowlist do morphdom mas tem ${handlers.length} handler(s) direto(s): ` +
+      `${[...new Set(handlers)].join(', ')}. Migre para data-click antes de habilitar o morph.`
+    );
 
-  console.log(`  ✔ ${aba.padEnd(12)} → ${fn.padEnd(22)} delegation pura, render síncrono`);
+    // (b) render síncrono
+    const asyncs = corpo.match(/\.then\(/g) || [];
+    assert.equal(
+      asyncs.length, 0,
+      `aba "${aba}"${onde} está na allowlist mas faz fetch async (${asyncs.length}x .then). ` +
+      `O morph usa container de staging descartável — append assíncrono se perde.`
+    );
+  }
+
+  const extras = partes.length > 1 ? ` (+${partes.length - 1} aux)` : '';
+  console.log(`  ✔ ${aba.padEnd(12)} → ${(fn + extras).padEnd(28)} delegation pura, render síncrono`);
 }
 
-// ---------- sanidade reversa: abas com async NÃO podem estar na lista ----------
+// ---------- sanidade reversa: por que cada aba de fora está de fora ----------
 for (const [aba, fn] of Object.entries(mapa)) {
   if (allowlist.includes(aba)) continue;
-  const corpo = corpoDaFuncao(fn);
-  const temAsync = /\.then\(/.test(corpo);
-  const temHandler = /\.on(click|change|input|keydown)\s*=/.test(corpo);
+  const partes = cadeia(fn);
+  const temAsync = partes.some(p => /\.then\(/.test(p.corpo));
+  const temHandler = partes.some(p => /\.on(click|change|input|keydown)\s*=/.test(p.corpo));
   if (temAsync || temHandler) {
-    console.log(`  · ${aba.padEnd(12)} fora da lista (correto: ${temAsync ? 'async' : ''}${temAsync && temHandler ? ' + ' : ''}${temHandler ? 'handler direto' : ''})`);
+    const motivo = [temAsync && 'async', temHandler && 'handler direto'].filter(Boolean).join(' + ');
+    console.log(`  · ${aba.padEnd(12)} fora da lista (correto: ${motivo})`);
   }
 }
 

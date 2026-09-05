@@ -11011,6 +11011,26 @@ function _finRenderMatriculas(body){
   // v516: garante cache das turmas (mesmo padrão do resto do app — _turmasArr)
   if(typeof _loadTurmas==='function') _loadTurmas();
 
+  /* v544 — lê dos caches que o app JÁ mantém, em vez de refazer tudo.
+     Antes: 11 idas à rede toda vez que a aba abria (getAlunos = 7 queries +
+     assinatura das 168 fotos; getAllMatriculas = 3), enquanto Categorias,
+     Cobranças, Despesas, Planos e Contratos abriam com ZERO — todas leem de
+     `_fin*`. Era a única aba pagando rede, e por isso a única lenta.
+     Pior: os dois dados já estavam em memória — `_finReload` popula
+     `_finMatriculas` e `_loadProfData` popula `_profData.alunos`.
+     (A assinatura das fotos era desperdício puro: esta tela não mostra foto.)
+
+     Cache quente → pintura SÍNCRONA. Frio → busca só o que falta.
+     Não chamamos `_loadProfData()` aqui de propósito: ele dispara `renderBg()`
+     no retorno, o que reconstruiria a tela inteira e traria o flash de volta. */
+  const cacheAlunos = (typeof _profData !== 'undefined' && _profData && _profData.alunos) || null;
+  const cacheMatr   = _finMatriculas || null;
+
+  if(cacheAlunos && cacheMatr){
+    _finMatriculasPintar(body, cacheAlunos, cacheMatr);
+    return;
+  }
+
   // v542: guarda por geração de pintura (substitui o token em dataset da v518,
   // que não pegava troca de ABA porque innerHTML='' não limpa o dataset).
   const seq = _finPaintSeq;
@@ -11019,11 +11039,23 @@ function _finRenderMatriculas(body){
   body.appendChild(holder);
 
   Promise.all([
-    sbProf.getAlunos(),   // já usado em outras telas — traz alunos ativos
-    sbProf.getAllMatriculas(),
+    cacheAlunos ? Promise.resolve(cacheAlunos) : sbProf.getAlunos(),
+    cacheMatr   ? Promise.resolve(cacheMatr)   : sbProf.getAllMatriculas(),
   ]).then(([alunos, matriculas])=>{
+    if(!cacheMatr && matriculas) _finMatriculas = matriculas;   // aquece pro próximo paint
     if(!_finPaintOk(body, seq)) return;   // trocou de aba / saiu da tela / repintou
     holder.remove();
+    _finMatriculasPintar(body, alunos, matriculas);
+  }).catch(e=>{
+    if(!_finPaintOk(body, seq)) return;
+    holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>';
+  });
+}
+
+// Pintura da aba Matrículas. Separada do fetch (v544) para rodar síncrona
+// quando os caches estão quentes — que é o caso comum.
+function _finMatriculasPintar(body, alunos, matriculas){
+  {
     // v518: mostra TODOS (aluno + dono + professor). Antes filtrava só aluno —
     // sumia dono/professor da visão financeira mesmo eles pagando mensalidade.
     const soAlunos = (alunos||[]);
@@ -11199,7 +11231,7 @@ function _finRenderMatriculas(body){
     });
     wrap.appendChild(table);
     body.appendChild(wrap);
-  }).catch(e=>{ holder.innerHTML='<div style="padding:8px;color:var(--red)">Erro: '+safeTxt(e.message||e)+'</div>'; });
+  }
 }
 
 function _plus(iso, dias){
