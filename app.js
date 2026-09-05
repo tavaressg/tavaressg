@@ -130,10 +130,25 @@ function _dlgMake(evt, attr){
 function _dlgInstall(){
   if(_dlgInstalled) return;
   _dlgInstalled = true;
+  _lpInstall();                         // v553: long-press delegado (ver _lpStart)
+  _lojaTickerInstall();                 // v554: pausa da vitrine do Perfil
   document.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
   document.addEventListener('change', _dlgMake('change', 'data-change'), false);
   document.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
   document.addEventListener('submit', _dlgMake('submit', 'data-submit'), false);
+  // v553: teclado. `role="button" tabindex="0"` nao dispara click no Enter/Espaco
+  // sozinho — cada `.onclick=` migrado trazia junto um `.onkeydown=` gemeo. Uma
+  // delegacao so' cobre todo `data-click` presente e futuro. Elementos nativos
+  // (button/a/input) ficam de fora: eles ja emitem click e dobrariam a acao.
+  document.addEventListener('keydown', (ev) => {
+    if(ev.key !== 'Enter' && ev.key !== ' ') return;
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-click][role="button"]');
+    if(!el || /^(BUTTON|A|INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    const root = document.getElementById('root');
+    if(!root || !root.contains(el)) return;
+    ev.preventDefault();
+    _dlgFire(el.getAttribute('data-click'), el, ev);
+  }, false);
 }
 // v533 (debug): função global pro user rodar no console e ver o estado do router.
 // Uso: __dlgDebug()  — reporta se listener instalou, quantos data-click existem, etc.
@@ -1316,7 +1331,7 @@ function save(){
   if(s === _lastPushed) return;
   _lastPushed = s;
   sbSync.pushState(dump)
-    .then(()=>{ _setSyncDot(true); _perfilCacheSalvar(); })   // v433: perfil mudou (ex: apelido) → cartão acompanha
+    .then(()=>{ _setSyncDot(true); _perfilCacheSalvar(); })   // morph-ok: v433 — so' pinta o #sync-dot da topbar, que fica FORA do container morfado
     .catch((e)=>{
       _lastPushed=''; _setSyncDot(false);   // re-tenta no próximo save/flush ou ao voltar online
       if(e && e.conflict) _resolveStateConflict();   // outro aparelho gravou → re-baixa e reaplica
@@ -1513,7 +1528,7 @@ function _updateStepperUI(jp){
   const ackB=card.querySelector('[data-act="a+"]'); if(ackB) ackB.previousElementSibling.textContent=t.hojeA||0;
   const errB=card.querySelector('[data-act="e+"]'); if(errB) errB.previousElementSibling.textContent=errou;
   const rst=card.querySelector('[data-act="limpar"]');
-  if((t.hojeT||0)>0 && !rst){ const b=el(`<button class="rs-reset" data-act="limpar">limpar</button>`); b.onclick=()=>rtLimpar(jp); card.querySelector('.rs-acts').appendChild(b); }
+  if((t.hojeT||0)>0 && !rst){ card.querySelector('.rs-acts').appendChild(el(`<button class="rs-reset" data-click="renshu" data-act="limpar">limpar</button>`)); }
   if((t.hojeT||0)===0 && rst) rst.remove();
 }
 function rtAck(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeA=(t.hojeA||0)+1; t.hojeT=(t.hojeT||0)+1; haptic(8); } else if(t.hojeA>0){ t.hojeA--; t.hojeT--; } _updateStepperUI(jp); scheduleSave(); }
@@ -1521,21 +1536,46 @@ function rtErr(jp,d){ const t=tecByKey(jp); if(!t) return; if(d>0){ t.hojeT=(t.h
 function rtLimpar(jp){ const t=tecByKey(jp); if(t){ t.hojeA=0; t.hojeT=0; } _updateStepperUI(jp); scheduleSave(); }
 
 // cartão Renshū de uma técnica (nome + tradução PT + Deu certo/Não deu)
+/* v554 — steppers do Renshu e escala de sensacao delegados. Os botoes ja
+   carregavam `data-act`/`data-n`; so' faltava a chave do handler. A tecnica sai
+   do `data-jp` do cartao (resolvido no clique), nao de uma closure sobre `t`.
+   A sensacao continua pintando in-place, sem render(): a nota digitada mora no
+   textarea e um redesenho a perderia com o morphdom desligado. */
+_dlgRegister('renshu', (elm) => {
+  const card = elm.closest('.rs-pcard');
+  const jp = card && card.dataset.jp;
+  if (!jp) return;
+  const act = elm.dataset.act;
+  if (act === 'a+') return rtAck(jp, 1);
+  if (act === 'a-') return rtAck(jp, -1);
+  if (act === 'e+') return rtErr(jp, 1);
+  if (act === 'e-') return rtErr(jp, -1);
+  if (act === 'limpar') return rtLimpar(jp);
+});
+_dlgRegister('regRandori', (elm) => { DB.registro.randori = elm.dataset.r === 'yes'; _autosaveDraft(); render(); });
+_dlgRegister('regNota', (elm) => { DB.registro.nota = elm.value; _autosaveDraft(); });
+_dlgRegister('regMood', (elm) => {
+  const sec = elm.closest('.fsec');
+  if (!sec) return;
+  DB.registro.mood = +elm.dataset.n;
+  sec.querySelectorAll('.feel-btn').forEach(x => { x.className = 'feel-btn'; });
+  elm.className = 'feel-btn on lvl' + DB.registro.mood;
+  const cap = sec.querySelector('.feel-cap');
+  if (cap) cap.textContent = FEEL_LABEL[DB.registro.mood];
+  _autosaveDraft();
+});
+_dlgRegister('presencaScan', () => presencaScan());
+
 function tecnicaFocoCard(t){
   const errou=(t.hojeT||0)-(t.hojeA||0);
   const card=el(`<div class="rs-pcard" data-jp="${safeAttr(t.jp)}">
     <div class="rs-top"><div class="rs-nm-wrap"><span class="rs-name">${safeTxt(t.jp)}</span></div>
-      <div class="rs-acts">${(t.hojeT||0)>0?`<button class="rs-reset" data-act="limpar">limpar</button>`:''}</div></div>
+      <div class="rs-acts">${(t.hojeT||0)>0?`<button class="rs-reset" data-click="renshu" data-act="limpar">limpar</button>`:''}</div></div>
     <div class="rs-row ok"><span>Deu certo!</span>
-      <div class="rs-stepper"><button data-act="a-">−</button><b>${t.hojeA||0}</b><button class="plus" data-act="a+">＋</button></div></div>
+      <div class="rs-stepper"><button data-click="renshu" data-act="a-">−</button><b>${t.hojeA||0}</b><button class="plus" data-click="renshu" data-act="a+">＋</button></div></div>
     <div class="rs-row no"><span>Não deu certo</span>
-      <div class="rs-stepper"><button data-act="e-">−</button><b>${errou}</b><button class="plus" data-act="e+">＋</button></div></div>
+      <div class="rs-stepper"><button data-click="renshu" data-act="e-">−</button><b>${errou}</b><button class="plus" data-click="renshu" data-act="e+">＋</button></div></div>
   </div>`);
-  card.querySelector('[data-act="a+"]').onclick=()=>rtAck(t.jp,1);
-  card.querySelector('[data-act="a-"]').onclick=()=>rtAck(t.jp,-1);
-  card.querySelector('[data-act="e+"]').onclick=()=>rtErr(t.jp,1);
-  card.querySelector('[data-act="e-"]').onclick=()=>rtErr(t.jp,-1);
-  const lim=card.querySelector('[data-act="limpar"]'); if(lim) lim.onclick=()=>rtLimpar(t.jp);
   return card;
 }
 
@@ -1551,8 +1591,7 @@ function registroBody(){
       <button class="${reg.randori===true?'active':''}" data-r="yes">Fiz randori</button>
     </div>
   </div>`);
-  segR.querySelector('[data-r="no"]').onclick=()=>{ reg.randori=false; _autosaveDraft(); render(); };
-  segR.querySelector('[data-r="yes"]').onclick=()=>{ reg.randori=true; _autosaveDraft(); render(); };
+  segR.querySelectorAll('[data-r]').forEach(b=> b.setAttribute('data-click','regRandori'));
   wrap.appendChild(segR);
   // 2) Renshū — só aparece se fez randori
   if(reg.randori===true){
@@ -1567,29 +1606,22 @@ function registroBody(){
       focos.forEach(t=> wrap.appendChild(tecnicaFocoCard(t)));
     } else {
       wrap.appendChild(el(`<div class="rs-empty-foco">Você ainda não tem técnicas em foco.<br>Escolha as que vai treinar para acompanhar sua evolução.</div>`));
-      const efb=el(`<button class="rs-add" style="margin:2px 0 4px">＋ Escolher técnicas</button>`);
-      efb.onclick=()=>rsAddFoco();
-      wrap.appendChild(efb);
+      wrap.appendChild(el(`<button class="rs-add" style="margin:2px 0 4px" data-click="focoAdd">＋ Escolher técnicas</button>`));
     }
   }
   // 3) nota rápida — sempre visível, opcional
   const notaSec=el(`<div class="fsec">
     <div class="fsec-title"><span class="ico">📝</span> Nota rápida <small>(opcional)</small></div>
-    <textarea class="ta" id="reg-nota" placeholder="Algo que queira lembrar do treino…">${safeTxt(reg.nota||'')}</textarea>
+    <textarea class="ta" id="reg-nota" data-input="regNota" placeholder="Algo que queira lembrar do treino…">${safeTxt(reg.nota||'')}</textarea>
   </div>`);
-  notaSec.querySelector('#reg-nota').oninput=(e)=>{ reg.nota=e.target.value; _autosaveDraft(); };
   wrap.appendChild(notaSec);
   // 4) Como foi o treino? — escala 1–5 (obrigatório, sem emoji)
   const feelSec=el(`<div class="fsec">
     <div class="fsec-title"><span class="ico">📊</span> Como foi o treino? <small>obrigatório</small></div>
-    <div class="feel-scale">${[1,2,3,4,5].map(n=>`<button class="feel-btn ${reg.mood===n?'on lvl'+n:''}" data-n="${n}">${n}</button>`).join('')}</div>
+    <div class="feel-scale">${[1,2,3,4,5].map(n=>`<button class="feel-btn ${reg.mood===n?'on lvl'+n:''}" data-click="regMood" data-n="${n}">${n}</button>`).join('')}</div>
     <div class="feel-ends"><span>Muito difícil</span><span>Excelente</span></div>
     <div class="feel-cap">${reg.mood?FEEL_LABEL[reg.mood]:'Avalie de 1 a 5'}</div>
   </div>`);
-  const fcap=feelSec.querySelector('.feel-cap');
-  feelSec.querySelectorAll('.feel-btn').forEach(b=>{ b.onclick=()=>{ reg.mood=+b.dataset.n;
-    feelSec.querySelectorAll('.feel-btn').forEach(x=>{ x.classList.remove('on'); x.className='feel-btn'; });
-    b.className='feel-btn on lvl'+reg.mood; fcap.textContent=FEEL_LABEL[reg.mood]; _autosaveDraft(); }; });
   wrap.appendChild(feelSec);
   return wrap;
 }
@@ -1769,10 +1801,25 @@ const _ROTAS = [
   { chave:'share',         quando: () => DB.shareOpen,         pintar: (t) => t.appendChild(renderShare()) },
   { chave:'treino',        quando: () => DB.treinoAberto,      pintar: (t) => t.appendChild(renderTreinoDetalhe()) },
   { chave:'flow',          quando: () => !!DB.flow,            pintar: (t) => t.appendChild(renderFlow(DB.flow)) },
-  { chave:'aluno',         quando: () => DB.role === 'aluno',  pintar: (t) => t.appendChild(renderAluno()) },
-  { chave:'professor',     quando: () => true,                 pintar: (t) => t.appendChild(renderProfessor()) },
+  { chave:'aluno',         quando: () => DB.role === 'aluno',  pintar: (t) => t.appendChild(renderAluno()),
+    sub: () => DB.navAluno, alvo: '#aluno-body' },
+  { chave:'professor',     quando: () => true,                 pintar: (t) => t.appendChild(renderProfessor()),
+    sub: () => _subProf(),  alvo: '#prof-body' },
 ];
 function _rotaAtual(){ return _ROTAS.find(r => r.quando()) || null; }
+
+/* Sub-tela do professor. Inclui os modos-foco (ficha, chamada, edicao de turma,
+   import, acesso) porque eles trocam a ESTRUTURA da tela — alguns nem tabbar
+   tem. Como o morph so' roda com `sub` inalterada, entrar/sair de um desses
+   modos cai no rebuild, que e' o correto. */
+function _subProf(){
+  if (DB.alunoAberto)      return 'ficha:' + (DB.alunoAberto.id || DB.alunoAberto.nm || '?');   // objeto vira [object Object]: dois alunos dariam a MESMA chave
+  if (DB.batchCheckin)     return 'batch';
+  if (DB.turmaEditOpen)    return 'turmaEdit';
+  if (DB.importAlunosOpen) return 'import';
+  if (DB.acessoAlunosOpen) return 'acesso';
+  return DB.navProf;
+}
 
 /* v552 — telas habilitadas para morphdom. Mesmos pré-requisitos do
    _FIN_MORPH: delegation pura e pintura síncrona, ambos verificados por
@@ -1784,8 +1831,31 @@ const _TELAS_MORPH = {
   retro:       { pronto: () => true },
   auth:        { pronto: () => true },
   trocarSenha: { pronto: () => true },
+  meusPedidos: { pronto: () => true },
+  loja:        { pronto: () => true },
+  treino:      { pronto: () => true },
+  share:       { pronto: () => true },
+  flow:        { pronto: () => true },
+  aluno:       { pronto: () => _ALUNO_MORPH.has(DB.navAluno) },
+  professor:   { pronto: () => _PROF_MORPH.has(_subProf()) },
 };
-let _telaPintada = null;   // chave da rota atualmente no DOM
+
+/* v553 — aluno e professor sao ROTEADORES: nao tem handler proprio, so'
+   despacham pra sub-tela. Exigir a tela inteira limpa significaria migrar
+   alunoPerfil (59 `.onclick=`) e profAlunos juntos, de uma vez — foi esse
+   "tudo ou nada" que produziu o vai-e-vem da v530-v541.
+
+   Por isso o morph e' ESCOPADO no body interno (`alvo` na rota) e a allowlist
+   e' por sub-tela. Duas consequencias que valem o desenho:
+     · topbar e tabbar ficam FORA do diff — nunca sao reconstruidas, entao os
+       `.onclick=` delas seguem validos e nao precisam migrar;
+     · da' pra habilitar uma aba por vez, com o guard cobrando os
+       pre-requisitos so' daquela cadeia.
+   Trocar de aba muda `sub` → cai no rebuild, que atualiza a tabbar. */
+const _ALUNO_MORPH = new Set(['jornada', 'jogo', 'perfil', 'inicio']);
+const _PROF_MORPH  = new Set(['yama', 'graduacao', 'turmas', 'loja', 'pedidos', 'alunos', 'relatorios', 'perfil', 'painel', 'videos', 'financeiro']);
+
+let _telaPintada = null;   // chave+sub da rota atualmente no DOM
 
 function render(){
   if (!DEMO) atualizarSemana();        // semana/streak sempre derivados dos treinos reais
@@ -1827,25 +1897,34 @@ function render(){
      (refetch chegando, mutação salva), e é só esse que o morphdom cobre. */
   const rota = _rotaAtual();
   const chave = rota ? rota.chave : null;
+  // v553: a chave carrega a SUB-tela. Sem isso, navegar entre abas do professor
+  // seria "mesma tela" e o morph deixaria a tabbar (fora do alvo) no estado velho.
+  const chaveCheia = rota ? chave + (rota.sub ? '|' + rota.sub() : '') : null;
   const buildInto = (target) => { if (rota) rota.pintar(target); };
 
   const m = chave && _TELAS_MORPH[chave];
   const podeMorph = MORPHDOM
     && typeof morphdom === 'function'
     && m && m.pronto()
-    && _telaPintada === chave;          // (c) só repaint da mesma tela
+    && _telaPintada === chaveCheia;     // (c) só repaint da mesma tela+sub
 
   if(podeMorph){
     try {
       const staging = root.cloneNode(false);
       buildInto(staging);
-      morphdom(root, staging, { childrenOnly: true });
+      // `alvo` escopa o diff num container interno estável (#prof-body /
+      // #aluno-body). O que está fora dele não é tocado — nem morfado nem
+      // reconstruído — e por isso não precisa ser delegation-puro.
+      const de   = rota.alvo ? staging.querySelector(rota.alvo) : staging;
+      const para = rota.alvo ? root.querySelector(rota.alvo)    : root;
+      if(!de || !para) throw new Error('alvo do morph ausente: ' + rota.alvo);
+      morphdom(para, de, { childrenOnly: true });
       return;                            // _telaPintada não muda: é a mesma
     } catch(_){ /* cai no caminho antigo */ }
   }
   root.innerHTML = '';
   buildInto(root);
-  _telaPintada = chave;
+  _telaPintada = chaveCheia;
 }
 
 /* v427 — render() de FUNDO. Use em todo redesenho que não foi o usuário que pediu
@@ -1888,7 +1967,7 @@ function topbar(sub){
 function renderAluno(){
   const v = el(`<div class="view"></div>`);
   const nav = DB.navAluno;
-  const body = el('<div></div>');
+  const body = el('<div id="aluno-body"></div>');   // alvo do morph (v553)
   if (nav==='inicio'){
     body.appendChild(alunoInicio());
   } else {
@@ -1982,6 +2061,43 @@ function aulasStats(){
   return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) };
 }
 
+/* v554 — INICIO do aluno. `_pushEstado` guarda a resposta de sbPush.estado()
+   pra que o banner "Ative os avisos" seja pintado de forma SINCRONA. Antes ele
+   nascia dentro do `.then` e era inserido no container — o unico append
+   assincrono real desta tela, e o que impedia o morphdom. */
+let _pushEstado = null;
+_dlgRegister('abrirNotificacoes', () => abrirNotificacoes());
+_dlgRegister('irGraduacao',  () => { DB.jornadaTab = 'graduacao'; goAluno('jornada'); });
+_dlgRegister('irProgresso',  () => { DB.navAluno = 'jogo'; DB.jogoTab = 'progresso'; render(); });
+_dlgRegister('irHistorico',  () => { DB.navAluno = 'jornada'; DB.jornadaTab = 'historico'; render(); window.scrollTo(0,0); });
+_dlgRegister('abrirFlow',    () => openFlow());
+_dlgRegister('pushBannerFechar', (elm, ev) => {
+  ev.stopPropagation();
+  DB._pushBannerOculto = true;
+  elm.closest('.push-nudge')?.remove();
+});
+_dlgRegister('pushAtivar', async (elm) => {
+  try{ await sbPush.ativar(); _pushEstado = 'ativo'; toast('Avisos ligados 🔔'); elm.remove(); }
+  catch(e){ toast(e.message || 'Não deu pra ativar'); }
+});
+_dlgRegister('onbPlay', (elm) => {
+  const id = elm.dataset.id;
+  const vistos = _onbVistos();
+  if(!vistos.includes(id)){
+    vistos.push(id);
+    try{ localStorage.setItem('yama.videos.seen', JSON.stringify(vistos)); }catch(_){}
+  }
+  _abrirPlayerYT(id, elm.dataset.titulo, !!elm.dataset.short);
+});
+_dlgRegister('onbTodos', () => _abrirOnbSheet(_getOnboardVideos(), _onbVistos()));
+_dlgRegister('checkinSessao', (elm) => {
+  const s = _sessoesElegiveis()[+elm.dataset.i];
+  if (s) _iniciarCheckinDaSessao(s);
+});
+function _onbVistos(){
+  try{ return JSON.parse(localStorage.getItem('yama.videos.seen') || '[]'); }catch(_){ return []; }
+}
+
 function alunoInicio(){
   const w = el('<div></div>');
   const me = DB.eu;
@@ -2001,10 +2117,10 @@ function alunoInicio(){
     </div>
     <div class="profile-name">${me.nomeCompleto && me.nomeCompleto!==me.apelido ? safeTxt(me.nomeCompleto)+' | ' : ''}${safeTxt(me.apelido)}</div>
   </div>`);
-  head.querySelector('.kh-bell').onclick = ()=> abrirNotificacoes();
+  head.querySelector('.kh-bell').setAttribute('data-click','abrirNotificacoes');
   const _phIni = head.querySelector('.profile-photo');
   // Tap = editar foto · Segurar (long-press) = abrir o cartão de perfil com todas as infos.
-  if(_phIni){ _phIni.style.cursor='pointer'; _phIni.setAttribute('aria-label','Foto de perfil — toque para editar, segure para ver detalhes'); _phIni.onclick=()=>editarFotoPerfil(); _attachLongPress(_phIni,{onLongPress:()=>abrirCartaoPerfil()}); }
+  if(_phIni){ _phIni.style.cursor='pointer'; _phIni.setAttribute('aria-label','Foto de perfil — toque para editar, segure para ver detalhes'); _phIni.setAttribute('data-click','editarFoto'); _phIni.setAttribute('data-longpress','cartaoPerfil'); }
   w.appendChild(head);
 
   // ---- Faixa / progresso compacto (ACIMA do registrar) — DINÂMICO ----
@@ -2018,7 +2134,7 @@ function alunoInicio(){
     <div class="mini-bar"><span style="width:${ag.pct}%"></span></div>
     <div class="pm-foot">${ag.atual>=ag.meta?aptoMsg(me, noMaxGrau, ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' para '+(noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau')+' →'}</div>
   </div>`);
-  prog.onclick = ()=>{ DB.jornadaTab='graduacao'; goAluno('jornada'); };
+  prog.setAttribute('data-click','irGraduacao');
   w.appendChild(prog);
 
   // ---- Selo de consistência (streak) leve, abaixo da faixa (some pro aluno novo) ----
@@ -2030,20 +2146,22 @@ function alunoInicio(){
   // aparece de novo a cada visita (dismiss é só da SESSÃO, não persiste) até o
   // aluno ligar. Some de vez quando ele ativa; não aparece se bloqueado/sem suporte
   // (nesses casos insistir não ajuda, só irrita).
+  // v554: o banner era montado DENTRO do `.then` e inserido no `w` — append
+  // assincrono, que o staging descartavel do morphdom perde. Agora o estado do
+  // push vira cache (`_pushEstado`) e a pintura e' sincrona; a primeira consulta
+  // so' dispara um renderBg quando a resposta chega.
   if(!DB._pushBannerOculto && !DEMO && typeof sbPush!=='undefined' && sbPush.suportado() && sbPush.configurado()){
-    sbPush.estado().then(est=>{
-      if(est!=='inativo') return;   // só insiste quando dá pra agir (não bloqueado, não já ativo)
-      const b = el(`<div class="push-nudge" role="button" tabindex="0">
+    if(_pushEstado === null){
+      _pushEstado = 'consultando';
+      sbPush.estado().then(est=>{ _pushEstado = est; renderBg(); }).catch(()=>{ _pushEstado = 'erro'; });   // morph-ok: so' guarda o estado e repinta; nao appenda nada
+    } else if(_pushEstado === 'inativo'){
+      // só insiste quando dá pra agir (não bloqueado, não já ativo)
+      w.insertBefore(el(`<div class="push-nudge" role="button" tabindex="0" data-click="pushAtivar">
         <div class="pn-ic">🔔</div>
         <div class="pn-tx"><div class="pn-t">Ative os avisos</div><div class="pn-s">Saiba quando esquecer o check-in — mesmo com o app fechado</div></div>
-        <button class="pn-x" type="button" aria-label="Fechar">✕</button>
-      </div>`);
-      const ir = async ()=>{ try{ await sbPush.ativar(); toast('Avisos ligados 🔔'); b.remove(); }catch(e){ toast(e.message||'Não deu pra ativar'); } };
-      b.onclick = (e)=>{ if(e.target.classList.contains('pn-x')) return; ir(); };
-      b.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); ir(); } };
-      b.querySelector('.pn-x').onclick = (e)=>{ e.stopPropagation(); DB._pushBannerOculto=true; b.remove(); };
-      w.insertBefore(b, _sb ? _sb.nextSibling : prog.nextSibling);
-    }).catch(()=>{});
+        <button class="pn-x" type="button" aria-label="Fechar" data-click="pushBannerFechar">✕</button>
+      </div>`), _sb ? _sb.nextSibling : prog.nextSibling);
+    }
   }
 
   // ---- Onboarding: 1 vídeo destacado + link "Ver todos" pra biblioteca completa ----
@@ -2066,18 +2184,13 @@ function alunoInicio(){
       </button>
     </div>`);
     // Play inline no app + marca visto
-    sec.querySelector('.onb-card').addEventListener('click', ()=>{
-      if(!_seen.includes(nextVid.id)){
-        _seen.push(nextVid.id);
-        try{ localStorage.setItem('yama.videos.seen', JSON.stringify(_seen)); }catch(_){}
-      }
-      _abrirPlayerYT(nextVid.id, nextVid.title, nextVid.isShort);
-    });
+    const _oc = sec.querySelector('.onb-card');
+    _oc.setAttribute('data-click','onbPlay');
+    _oc.setAttribute('data-id', nextVid.id);
+    _oc.setAttribute('data-titulo', nextVid.title || '');
+    _oc.setAttribute('data-short', nextVid.isShort ? '1' : '');
     const _all = sec.querySelector('.onb-all');
-    if(_all){
-      _all.onclick = ()=> _abrirOnbSheet(_onbVids, _seen);
-      _all.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _abrirOnbSheet(_onbVids, _seen); } };
-    }
+    if(_all) _all.setAttribute('data-click','onbTodos');
     w.appendChild(sec);
   }
 
@@ -2100,9 +2213,8 @@ function alunoInicio(){
         </div>
         <span class="cc-go">›</span>
       </div>`);
-      const start = ()=>_iniciarCheckinDaSessao(s);
-      card.onclick = start;
-      card.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); start(); } };
+      card.setAttribute('data-click','checkinSessao');
+      card.setAttribute('data-i', String(elegiveis.indexOf(s)));
       wrap.appendChild(card);
     });
     w.appendChild(wrap);
@@ -2117,7 +2229,7 @@ function alunoInicio(){
         <span class="foco-lbl">Trabalhando em</span></div>
       <div class="foco-chips">${focosHome.map(t=>`<span class="foco-chip">${safeTxt(t.jp)}</span>`).join('')}</div>
     </div>`);
-    foco.querySelectorAll('.foco-chip').forEach(c=> c.onclick = ()=>{ DB.navAluno='jogo'; DB.jogoTab='progresso'; render(); });
+    foco.querySelectorAll('.foco-chip').forEach(c=> c.setAttribute('data-click','irProgresso'));
     w.appendChild(foco);
   }
 
@@ -2129,7 +2241,7 @@ function alunoInicio(){
           <div class="draft-s">Volte após a aula para completar o registro</div></div></div>
       <button class="draft-btn">Completar treino</button>
     </div>`);
-    draftCard.querySelector('.draft-btn').onclick = ()=> openFlow();
+    draftCard.querySelector('.draft-btn').setAttribute('data-click','abrirFlow');
     w.appendChild(draftCard);
   }
 
@@ -2137,16 +2249,17 @@ function alunoInicio(){
   w.appendChild(el(`<div class="sec-row" style="margin-top:14px"><div class="sec-title">Últimos treinos</div>
     <a data-click="verHistorico">Ver tudo</a></div>`));
   if (!DB.treinos.length){
-    w.appendChild(emptyState('🥋','Nenhum treino ainda','Toque no botão abaixo, confirme presença e depois da aula registre como foi — sensação, técnicas e anotações.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('🥋','Nenhum treino ainda','Toque no botão abaixo, confirme presença e depois da aula registre como foi — sensação, técnicas e anotações.','Registrar treino', 'flowDoDia'));
   } else {
     const hist = el(`<div class="history"></div>`);
     DB.treinos.slice(0,2).forEach(tr=>{
-      const item = histItem(tr, true); item.onclick = ()=> abrirTreino(tr.id);
+      const item = histItem(tr, true);
+      item.setAttribute('data-click','histAbrir'); item.setAttribute('data-id', tr.id);
       if(tr.id===DB.justSaved){
         const box=el(`<div class="hist-just"></div>`);
         box.appendChild(item);
         const sb=el(`<button class="hist-share" aria-label="Compartilhar treino">📲 Compartilhar treino</button>`);
-        sb.onclick=(e)=>{ e.stopPropagation(); abrirShare(tr.id); };
+        sb.setAttribute('data-click','treinoShare'); sb.setAttribute('data-id', tr.id);
         box.appendChild(sb);
         hist.appendChild(box);
       } else hist.appendChild(item);
@@ -2183,9 +2296,7 @@ function streakBadge(){
     <span class="sb-meta" title="Treinos nesta semana / sua meta semanal">${s.feitos}/${meta}</span>
     <div class="sb-dots">${dots}</div>
   </div>`);
-  const goHist = ()=>{ DB.navAluno='jornada'; DB.jornadaTab='historico'; render(); window.scrollTo(0,0); };
-  node.onclick = goHist;
-  node.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); goHist(); } };
+  node.setAttribute('data-click','irHistorico');
   return node;
 }
 
@@ -2251,8 +2362,7 @@ function alunoJornada(){
   const subs = [['historico','Histórico'],['frequencia','Frequência'],['graduacao','Graduação']];
   const seg = el(`<div class="subtabs-scroll"></div>`);
   subs.forEach(([id,l])=>{
-    const b = el(`<button class="subtab2 ${DB.jornadaTab===id?'on':''}">${l}</button>`);
-    b.onclick = ()=>{ DB.jornadaTab=id; render(); };
+    const b = el(`<button class="subtab2 ${DB.jornadaTab===id?'on':''}" data-click="jornadaTab" data-v="${id}">${l}</button>`);
     seg.appendChild(b);
   });
   w.appendChild(seg);
@@ -2266,6 +2376,55 @@ function alunoJornada(){
 }
 
 // Sub-aba Histórico: heatmap (por período) + notas + feed filtrável
+/* v553 — handlers da Jornada. Todos eram `.onclick=` com closure sobre a
+   variável do laço (o id do filtro, o índice do mês, a técnica) — o padrão que
+   o morphdom quebra: o nó sobrevive ao diff carregando o handler da
+   renderização anterior. Aqui o valor viaja no `data-v` e é lido no clique. */
+_dlgRegister('jornadaTab', (elm) => { DB.jornadaTab = elm.dataset.v; render(); });
+_dlgRegister('hmPeriodo',  (elm) => { DB.histPeriodo = elm.dataset.v; render(); });
+_dlgRegister('abrirRetro', () => abrirRetro());
+_dlgRegister('importGrad', () => abrirImportGrad());
+_dlgRegister('flowDoDia',  () => openFlow(aulaDoDia().tipo));
+
+_dlgRegister('hmDia', (elm) => {
+  const iso = elm.dataset.iso;
+  const cnt = (DB.treinos||[]).filter(t => t.data === iso).length;
+  toast(fmtDataLonga(iso) + (cnt ? ` \u00b7 ${plural(cnt,'treino','treinos')}` : ' \u00b7 sem treino'));
+});
+
+_dlgRegister('freqMes', (elm) => {
+  const i = +elm.dataset.v;
+  DB.histMes = (DB.histMes === i ? null : i);
+  DB.jornadaTab = 'historico';
+  render();
+});
+
+_dlgRegister('histMais', (elm) => {
+  // 3 skeletons de feedback antes da paginação entrar
+  elm.replaceWith(el(`<div class="hist-skel-stack"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div>`));
+  setTimeout(() => { DB._histPage = (DB._histPage||0) + 1; render(); }, 120);
+});
+
+/* Um handler para os 6 filtros do histórico. `mes` sai antes do reset de
+   página porque o comportamento original não zerava a paginação ao limpar só
+   o mês — o resto zera. */
+_dlgRegister('histFiltro', (elm) => {
+  const campo = elm.dataset.campo, v = elm.dataset.v;
+  if (campo === 'painel'){ DB._histFilterOpen = DB._histFilterOpen === v ? null : v; return render(); }
+  if (campo === 'mes'){ DB.histMes = null; return render(); }
+  if (campo === 'limpar'){
+    DB.histFiltro = 'todos'; DB.histPer = null; DB.histFeel = null;
+    DB.histRandori = undefined; DB.histMes = null; DB._histPage = 0;
+    return render();
+  }
+  DB._histPage = 0;
+  if (campo === 'tipo')     DB.histFiltro = v;                                   // sem toggle: sempre um ativo
+  if (campo === 'periodo')  DB.histPer  = DB.histPer === v ? null : v;
+  if (campo === 'sensacao'){ const n = +v; DB.histFeel = DB.histFeel === n ? null : n; }
+  if (campo === 'randori'){ const b = v === 'sim'; DB.histRandori = DB.histRandori === b ? undefined : b; }
+  render();
+});
+
 function jornadaHistorico(){
   const w = el('<div></div>');
   w.appendChild(heatmapCard());
@@ -2274,9 +2433,7 @@ function jornadaHistorico(){
   const filtro = DB.histFiltro || 'todos';
   const fseg = el(`<div class="filter-seg"></div>`);
   [['todos','Todos'],['tecnica','Técnica'],['livre','Livre']].forEach(([id,l])=>{
-    const b = el(`<button class="${filtro===id?'active':''}">${l}</button>`);
-    b.onclick = ()=>{ DB.histFiltro=id; DB._histPage=0; render(); };
-    fseg.appendChild(b);
+    fseg.appendChild(el(`<button class="${filtro===id?'active':''}" data-click="histFiltro" data-campo="tipo" data-v="${id}">${l}</button>`));
   });
   w.appendChild(fseg);
 
@@ -2293,38 +2450,28 @@ function jornadaHistorico(){
     {id:'randori', icon:'🤼', label:'Randori', active: hRand!=null}
   ];
   groups.forEach(g=>{
-    const btn = el(`<button class="hf-btn ${g.active?'on':''} ${fPanel===g.id?'open':''}">${g.icon}<span>${g.label}</span></button>`);
-    btn.onclick = ()=>{ DB._histFilterOpen = fPanel===g.id ? null : g.id; render(); };
-    fBar.appendChild(btn);
+    fBar.appendChild(el(`<button class="hf-btn ${g.active?'on':''} ${fPanel===g.id?'open':''}" data-click="histFiltro" data-campo="painel" data-v="${g.id}">${g.icon}<span>${g.label}</span></button>`));
   });
   w.appendChild(fBar);
 
   if (fPanel==='periodo'){
     const chips = el(`<div class="hist-chips"></div>`);
     [['7d','7 dias'],['30d','30 dias'],['3m','3 meses'],['ano','1 ano']].forEach(([id,l])=>{
-      const b = el(`<button class="hchip ${hPer===id?'on':''}">${l}</button>`);
-      b.onclick = ()=>{ DB.histPer = hPer===id ? null : id; DB._histPage=0; render(); };
-      chips.appendChild(b);
+      chips.appendChild(el(`<button class="hchip ${hPer===id?'on':''}" data-click="histFiltro" data-campo="periodo" data-v="${id}">${l}</button>`));
     });
     w.appendChild(chips);
   }
   if (fPanel==='sensacao'){
     const chips = el(`<div class="hist-chips"></div>`);
     [1,2,3,4,5].forEach(n=>{
-      const b = el(`<button class="hchip ${hFeel===n?'on':''}">${n} · ${FEEL_LABEL[n]}</button>`);
-      b.onclick = ()=>{ DB.histFeel = hFeel===n ? null : n; DB._histPage=0; render(); };
-      chips.appendChild(b);
+      chips.appendChild(el(`<button class="hchip ${hFeel===n?'on':''}" data-click="histFiltro" data-campo="sensacao" data-v="${n}">${n} · ${FEEL_LABEL[n]}</button>`));
     });
     w.appendChild(chips);
   }
   if (fPanel==='randori'){
     const chips = el(`<div class="hist-chips"></div>`);
-    const rSim = el(`<button class="hchip ${hRand===true?'on':''}">🤼 Com randori</button>`);
-    rSim.onclick = ()=>{ DB.histRandori = hRand===true ? undefined : true; DB._histPage=0; render(); };
-    chips.appendChild(rSim);
-    const rNao = el(`<button class="hchip ${hRand===false?'on':''}">🧘 Sem randori</button>`);
-    rNao.onclick = ()=>{ DB.histRandori = hRand===false ? undefined : false; DB._histPage=0; render(); };
-    chips.appendChild(rNao);
+    chips.appendChild(el(`<button class="hchip ${hRand===true?'on':''}" data-click="histFiltro" data-campo="randori" data-v="sim">🤼 Com randori</button>`));
+    chips.appendChild(el(`<button class="hchip ${hRand===false?'on':''}" data-click="histFiltro" data-campo="randori" data-v="nao">🧘 Sem randori</button>`));
     w.appendChild(chips);
   }
 
@@ -2333,13 +2480,9 @@ function jornadaHistorico(){
   if (filtrosAtivos){
     const resumo = el(`<div class="hist-active-filters"></div>`);
     if (DB.histMes!=null){
-      const chip = el(`<span class="mes-chip">📅 ${meses[DB.histMes]} <span class="mc-x">✕</span></span>`);
-      chip.onclick = ()=>{ DB.histMes=null; render(); };
-      resumo.appendChild(chip);
+      resumo.appendChild(el(`<span class="mes-chip" data-click="histFiltro" data-campo="mes">📅 ${meses[DB.histMes]} <span class="mc-x">✕</span></span>`));
     }
-    const limpar = el(`<button class="hchip-clear">Limpar filtros</button>`);
-    limpar.onclick = ()=>{ DB.histFiltro='todos'; DB.histPer=null; DB.histFeel=null; DB.histRandori=undefined; DB.histMes=null; DB._histPage=0; render(); };
-    resumo.appendChild(limpar);
+    resumo.appendChild(el(`<button class="hchip-clear" data-click="histFiltro" data-campo="limpar">Limpar filtros</button>`));
     w.appendChild(resumo);
   }
 
@@ -2354,7 +2497,7 @@ function jornadaHistorico(){
 
   // feed filtrado (tipo + período + mês + sensação + randori) com paginação
   if (!DB.treinos.length){
-    w.appendChild(emptyState('📓','Seu diário está vazio','Aqui vai aparecer o histórico completo dos seus treinos — técnicas, randori, fotos e anotações. Registre o primeiro!','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('📓','Seu diário está vazio','Aqui vai aparecer o histórico completo dos seus treinos — técnicas, randori, fotos e anotações. Registre o primeiro!','Registrar treino', 'flowDoDia'));
     return w;
   }
   const hist = el(`<div class="history"></div>`);
@@ -2382,34 +2525,13 @@ function jornadaHistorico(){
   const visivel = itens.slice(0, (page+1)*PAGE);
   visivel.forEach(t=>{
     const item = histItem(t);
-    item.onclick = ()=> abrirTreino(t.id);
-    _attachLongPress(item, { onLongPress: ()=>{
-      const acoes = [{ icon:'👁️', label:'Abrir detalhes', onClick:()=> abrirTreino(t.id) }];
-      // v455: presença marcada pela academia não pode ser excluída pelo aluno —
-      // ele pode editar/enriquecer (técnica/mood) mas o registro da chamada é do
-      // servidor. Se for erro do professor, ele desfaz do lado dele.
-      if (t._fonte !== 'servidor'){
-        acoes.push({ icon:'🗑️', label:'Excluir treino', danger:true, onClick:()=>{
-          const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
-          const snapTecs = _snapTreinoTecs(t);
-          _revertTreinoAgg(t);
-          DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
-          render(); scheduleSave();
-          toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); });
-        } });
-      }
-      _openActionSheet(t.titulo||'Treino', acoes);
-    }});
+    item.setAttribute('data-click','histAbrir');
+    item.setAttribute('data-longpress','histAcoes');
+    item.setAttribute('data-id', t.id);
     hist.appendChild(item);
   });
   if (visivel.length < itens.length){
-    const mais = el(`<button class="hist-mais">Carregar mais (${itens.length - visivel.length} restantes)</button>`);
-    mais.onclick = ()=>{
-      // injeta 3 skeletons temporários para feedback visual antes da paginação carregar
-      mais.replaceWith(el(`<div class="hist-skel-stack"><div class="skel skel-row"></div><div class="skel skel-row"></div><div class="skel skel-row"></div></div>`));
-      setTimeout(()=>{ DB._histPage = (DB._histPage||0)+1; render(); }, 120);
-    };
-    hist.appendChild(mais);
+    hist.appendChild(el(`<button class="hist-mais" data-click="histMais">Carregar mais (${itens.length - visivel.length} restantes)</button>`));
   }
   w.appendChild(hist);
   w.appendChild(el(`<div style="height:18px"></div>`));
@@ -2465,7 +2587,7 @@ function retroStats(){
 function jornadaFrequencia(){
   const w = el('<div></div>');
   if((DB.treinos||[]).length===0){
-    w.appendChild(emptyState('📊','Sua frequência aparece aqui','Com pelo menos 1 treino registrado, você verá presença por mês, dias da semana preferidos e seu ritmo semanal.','Registrar treino', ()=> openFlow(aulaDoDia().tipo)));
+    w.appendChild(emptyState('📊','Sua frequência aparece aqui','Com pelo menos 1 treino registrado, você verá presença por mês, dias da semana preferidos e seu ritmo semanal.','Registrar treino', 'flowDoDia'));
     w.appendChild(el(`<div style="height:18px"></div>`));
     return w;
   }
@@ -2480,7 +2602,7 @@ function jornadaFrequencia(){
     <div class="rb-tx"><div class="rb-t">Seu ano no Jiu-Jitsu</div>
       <div class="rb-s">${plural(r.treinos,'treino','treinos')} · ${r.horas}h no tatame</div></div>
     <div class="rb-go">›</div></div>`);
-  retro.onclick = ()=> abrirRetro();
+  retro.setAttribute('data-click','abrirRetro');
   w.appendChild(retro);
 
   // meta do mês
@@ -2509,7 +2631,8 @@ function jornadaFrequencia(){
       <span class="mbar-v">${mo.count}</span>
       <div class="mbar-track"><div class="mbar-fill" style="height:${Math.round(mo.count/mx*100)}%"></div></div>
       <span class="mbar-l">${(mo.label||'').slice(0,3)}</span></div>`);
-    bar.onclick = ()=>{ DB.histMes = (DB.histMes===i?null:i); DB.jornadaTab='historico'; render(); };
+    bar.setAttribute('data-click','freqMes');
+    bar.setAttribute('data-v', String(i));
     row.appendChild(bar);
   });
   w.appendChild(barCard);
@@ -2627,9 +2750,7 @@ function heatmapCard(){
   const periodo = DB.histPeriodo || 'ano';
   const seg = el(`<div class="hist-seg"></div>`);
   [['semana','Semana'],['mes','Mês'],['ano','Ano']].forEach(([id,l])=>{
-    const b = el(`<button class="${periodo===id?'active':''}">${l}</button>`);
-    b.onclick = ()=>{ DB.histPeriodo=id; render(); };
-    seg.appendChild(b);
+    seg.appendChild(el(`<button class="${periodo===id?'active':''}" data-click="hmPeriodo" data-v="${id}">${l}</button>`));
   });
 
   const card = el(`<div class="card card-pad" style="margin:0 20px 18px"></div>`);
@@ -2708,13 +2829,8 @@ function heatmapCard(){
   card.appendChild(el(`<div class="hm-legend">
     <span class="hm-cell hm-tec"></span><span>Técnica</span>
     <span class="hm-cell hm-liv"></span><span>Livre</span></div>`));
-  card.addEventListener('click', e=>{
-    const cell = e.target.closest('[data-iso]');
-    if(!cell) return;
-    const iso = cell.dataset.iso;
-    const cnt = (DB.treinos||[]).filter(t=>t.data===iso).length;
-    toast(fmtDataLonga(iso) + (cnt ? ` · ${plural(cnt,'treino','treinos')}` : ' · sem treino'));
-  });
+  // as células já carregam data-iso; marcá-las substitui o listener local
+  card.querySelectorAll('[data-iso]').forEach(c=> c.setAttribute('data-click','hmDia'));
   return card;
 }
 
@@ -2768,6 +2884,70 @@ function _applyRenshuDelta(tr, before, after){
 let _savedScroll=0;
 function abrirTreino(id){ _savedScroll=window.scrollY; DB.treinoAberto = id; render(); window.scrollTo(0,0); }
 function fecharTreino(){ DB.treinoAberto = null; render(); window.scrollTo(0,_savedScroll); }
+/* v554 — busca da Loja fora da closure (mesmo motivo da Biblioteca, v553):
+   `aplicaBusca` capturava `grid`, `_emptyMsg` e o botao de limpar. Os nos que
+   ficam no DOM depois do diff sao os ANTIGOS, entao a busca seguia escondendo
+   cards de uma grade orfa. Agora resolve pelo id a cada chamada. Continua
+   filtrando in-place (sem render()) de proposito: e' o que preserva o foco do
+   input com o morphdom desligado. */
+function _lojaAplicaBusca(){
+  const grid = document.getElementById('loja-grid');
+  const vazio = document.getElementById('loja-empty');
+  const clr   = document.getElementById('loja-q-clr');
+  const q = (DB._lojaBusca||'').trim().toLowerCase();
+  let vis = 0, total = 0;
+  if (grid) grid.querySelectorAll('.prod-card').forEach(card => {
+    total++;
+    const hit = !q || (card.getAttribute('data-nm')||'').includes(q);
+    card.style.display = hit ? '' : 'none';
+    if (hit) vis++;
+  });
+  if (vazio) vazio.style.display = (total && vis === 0) ? 'block' : 'none';
+  if (clr) clr.style.display = q ? '' : 'none';
+}
+_dlgRegister('lojaBusca', (elm) => { DB._lojaBusca = elm.value; _lojaAplicaBusca(); });
+_dlgRegister('lojaBuscaLimpar', () => {
+  const inp = document.getElementById('loja-q');
+  DB._lojaBusca = '';
+  if (inp) inp.value = '';
+  _lojaAplicaBusca();
+  if (inp) inp.focus();
+});
+_dlgRegister('lojaCat',          (elm) => setLojaCat(elm.dataset.v));
+_dlgRegister('abrirProduto',     (elm) => abrirProduto(elm.dataset.id));
+_dlgRegister('abrirMeusPedidos', () => openMeusPedidos());
+
+/* Excluir treino: a sheet de confirmacao vivia dentro do `delBtn.onclick`, o que
+   deixava `renderTreinoDetalhe` com 4 handlers e uma closure sobre `t`. Como
+   funcao propria ela sai da cadeia de render, e o treino e' resolvido por id. */
+function _treinoExcluirSheet(id){
+  const t = DB.treinos.find(x => x.id === id);
+  if (!t) return;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Excluir treino?</div>
+    <div class="sheet-desc">Este treino será removido do seu diário. Você terá alguns segundos para desfazer.</div>
+    <button class="btn-save danger" id="del-confirm">Excluir</button>
+    <button class="sheet-cancel" id="del-cancel">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(), 260); };
+  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#del-cancel').onclick = close;
+  sheet.querySelector('#del-confirm').onclick = ()=>{
+    const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
+    const snapTecs = _snapTreinoTecs(t);
+    _revertTreinoAgg(t);
+    DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
+    close(); DB.treinoAberto = null; render(); scheduleSave();
+    toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); });
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(()=> sheet.classList.add('open'));
+}
+_dlgRegister('treinoShare',   (elm) => abrirShare(elm.dataset.id));
+_dlgRegister('treinoEditar',  (elm) => { const t = DB.treinos.find(x=>x.id===elm.dataset.id); if(t) abrirEditarTreino(t); });
+_dlgRegister('treinoExcluir', (elm) => _treinoExcluirSheet(elm.dataset.id));
+
 function renderTreinoDetalhe(){
   const t = DB.treinos.find(x=>x.id===DB.treinoAberto);
   if(!t){ fecharTreino(); return el(`<div class="view"></div>`); }
@@ -2796,9 +2976,7 @@ function renderTreinoDetalhe(){
       </div>`));
     }
   }
-  const btnShare = el(`<button class="share-btn">📲 Compartilhar treino</button>`);
-  btnShare.onclick = ()=> abrirShare(t.id);
-  body.appendChild(btnShare);
+  body.appendChild(el(`<button class="share-btn" data-click="treinoShare" data-id="${safeAttr(t.id)}">📲 Compartilhar treino</button>`));
 
   const det = t.det;
   if (det){
@@ -2836,27 +3014,8 @@ function renderTreinoDetalhe(){
       body.appendChild(fg);
     }
   }
-  const editBtn = el(`<button class="edit-treino">✏️ Editar treino</button>`);
-  editBtn.onclick = ()=> abrirEditarTreino(t);
-  body.appendChild(editBtn);
-
-  const delBtn = el(`<button class="del-treino">Excluir treino</button>`);
-  delBtn.onclick = ()=>{
-    const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-      <div class="sheet-grip"></div>
-      <div class="sheet-title">Excluir treino?</div>
-      <div class="sheet-desc">Este treino será removido do seu diário. Você terá alguns segundos para desfazer.</div>
-      <button class="btn-save danger" id="del-confirm">Excluir</button>
-      <button class="sheet-cancel" id="del-cancel">Cancelar</button>
-    </div></div>`);
-    const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-    sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-    sheet.querySelector('#del-cancel').onclick=close;
-    sheet.querySelector('#del-confirm').onclick=()=>{ const snap = {...t}; const idx = DB.treinos.findIndex(x=>x.id===t.id); const snapTecs=_snapTreinoTecs(t); _revertTreinoAgg(t); DB.treinos = DB.treinos.filter(x=>x.id!==t.id); close(); DB.treinoAberto=null; render(); scheduleSave(); toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); }); };
-    document.body.appendChild(sheet);
-    requestAnimationFrame(()=>sheet.classList.add('open'));
-  };
-  body.appendChild(delBtn);
+  body.appendChild(el(`<button class="edit-treino" data-click="treinoEditar" data-id="${safeAttr(t.id)}">✏️ Editar treino</button>`));
+  body.appendChild(el(`<button class="del-treino" data-click="treinoExcluir" data-id="${safeAttr(t.id)}">Excluir treino</button>`));
   v.appendChild(body);
   return v;
 }
@@ -3069,6 +3228,60 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg){
   }
   soff();
 }
+/* v554 — acoes do card de story. O canvas e' resolvido por id no momento da
+   acao (`#share-canvas`): as closures capturavam o `cv` daquela renderizacao, e
+   depois de um repaint elas gerariam o PNG de um canvas orfao — em branco.
+   O `redraw` continua local: e' chamado durante a construcao, nunca depois. */
+let _shareTreino = null;
+function _shareRedraw(){
+  const cv = document.getElementById("share-canvas");
+  if(!cv || !_shareTreino) return;
+  try{
+    drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
+      (_shareLogo&&_shareLogo.complete&&_shareLogo.naturalWidth)?_shareLogo:null,
+      (_sharePhoto&&_sharePhoto.complete&&_sharePhoto.naturalWidth)?_sharePhoto:null);
+  }catch(e){}
+}
+function _shareCanvas(){ return document.getElementById('share-canvas'); }
+_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
+_dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
+_dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
+_dlgRegister('shareFoto', (elm) => {
+  const f = elm.files && elm.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = (ev) => { const img = new Image(); img.onload = ()=>{ _sharePhoto = img; render(); }; img.src = ev.target.result; };
+  rd.readAsDataURL(f);
+});
+_dlgRegister('shareEnviar', () => {
+  const cv = _shareCanvas(); if(!cv) return;
+  cv.toBlob(async (b) => {
+    const file = new File([b], 'yama-treino.png', { type:'image/png' });
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file], title:'Yama Jiu-Jitsu', text:'山 Yama Jiu-Jitsu'}); }catch(e){}
+    } else { toast('Compartilhar direto indisponível — use Copiar/Baixar'); }
+  });
+});
+_dlgRegister('shareCopiar', () => {
+  const cv = _shareCanvas(); if(!cv) return;
+  if(!(navigator.clipboard && window.ClipboardItem)){ toast('Copiar indisponível; use Baixar PNG'); return; }
+  try{
+    const item = new ClipboardItem({ 'image/png': new Promise(res => cv.toBlob(bb => res(bb), 'image/png')) });
+    navigator.clipboard.write([item]).then(()=>toast('Copiado ✔ cole no seu story 📲')).catch(()=>toast('Não rolou copiar; use Baixar PNG'));
+  }catch(err){ toast('Não rolou copiar; use Baixar PNG'); }
+});
+_dlgRegister('shareBaixar', () => {
+  const cv = _shareCanvas(); if(!cv) return;
+  cv.toBlob((b) => {
+    const url = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'yama-treino.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    toast('PNG baixado ✔');
+  });
+});
+
 function renderShare(){
   const t = DB.treinos.find(x=>x.id===DB.shareOpen);
   if(!t){ DB.shareOpen=null; return el('<div></div>'); }
@@ -3080,27 +3293,28 @@ function renderShare(){
   </div>`;
   const body = el(`<div class="share-body"></div>`);
   const stage = el(`<div class="story-stage${_sharePhoto?' has-photo':''}"></div>`);
-  const cv = el(`<canvas class="story-canvas" width="1080" height="1920"></canvas>`);
+  const cv = el(`<canvas class="story-canvas" id="share-canvas" width="1080" height="1920"></canvas>`);
   stage.appendChild(cv); body.appendChild(stage);
   body.appendChild(el(`<div class="story-hint">${_sharePhoto?'card sobre a sua foto — posta a imagem inteira':'card vira sticker (PNG sem fundo) · ou adicione a sua foto'}</div>`));
-  const ctx = cv.getContext('2d');
-  const redraw=()=> { try{ drawStory(ctx,1080,1920,t,DB.shareTpl,
-      (_shareLogo&&_shareLogo.complete&&_shareLogo.naturalWidth)?_shareLogo:null,
-      (_sharePhoto&&_sharePhoto.complete&&_sharePhoto.naturalWidth)?_sharePhoto:null); }catch(e){} };
-  if(!_shareLogo){ _shareLogo=new Image(); _shareLogo.onload=redraw; _shareLogo.onerror=function(){ if(this.src.indexOf('yama-logo')<0) this.src='brand/yama-logo.png?v=2'; }; _shareLogo.src='brand/logo.png?v=2'; }
-  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(redraw); else redraw();
+  // v554: o redraw resolve o canvas no MOMENTO em que roda. Ele e chamado de
+  // tres lugares assincronos (fonte carregada, logo carregado, foto escolhida);
+  // com o ctx capturado, um repaint no meio fazia o desenho cair num canvas
+  // orfao e o story saia em branco.
+  _shareTreino = t;
+  if(!_shareLogo){ _shareLogo=new Image(); _shareLogo.onload=_shareRedraw; _shareLogo.onerror=function(){ if(this.src.indexOf("yama-logo")<0) this.src="brand/yama-logo.png?v=2"; }; _shareLogo.src="brand/logo.png?v=2"; }
+  if(document.fonts&&document.fonts.ready) document.fonts.ready.then(_shareRedraw); else _shareRedraw();   // morph-ok: _shareRedraw resolve #share-canvas no DOM vivo, nao appenda nada
   // modelos
   const chips = el(`<div class="tpl-row"></div>`);
   SHARE_TPLS.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
-    b.onclick=()=>{ DB.shareTpl=id; chips.querySelectorAll('.tpl-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); redraw(); }; chips.appendChild(b); });
+    b.setAttribute('data-click','shareTpl'); b.setAttribute('data-v', id); chips.appendChild(b); });
   body.appendChild(chips);
   // foto de fundo (opcional) — postar com a sua imagem direto no story
   const fileIn = el(`<input type="file" accept="image/*" capture="environment" style="display:none">`);
-  fileIn.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=ev=>{ const img=new Image(); img.onload=()=>{ _sharePhoto=img; render(); }; img.src=ev.target.result; }; rd.readAsDataURL(f); };
+  fileIn.id='share-file'; fileIn.setAttribute('data-change','shareFoto');
   const photoRow = el(`<div class="share-photo-row"></div>`);
   const lbl = el(`<button class="share-photo">📷 ${_sharePhoto?'Trocar foto':'Adicionar sua foto'}</button>`);
-  lbl.onclick=()=>fileIn.click(); photoRow.appendChild(lbl);
-  if(_sharePhoto){ const clr=el(`<button class="share-clear">Remover</button>`); clr.onclick=()=>{ _sharePhoto=null; render(); }; photoRow.appendChild(clr); }
+  lbl.setAttribute('data-click','shareEscolherFoto'); photoRow.appendChild(lbl);
+  if(_sharePhoto) photoRow.appendChild(el(`<button class="share-clear" data-click="shareRemoverFoto">Remover</button>`));
   photoRow.appendChild(fileIn);
   body.appendChild(photoRow);
   // controles — Compartilhar direto é o melhor caminho pro Instagram
@@ -3113,16 +3327,10 @@ function renderShare(){
     <div class="share-hint">${_sharePhoto?'Posta a imagem inteira (card + sua foto)':'Sem foto: copie e cole o card por cima da foto no story'}</div>
   </div>`);
   // compartilhar nativo — abre o Instagram/Stories direto no celular
-  ctrl.querySelector('#share-go').onclick=()=> cv.toBlob(async b=>{ const file=new File([b],'yama-treino.png',{type:'image/png'}); if(navigator.canShare && navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file],title:'Yama Jiu-Jitsu',text:'山 Yama Jiu-Jitsu'}); }catch(e){} } else { toast('Compartilhar direto indisponível — use Copiar/Baixar'); } });
+  ctrl.querySelector('#share-go').setAttribute('data-click','shareEnviar');
   // copiar — ClipboardItem com Promise (síncrono no gesto: funciona no iOS/Safari)
-  ctrl.querySelector('#share-copy').onclick=()=>{
-    if(!(navigator.clipboard && window.ClipboardItem)){ toast('Copiar indisponível; use Baixar PNG'); return; }
-    try{
-      const item=new ClipboardItem({'image/png': new Promise(res=> cv.toBlob(bb=>res(bb),'image/png')) });
-      navigator.clipboard.write([item]).then(()=>toast('Copiado ✔ cole no seu story 📲')).catch(()=>toast('Não rolou copiar; use Baixar PNG'));
-    }catch(err){ toast('Não rolou copiar; use Baixar PNG'); }
-  };
-  ctrl.querySelector('#share-dl').onclick=()=> cv.toBlob(b=>{ const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download='yama-treino.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); toast('PNG baixado ✔'); });
+  ctrl.querySelector('#share-copy').setAttribute('data-click','shareCopiar');
+  ctrl.querySelector('#share-dl').setAttribute('data-click','shareBaixar');
   body.appendChild(ctrl);
   v.appendChild(body);
   return v;
@@ -3138,8 +3346,7 @@ function alunoMeuJogo(){
   const seg = el(`<div class="subtabs-scroll"></div>`);
   let tab = DB.jogoTab;
   subs.forEach(([id,l])=>{
-    const b = el(`<button class="subtab2 ${tab===id?'on':''}">${l}</button>`);
-    b.onclick = ()=>{ DB.jogoTab=id; render(); };
+    const b = el(`<button class="subtab2 ${tab===id?'on':''}" data-click="jogoTab" data-v="${id}">${l}</button>`);
     seg.appendChild(b);
   });
   w.appendChild(seg);
@@ -3193,8 +3400,10 @@ function evoluirAnalise(){
         <div class="ars-tx"><div class="tn">${safeTxt(t.jp)}</div></div>
         <div class="ars-bar"><span style="width:${p}%"></span></div>
         <span class="ars-pct">${p}%</span></div>`);
-      const i = DB.tecnicas.findIndex(x=>x.jp===t.jp);
-      if(i>=0) row.onclick = ()=> abrirTecnica(i);
+      if(DB.tecnicas.some(x=>x.jp===t.jp)){
+        row.setAttribute('data-click','abrirTecnica');
+        row.setAttribute('data-jp', t.jp);
+      }
       al.appendChild(row);
     });
     w.appendChild(al);
@@ -3246,29 +3455,20 @@ function dayChartNode(dias){
   let bars='', labs='';
   for(let i=0;i<pad;i++){ bars+=`<div class="dcol empty"><div class="dbar empty"></div></div>`; labs+=`<div class="dlab"></div>`; }
   real.forEach((d,idx)=>{ const r=_pctAT(d.a,d.t);
-    bars+=`<div class="dcol" data-i="${idx}"><div class="dbar ${r>=meta?'above':'below'}" style="height:${Math.max(3,r)}%"></div></div>`;
+    // v553: a legenda de cada coluna viaja no proprio no' (data-cap). Antes ela
+    // era recalculada numa closure sobre `real`/`cap` — nos dessa renderizacao,
+    // que o morphdom descarta, deixando o handler antigo escrevendo em orfao.
+    const cap = `${d.dia} (-${n-1-idx}d) \u00b7 <b style="color:${corPct(_pctAT(d.a,d.t))}">${_pctAT(d.a,d.t)}%</b> \u00b7 ${d.a} de ${d.t}`;
+    bars+=`<div class="dcol" data-i="${idx}" data-click="dchartCol" data-cap="${safeAttr(cap)}"><div class="dbar ${r>=meta?'above':'below'}" style="height:${Math.max(3,r)}%"></div></div>`;
     labs+=`<div class="dlab">${(idx%5===0||idx===n-1)?(d.dia||''):''}</div>`;
   });
   const defCap = `hoje (${last.dia}) · <b>${_pctAT(last.a,last.t)}%</b>`;
-  const node = el(`<div class="dchart">
+  return el(`<div class="dchart" data-defcap="${safeAttr(defCap)}">
     <div class="dchart-leg" style="font-size:11px;color:var(--muted);font-weight:600">acima / abaixo da média · linha = ${meta}%</div>
     <div class="dplot"><div class="bmeta" style="bottom:${meta}%"></div>${bars}</div>
     <div class="dlabs">${labs}</div>
     <div class="wk-cap">${defCap}</div>
   </div>`);
-  const cap = node.querySelector('.wk-cap');
-  let sel=null;
-  node.querySelectorAll('.dcol[data-i]').forEach(col=>{
-    col.onclick = ()=>{
-      const i = +col.dataset.i;
-      node.querySelectorAll('.dbar').forEach(b=>b.classList.remove('sel'));
-      if(sel===i){ sel=null; cap.innerHTML=defCap; return; }
-      sel=i; col.querySelector('.dbar').classList.add('sel');
-      const d=real[i], p=_pctAT(d.a,d.t);
-      cap.innerHTML = `${d.dia} (-${n-1-i}d) · <b style="color:${corPct(p)}">${p}%</b> · ${d.a} de ${d.t}`;
-    };
-  });
-  return node;
 }
 function evoluirProgresso(){
   const w = el('<div></div>');
@@ -3281,8 +3481,7 @@ function evoluirProgresso(){
   focos.forEach(t=>{
     const {T,A,p} = totaisTec(t);
     const card = el(`<div class="sc-card"></div>`);
-    const head = el(`<div class="sc-head"><span class="sc-name">${safeTxt(t.jp)}</span><button class="sc-rm" title="tirar do foco">✕</button></div>`);
-    head.querySelector('.sc-rm').onclick = ()=> rsRemoverFoco(t.jp);
+    const head = el(`<div class="sc-head"><span class="sc-name">${safeTxt(t.jp)}</span><button class="sc-rm" title="tirar do foco" data-click="focoRemover" data-jp="${safeAttr(t.jp)}">✕</button></div>`);
     card.appendChild(head);
     if(T===0){
       card.appendChild(el(`<div class="prog-empty">ainda sem tentativas — pratique no próximo treino</div>`));
@@ -3294,9 +3493,7 @@ function evoluirProgresso(){
   });
   // gestão do foco: adicionar técnica (máx 3)
   if(focos.length<3){
-    const add = el(`<button class="add-tec-btn">＋ praticar nova técnica</button>`);
-    add.onclick = ()=> rsAddFoco();
-    w.appendChild(add);
+    w.appendChild(el(`<button class="add-tec-btn" data-click="focoAdd">＋ praticar nova técnica</button>`));
   } else {
     w.appendChild(el(`<div class="prog-hint">Máximo de 3 em treino. Tire uma (✕) pra colocar outra.</div>`));
   }
@@ -3347,6 +3544,79 @@ function bibConnectSub(de){
   document.body.appendChild(sheet);
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
+/* v553 — busca da Biblioteca fora da closure.
+   Antes `_doSearch` capturava `searchResults` e `catBlock`, nos daquela
+   renderizacao. Sob morphdom os nos que ficam no DOM sao os ANTIGOS, entao o
+   handler seguia escrevendo em orfaos e a busca simplesmente parava de pintar.
+   Agora os nos sao resolvidos pelo id a cada chamada — o mesmo conserto da
+   v539 no Financeiro. Nao vira render() a cada tecla de proposito: o input
+   perderia o foco quando o morphdom esta desligado. */
+let _bibQT = null;
+function _bibFiltrarNivel(arr){
+  const nivel = DB._bibNivel || null;
+  return nivel ? arr.filter(t => nivelDe(t) === nivel) : arr;
+}
+function _bibPintarBusca(valor){
+  const res = document.getElementById('bib-search-results');
+  const cat = document.getElementById('bib-cat-block');
+  if(!res || !cat) return;
+  const q = String(valor||'').trim().toLowerCase();
+  DB._bibQ = q;
+  res.innerHTML = '';
+  if(!q){ res.style.display='none'; cat.style.display=''; return; }
+  cat.style.display='none'; res.style.display='';
+  const hits = _bibFiltrarNivel(DB.tecnicas.filter(t => t.jp.toLowerCase().includes(q) || (t.pt||'').toLowerCase().includes(q)));
+  if(!hits.length){ res.appendChild(el(`<div class="empty-line" style="padding:16px;text-align:center">Nenhuma técnica encontrada</div>`)); return; }
+  res.appendChild(el(`<div class="bib-search-count">${hits.length} resultado${hits.length>1?'s':''}</div>`));
+  hits.forEach(t => res.appendChild(bibCardNode(t, t.estado)));
+}
+_dlgRegister('bibBusca', (elm) => {
+  const clr = document.getElementById('bib-q-clr');
+  if (clr) clr.hidden = !elm.value;
+  clearTimeout(_bibQT);
+  _bibQT = setTimeout(() => _bibPintarBusca(elm.value), 150);
+});
+_dlgRegister('bibBuscaLimpar', () => {
+  const inp = document.getElementById('bib-q');
+  const clr = document.getElementById('bib-q-clr');
+  if (inp) inp.value = '';
+  if (clr) clr.hidden = true;
+  _bibPintarBusca('');
+  if (inp) inp.focus();
+});
+_dlgRegister('bibNivel', (elm) => {
+  const v = elm.dataset.v || null;
+  if ((DB._bibNivel || null) === v) return;
+  DB._bibNivel = v;
+  render();
+});
+_dlgRegister('bibCat', (elm) => { DB.bibCat = elm.dataset.v || null; DB.bibExp = null; render(); });
+_dlgRegister('bibSub', (elm) => { DB.bibNageSub = elm.dataset.v || null; DB.bibExp = null; render(); });
+_dlgRegister('tecNova', () => abrirEditorTecnica(null));
+
+_dlgRegister('jogoTab',       (elm) => { DB.jogoTab = elm.dataset.v; render(); });
+_dlgRegister('focoRemover',   (elm) => rsRemoverFoco(elm.dataset.jp));
+_dlgRegister('focoAdd',       () => rsAddFoco());
+_dlgRegister('abrirTecnica',  (elm) => {
+  const i = DB.tecnicas.findIndex(x => x.jp === elm.dataset.jp);
+  if (i >= 0) abrirTecnica(i);
+});
+
+/* Coluna do grafico de 30 dias: a selecao mora na classe .sel que ja existia no
+   DOM, em vez da variavel `sel` da closure — as duas eram mantidas em sincronia
+   na mao, e so' a do DOM sobrevive ao diff. */
+_dlgRegister('dchartCol', (elm) => {
+  const node = elm.closest('.dchart');
+  const cap  = node && node.querySelector('.wk-cap');
+  const bar  = elm.querySelector('.dbar');
+  if (!node || !cap || !bar) return;
+  const jaSel = bar.classList.contains('sel');
+  node.querySelectorAll('.dbar').forEach(b => b.classList.remove('sel'));
+  if (jaSel){ cap.innerHTML = node.dataset.defcap; return; }
+  bar.classList.add('sel');
+  cap.innerHTML = elm.dataset.cap;
+});
+
 function evoluirBiblioteca(){
   const w = el('<div></div>');
   const cont = { novo:0, aprendendo:0, treinando:0, dominada:0 };
@@ -3354,23 +3624,19 @@ function evoluirBiblioteca(){
 
   // adicionar técnica (v412: KPI topo e bloco Revisar separado removidos — filtros
   // abaixo já mostram esses números; o dot vermelho no card sinaliza revisão).
-  const addBtn = el(`<button class="add-tec-btn">＋ Adicionar técnica</button>`);
-  addBtn.onclick = ()=> abrirEditorTecnica(null);
-  w.appendChild(addBtn);
+  w.appendChild(el(`<button class="add-tec-btn" data-click="tecNova">＋ Adicionar técnica</button>`));
 
   // 🔍 Busca + filtros por nível
   const searchBox = el(`<div class="bib-search">
     <div class="bib-srch">
       <svg class="bib-srch-ic" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.4" y2="16.4"/></svg>
-      <input class="bib-srch-inp" id="bib-q" placeholder="Buscar técnica…" aria-label="Buscar técnica" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
-      <button class="bib-srch-clr" id="bib-q-clr" type="button" aria-label="Limpar busca" hidden>✕</button>
+      <input class="bib-srch-inp" id="bib-q" data-input="bibBusca" placeholder="Buscar técnica…" aria-label="Buscar técnica" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+      <button class="bib-srch-clr" id="bib-q-clr" type="button" aria-label="Limpar busca" data-click="bibBuscaLimpar" hidden>✕</button>
     </div>
   </div>`);
   w.appendChild(searchBox);
   const searchInp = searchBox.querySelector('#bib-q');
-  const searchClr = searchBox.querySelector('#bib-q-clr');
-  if(DB._bibQ){ searchInp.value = DB._bibQ; searchClr.hidden = false; }
-  searchClr.onclick = ()=>{ searchInp.value=''; DB._bibQ=''; searchClr.hidden=true; searchInp.dispatchEvent(new Event('input')); searchInp.focus(); };
+  if(DB._bibQ){ searchInp.value = DB._bibQ; searchBox.querySelector('#bib-q-clr').hidden = false; }
 
   // v412: "Catálogo" (=sem filtro, mostra tudo) fica ativo por default.
   // Clicar em outro chip filtra por nível; clicar em Catálogo volta pra tudo.
@@ -3378,20 +3644,18 @@ function evoluirBiblioteca(){
   const bibNivel = DB._bibNivel || null;
   const fbar = el(`<div class="bib-filter-bar"></div>`);
   [[null,'Catálogo','muted',DB.tecnicas.length],['aprendendo','Aprendendo','gold',cont.aprendendo],['treinando','Treinando','blue',cont.treinando],['dominada','Dominadas','green',cont.dominada]].forEach(([id,l,cls,n])=>{
-    const b = el(`<button class="bib-fchip ${cls} ${bibNivel===id?'on':''}">${l} · ${n}</button>`);
-    b.onclick = ()=>{ if(bibNivel!==id){ DB._bibNivel = id; render(); } };
-    fbar.appendChild(b);
+    fbar.appendChild(el(`<button class="bib-fchip ${cls} ${bibNivel===id?'on':''}" data-click="bibNivel" data-v="${id==null?'':id}">${l} · ${n}</button>`));
   });
   w.appendChild(fbar);
 
-  const searchResults = el(`<div class="bib-search-results"></div>`);
+  const searchResults = el(`<div class="bib-search-results" id="bib-search-results"></div>`);
   w.appendChild(searchResults);
 
-  const filterByNivel = (arr)=> bibNivel ? arr.filter(t=>nivelDe(t)===bibNivel) : arr;
+  const filterByNivel = _bibFiltrarNivel;
 
   // 📚 Catálogo (v413) — agrupado por tradição (Kodokan / Jiu-Jitsu). Cada
   // tradição vira um cabeçalho fixo; famílias dentro são accordion como antes.
-  const catBlock = el(`<div></div>`);
+  const catBlock = el(`<div id="bib-cat-block"></div>`);
   TRADICOES_ORDER.forEach(tradKey=>{
     const trad = TRADICOES[tradKey];
     const famsDaTrad = CAT_ORDER.filter(c=> CATS[c].trad===tradKey);
@@ -3412,7 +3676,8 @@ function evoluirBiblioteca(){
         <span class="cat-acc-n">${bibNivel?`${itens.length}/${itensTotais.length}`:itensTotais.length}</span>
         <span class="cat-caret">${open?'⌄':'›'}</span>
       </div>`);
-      head.onclick = ()=>{ DB.bibCat = open?null:cat; DB.bibExp=null; render(); };
+      head.setAttribute('data-click','bibCat');
+      head.setAttribute('data-v', open ? '' : cat);
       catBlock.appendChild(head);
       if(open){
         const children = el(`<div class="cat-children"></div>`);
@@ -3431,7 +3696,8 @@ function evoluirBiblioteca(){
               <span class="cat-acc-n">${subItens.length}</span>
               <span class="cat-caret">${subOpen?'⌄':'›'}</span>
             </div>`);
-            subHead.onclick = ()=>{ DB.bibNageSub = subOpen?null:subKey; DB.bibExp=null; render(); };
+            subHead.setAttribute('data-click','bibSub');
+            subHead.setAttribute('data-v', subOpen ? '' : subKey);
             children.appendChild(subHead);
             if(subOpen) subItens.forEach(t=> children.appendChild(bibCardNode(t, t.estado)));
           });
@@ -3443,28 +3709,63 @@ function evoluirBiblioteca(){
   });
   w.appendChild(catBlock);
 
-  let _bibQT = null;
-  const _doSearch = ()=>{
-    const q = searchInp.value.trim().toLowerCase(); DB._bibQ = q;
-    searchClr.hidden = !searchInp.value;
-    searchResults.innerHTML='';
-    if(!q){ searchResults.style.display='none'; catBlock.style.display=''; return; }
-    catBlock.style.display='none'; searchResults.style.display='';
-    const hits = filterByNivel(DB.tecnicas.filter(t=> t.jp.toLowerCase().includes(q) || (t.pt||'').toLowerCase().includes(q)));
-    if(!hits.length){ searchResults.appendChild(el(`<div class="empty-line" style="padding:16px;text-align:center">Nenhuma técnica encontrada</div>`)); return; }
-    searchResults.appendChild(el(`<div class="bib-search-count">${hits.length} resultado${hits.length>1?'s':''}</div>`));
-    hits.forEach(t=> searchResults.appendChild(bibCardNode(t, t.estado)));
-  };
-  searchInp.oninput = ()=>{
-    searchClr.hidden = !searchInp.value;
-    clearTimeout(_bibQT);
-    _bibQT = setTimeout(_doSearch, 150);
-  };
-  if(DB._bibQ){ catBlock.style.display='none'; _doSearch(); }
+  if(DB._bibQ){ catBlock.style.display='none'; _bibPintarBusca(DB._bibQ); }
   w.appendChild(el(`<div style="height:18px"></div>`));
   return w;
 }
 // cartão de técnica da Biblioteca (expansível: stats + revisão + pré/sub)
+/* v553 — ações da Biblioteca e do Histórico, resolvidas por CHAVE no momento
+   do clique. A closure sobre o objeto (`t`) era o que travava estas telas no
+   morphdom: o nó sobrevive ao diff carregando o handler antigo, que ainda
+   aponta pra técnica/treino da renderização anterior. */
+_dlgRegister('bibToggle',  (elm) => bibToggle(elm.dataset.jp));
+_dlgRegister('bibDelLink', (elm, ev) => { ev.stopPropagation(); bibDelLink(elm.dataset.delDe, elm.dataset.delPara); });
+_dlgRegister('bibAcao',    (elm, ev) => {
+  ev.stopPropagation();
+  const { act } = elm.dataset;
+  if (act === 'voltar')  return bibVoltarFoco(elm.dataset.jp);
+  if (act === 'connect') return bibConnectSub(elm.dataset.key);
+  if (act === 'revisar') return bibRevisar(elm.dataset.jp);
+  if (act === 'excluir') return bibExcluirCustom(elm.dataset.tid);
+});
+_dlgRegister('bibAcoes', (elm) => {
+  const jp = elm.dataset.jp;
+  const t  = tecByKey(jp);
+  if (!t) return;
+  const acts = [
+    { icon:'🔁', label:'Marcar revisada', onClick:()=> bibRevisar(jp) },
+    { icon:'✏️', label:'Editar',          onClick:()=> bibEditar(jp) },
+  ];
+  if (t.estado === 'guardada' || t.estado === 'aprendida') acts.push({ icon:'🎯', label:'Voltar pro foco', onClick:()=> bibVoltarFoco(jp) });
+  if (t.id && t.id.indexOf('usr-')===0) acts.push({ icon:'🗑️', label:'Excluir técnica', danger:true, onClick:()=> bibExcluirCustom(t.id) });
+  _openActionSheet(jp, acts);
+});
+
+_dlgRegister('histAbrir', (elm) => abrirTreino(elm.dataset.id));
+_dlgRegister('histAcoes', (elm) => {
+  const id = elm.dataset.id;
+  const t  = (DB.treinos||[]).find(x => String(x.id) === id);
+  if (!t) return;
+  const acoes = [{ icon:'👁️', label:'Abrir detalhes', onClick:()=> abrirTreino(id) }];
+  // v455: presença marcada pela academia não pode ser excluída pelo aluno —
+  // ele pode editar/enriquecer (técnica/mood) mas o registro da chamada é do
+  // servidor. Se for erro do professor, ele desfaz do lado dele.
+  if (t._fonte !== 'servidor'){
+    acoes.push({ icon:'🗑️', label:'Excluir treino', danger:true, onClick:()=>{
+      const snap = {...t}, idx = DB.treinos.findIndex(x=>x.id===t.id);
+      const snapTecs = _snapTreinoTecs(t);
+      _revertTreinoAgg(t);
+      DB.treinos = DB.treinos.filter(x=>x.id!==t.id);
+      render(); scheduleSave();
+      toastUndo('Treino excluído', ()=>{ DB.treinos.splice(idx, 0, snap); _restoreTreinoTecs(snapTecs); render(); scheduleSave(); });
+    } });
+  }
+  _openActionSheet(t.titulo||'Treino', acoes);
+});
+
+_dlgRegister('cartaoPerfil', () => abrirCartaoPerfil());
+_dlgRegister('editarFoto',   () => editarFotoPerfil());
+
 function bibCardNode(t, st){
   const key  = t.id || t.jp;   // M9: links referenciam a chave estável
   const exp  = DB.bibExp===t.jp;
@@ -3497,23 +3798,22 @@ function bibCardNode(t, st){
       ${isCustom?`<div class="rep-del-row"><button class="rep-del-btn" data-act="excluir">🗑️ Excluir técnica</button></div>`:''}
     </div>`:''}
   </div>`);
-  card.querySelector('.rep-row').onclick = ()=> bibToggle(t.jp);
-  // long-press: menu rápido de ações na técnica
-  _attachLongPress(card, { onLongPress: ()=>{
-    const acts = [
-      { icon:'🔁', label:'Marcar revisada', onClick:()=> bibRevisar(t.jp) },
-      { icon:'✏️', label:'Editar', onClick:()=> bibEditar(t.jp) },
-    ];
-    if (t.estado === 'guardada' || t.estado === 'aprendida') acts.push({ icon:'🎯', label:'Voltar pro foco', onClick:()=> bibVoltarFoco(t.jp) });
-    if (t.id && t.id.indexOf('usr-')===0) acts.push({ icon:'🗑️', label:'Excluir técnica', danger:true, onClick:()=> bibExcluirCustom(t.id) });
-    _openActionSheet(t.jp, acts);
-  }});
+  card.setAttribute('data-longpress','bibAcoes');
+  card.setAttribute('data-jp', t.jp);
+  card.querySelector('.rep-row').setAttribute('data-click','bibToggle');
+  card.querySelector('.rep-row').setAttribute('data-jp', t.jp);
   if(exp){
-    card.querySelectorAll('[data-del-de]').forEach(b=> b.onclick=(e)=>{ e.stopPropagation(); bibDelLink(b.dataset.delDe,b.dataset.delPara); });
-    const av=card.querySelector('[data-act="voltar"]');  if(av) av.onclick=(e)=>{ e.stopPropagation(); bibVoltarFoco(t.jp); };
-    card.querySelector('[data-act="connect"]').onclick=(e)=>{ e.stopPropagation(); bibConnectSub(key); };
-    card.querySelector('[data-act="revisar"]').onclick=(e)=>{ e.stopPropagation(); bibRevisar(t.jp); };
-    const dl=card.querySelector('[data-act="excluir"]'); if(dl) dl.onclick=(e)=>{ e.stopPropagation(); bibExcluirCustom(t.id); };
+    // As ações do card expandido: o `data-act` que já existia no HTML vira a
+    // chave, e a chave da técnica viaja no atributo em vez da closure.
+    card.querySelectorAll('[data-del-de]').forEach(b=> b.setAttribute('data-click','bibDelLink'));
+    ['voltar','connect','revisar','excluir'].forEach(a=>{
+      const b = card.querySelector(`[data-act="${a}"]`);
+      if(!b) return;
+      b.setAttribute('data-click','bibAcao');
+      b.setAttribute('data-jp', t.jp);
+      if(t.id) b.setAttribute('data-tid', t.id);
+      b.setAttribute('data-key', key);
+    });
   }
   return card;
 }
@@ -3655,13 +3955,9 @@ function evoluirGraduacao(){
   // Conta provisionada: histórico de graduação vem do professor (sem importar/corrigir aqui).
   if(!DB.eu.provisionedByProf){
     if(!DB.eu.gradLocked){
-      const impBtn = el(`<a class="sec-link">Importar histórico</a>`);
-      impBtn.onclick = ()=> abrirImportGrad();
-      tlHead.appendChild(impBtn);
+      tlHead.appendChild(el(`<a class="sec-link" data-click="importGrad">Importar histórico</a>`));
     } else if(!DB.eu.gradCorrecaoDone){
-      const corBtn = el(`<a class="sec-link">Corrigir</a>`);
-      corBtn.onclick = ()=> abrirImportGrad();
-      tlHead.appendChild(corBtn);
+      tlHead.appendChild(el(`<a class="sec-link" data-click="importGrad">Corrigir</a>`));
     }
   }
   w.appendChild(tlHead);
@@ -3670,9 +3966,7 @@ function evoluirGraduacao(){
   if(!grads.length){
     tl.appendChild(el(`<div class="tl-empty">Nenhuma graduação registrada.<br>Importe seu histórico para ver sua linha do tempo e calcular a próxima faixa.</div>`));
     if(!DB.eu.gradLocked && !DB.eu.provisionedByProf){
-      const impB=el(`<button class="btn-ghost" style="margin-top:10px">📜 Importar histórico de graduação</button>`);
-      impB.onclick=()=>abrirImportGrad();
-      tl.appendChild(impB);
+      tl.appendChild(el(`<button class="btn-ghost" style="margin-top:10px" data-click="importGrad">📜 Importar histórico de graduação</button>`));
     }
   }
   grads.forEach(g=>{
@@ -4016,6 +4310,79 @@ function abrirCartaoPerfil(){
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
 
+/* ---- Vitrine rolante da Loja no Perfil (v554) ----
+   O rAF resolve `#ld-ticker` a cada quadro e para sozinho quando o elemento sai
+   do DOM. Antes o loop capturava o no': depois de um repaint ele seguia rodando
+   contra um orfao — a vitrine congelava e o rAF nunca terminava. O "segurar pra
+   pausar" virou delegacao (pointerdown/up/cancel/leave em document). */
+let _ldTickerOn = false, _ldHeld = false;
+function _lojaTickerStart(){
+  if (_ldTickerOn) return;
+  _ldTickerOn = true;
+  const step = () => {
+    const ticker = document.getElementById('ld-ticker');
+    if (!ticker || !ticker.isConnected) { _ldTickerOn = false; return; }   // saiu da tela: encerra
+    const track = ticker.querySelector('.ld-track');
+    if (track && !_ldHeld) {
+      const half = track.scrollWidth / 2;
+      if (ticker.scrollLeft >= half) ticker.scrollLeft -= half;
+      else ticker.scrollLeft += 0.4;
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function _lojaTickerInstall(){
+  const dentro = (ev) => ev.target && ev.target.closest && ev.target.closest('#ld-ticker');
+  document.addEventListener('pointerdown', (ev) => { if (dentro(ev)) _ldHeld = true; }, { passive:true });
+  ['pointerup','pointercancel','pointerleave'].forEach(t =>
+    document.addEventListener(t, () => { _ldHeld = false; }, { passive:true }));
+}
+
+function _pushPintar(estado){
+  const row = document.getElementById('row-push'); if(!row) return;
+  const sub = row.querySelector('#row-push-s');
+  const sw  = row.querySelector('#row-push-sw');
+  if(!sub || !sw) return;
+  const on = estado === 'ativo';
+  sw.classList.toggle('on', on);
+  row.setAttribute('aria-checked', String(on));
+  sub.textContent =
+    estado==='ativo'         ? 'Ligado — avisamos se esquecer o check-in' :
+    estado==='bloqueado'     ? 'Bloqueado nas configurações do navegador' :
+    estado==='nao_suportado' ? 'Não disponível neste aparelho' :
+    estado==='sem_config'    ? 'Ainda não configurado pela academia' :
+                               'Desligado — toque para ligar';
+  row.dataset.estado = estado;
+}
+
+/* Acoes do Perfil. Nenhuma guarda dado do render — todas resolvem o que
+   precisam na hora, entao sobrevivem ao diff. */
+_dlgRegister('editarPerfil',      () => abrirEditarPerfil());
+_dlgRegister('abrirLoja',         () => openLoja());
+_dlgRegister('abrirLojaProduto',  (elm) => { openLoja(); abrirProduto(elm.dataset.id); });
+_dlgRegister('perfilTrocarModo',  (elm) => setRole(elm.dataset.v));
+_dlgRegister('metaSemanal',       () => abrirMetaSemanal());
+_dlgRegister('minhasTurmas',      () => abrirMinhasTurmas());
+_dlgRegister('minhasLesoes',      () => abrirLesoes());
+_dlgRegister('waAcademia',        () => {
+  const n = _lojaWa();
+  if (!n) { toast('WhatsApp da academia não configurado'); return; }
+  window.open(`https://wa.me/${n}`, '_blank', 'noopener');
+});
+_dlgRegister('perfilTema',     () => toggleTheme());
+_dlgRegister('perfilInstalar', () => abrirInstalarPWA());
+_dlgRegister('perfilConfig',   () => abrirConfiguracoes());
+_dlgRegister('perfilSair',     async () => {
+  if(!confirm('Sair da sua conta? Você precisará fazer login novamente pra continuar treinando.')) return;
+  try{
+    if(DB.sbUser && _cloudReady && typeof sbSync!=='undefined'){ try{ await sbSync.pushState(buildDump()); }catch(_){} }
+    if(typeof sbAuth!=='undefined') await sbAuth.signOut();
+    DB.sbUser=null; _cloudReady=false; _lastPushed=''; DB.authOpen=true;
+    render(); toast('Até logo 👋');
+  }catch(e){ toast('Falha ao sair: '+(e.message||e)); }
+});
+
 function alunoPerfil(){
   const w = el('<div></div>');
   const me = DB.eu;
@@ -4028,9 +4395,9 @@ function alunoPerfil(){
     <div class="pn">${safeTxt(me.nome)}</div>
     <div class="pf-belt">${beltPill(me.faixa, me.graus)}</div>
   </div>`;
-  w.querySelector('.pf-edit').onclick = ()=> abrirEditarPerfil();
+  w.querySelector('.pf-edit').setAttribute('data-click','editarPerfil');
   const _phPerf = w.querySelector('.pa');
-  if(_phPerf){ _phPerf.style.cursor='pointer'; _phPerf.setAttribute('aria-label','Editar foto'); _phPerf.onclick=()=>editarFotoPerfil(); _attachLongPress(_phPerf,{onLongPress:()=>editarFotoPerfil()}); }
+  if(_phPerf){ _phPerf.style.cursor='pointer'; _phPerf.setAttribute('aria-label','Editar foto'); _phPerf.setAttribute('data-click','editarFoto'); _phPerf.setAttribute('data-longpress','editarFoto'); }
 
   // A3: Mensalidade oculta no MVP (gestão financeira é fase futura).
   // Loja (Fase L): retirada na recepção, pagamento via PIX + pedido no WhatsApp.
@@ -4043,11 +4410,9 @@ function alunoPerfil(){
       </div>
       <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
-    lojaWrap.querySelector('.ld-link').onclick = ()=> openLoja();
+    lojaWrap.querySelector('.ld-link').setAttribute('data-click','abrirLoja');
     // v442: título "Loja Yama" também abre a loja (não só o "ver tudo").
-    const _ldT = lojaWrap.querySelector('.ld-t');
-    _ldT.onclick = ()=> openLoja();
-    _ldT.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openLoja(); } };
+    lojaWrap.querySelector('.ld-t').setAttribute('data-click','abrirLoja');
     const track = lojaWrap.querySelector('.ld-track');
     // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.
     // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
@@ -4057,7 +4422,8 @@ function alunoPerfil(){
       const card = el(`<div class="ld-card">
         <div class="ld-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${imgHTML}<span class="ld-emoji">${safeTxt(p.emoji)}</span></div>
         <div class="ld-nm">${safeTxt(p.nome)}</div><div class="ld-pr">${moneyBR(p.preco)}</div></div>`);
-      card.onclick = ()=>{ openLoja(); abrirProduto(p.id); };
+      card.setAttribute('data-click','abrirLojaProduto');
+      card.setAttribute('data-id', p.id);
       return card;
     };
     _prodsAtivos.forEach(p=> track.appendChild(_mkCard(p)));
@@ -4081,21 +4447,11 @@ function alunoPerfil(){
       // throttla rAF em aba background — e o check manual matava o loop em
       // situações onde `hidden` ficava true sem `visibilitychange` disparar
       // (iOS PWA no load, standby curto). rAF simples e reentrante resolve.
-      let held=false;
-      const step = ()=>{
-        if(!held){
-          const half = track.scrollWidth/2;
-          if(ticker.scrollLeft >= half) ticker.scrollLeft -= half;
-          else ticker.scrollLeft += 0.4;
-        }
-        requestAnimationFrame(step);
-      };
-      ticker.addEventListener('pointerdown', ()=>{ held=true; }, { passive:true });
-      const rel = ()=>{ held=false; };
-      ticker.addEventListener('pointerup', rel, { passive:true });
-      ticker.addEventListener('pointercancel', rel, { passive:true });
-      ticker.addEventListener('pointerleave', rel, { passive:true });
-      requestAnimationFrame(step);
+      // v554: o loop resolve o ticker pelo id a cada quadro e os pointer events
+      // vao pra delegacao. Com o no' capturado, um repaint deixava o rAF rodando
+      // pra sempre contra um elemento orfao — a vitrine parava e o loop ficava.
+      ticker.id = 'ld-ticker';
+      _lojaTickerStart();
     }
   }
 
@@ -4106,8 +4462,8 @@ function alunoPerfil(){
     const profRow = el(`<div class="pro-entry" role="button" tabindex="0" aria-label="${goAluno?'Entrar no modo aluno':'Entrar no modo professor'}"><div class="pe-ic">${goAluno?'👤':'🥋'}</div>
       <div class="pe-tx"><div class="pe-t">${goAluno?'Modo aluno':'Gerir academia'}</div><div class="pe-s">${goAluno?'Voltar para o diário — treinos, jornada, revisão':'Modo professor — alunos, presenças, loja'}</div></div>
       <div class="pe-go">›</div></div>`);
-    profRow.onclick = ()=> setRole(alvo);
-    profRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setRole(alvo); } };
+    profRow.setAttribute('data-click','perfilTrocarModo');
+    profRow.setAttribute('data-v', alvo);
     w.appendChild(profRow);
   }
 
@@ -4132,13 +4488,13 @@ function alunoPerfil(){
     <div class="info-row" id="row-wa" role="button" tabindex="0" aria-label="Falar com a Yama no WhatsApp" style="cursor:pointer"><div class="ii">💬</div><div class="it"><div class="t">Yama · WhatsApp</div><div class="s">Falar com o professor</div></div><div class="iv">›</div></div>
   </div>`);
   const _rowFreq = acadCard.querySelector('#row-freq');
-  if(_rowFreq){ const _go=()=>abrirMetaSemanal(); _rowFreq.onclick=_go; _rowFreq.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _go(); } }; }
+  if(_rowFreq) _rowFreq.setAttribute('data-click','metaSemanal');
   const _rowTurma = acadCard.querySelector('#row-turma');
-  if(_rowTurma){ const _gt=()=>abrirMinhasTurmas(); _rowTurma.onclick=_gt; _rowTurma.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gt(); } }; }
+  if(_rowTurma) _rowTurma.setAttribute('data-click','minhasTurmas');
   const _rowLes = acadCard.querySelector('#row-lesoes');
-  if(_rowLes){ const _gl=()=>abrirLesoes(); _rowLes.onclick=_gl; _rowLes.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gl(); } }; }
+  if(_rowLes) _rowLes.setAttribute('data-click','minhasLesoes');
   const _rowWa = acadCard.querySelector('#row-wa');
-  if(_rowWa){ const _gw=()=>{ const w=_lojaWa(); if(!w){ toast('WhatsApp da academia não configurado'); return; } window.open(`https://wa.me/${w}`, '_blank', 'noopener'); }; _rowWa.onclick=_gw; _rowWa.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _gw(); } }; }
+  if(_rowWa) _rowWa.setAttribute('data-click','waAcademia');
   w.appendChild(acadCard);
 
   // App — tema, notificações, backup, instalar, configurações
@@ -4154,25 +4510,15 @@ function alunoPerfil(){
     <div class="info-row" id="row-config" role="button" tabindex="0" aria-label="Configurações" style="cursor:pointer"><div class="ii">⚙️</div><div class="it"><div class="t">Configurações</div></div><div class="iv">›</div></div>
   </div>`);
   _pushBindRow(app);
-  const _bindRow=(sel,fn)=>{ const r=app.querySelector(sel); if(!r) return; r.onclick=fn; r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; };
-  _bindRow('#row-tema', ()=> toggleTheme());
-  _bindRow('#row-install', ()=> abrirInstalarPWA());
-  _bindRow('#row-config', ()=> abrirConfiguracoes());
+  const _bindRow=(sel,acao)=>{ const r=app.querySelector(sel); if(r) r.setAttribute('data-click', acao); };
+  _bindRow('#row-tema', 'perfilTema');
+  _bindRow('#row-install', 'perfilInstalar');
+  _bindRow('#row-config', 'perfilConfig');
   w.appendChild(app);
 
   // Sair — só se autenticado na nuvem (senão não há sessão pra encerrar)
   if(DB.sbUser){
-    const sairBtn = el(`<button class="pro-switch-btn pro-logout" aria-label="Sair da conta">↩️ Sair</button>`);
-    sairBtn.onclick = async ()=>{
-      if(!confirm('Sair da sua conta? Você precisará fazer login novamente pra continuar treinando.')) return;
-      try{
-        if(DB.sbUser && _cloudReady && typeof sbSync!=='undefined'){ try{ await sbSync.pushState(buildDump()); }catch(_){} }
-        if(typeof sbAuth!=='undefined') await sbAuth.signOut();
-        DB.sbUser=null; _cloudReady=false; _lastPushed=''; DB.authOpen=true;
-        render(); toast('Até logo 👋');
-      }catch(e){ toast('Falha ao sair: '+(e.message||e)); }
-    };
-    w.appendChild(sairBtn);
+    w.appendChild(el(`<button class="pro-switch-btn pro-logout" data-click="perfilSair" aria-label="Sair da conta">↩️ Sair</button>`));
   }
 
   // Rodapé leve — versão + créditos
@@ -4185,39 +4531,31 @@ function alunoPerfil(){
    Toggle no Perfil. O app só registra/remove o APARELHO — quem decide o que
    enviar é o cron no banco (0014). Desligar = apagar a subscription.
    iOS: só entrega com o PWA instalado na tela de início (regra da Apple). */
+/* v554: `paint` resolve #row-push no DOM vivo. Ele e' chamado de um `.then`
+   (sbPush.estado) e de um handler async — com os nos capturados, um repaint no
+   meio fazia o switch de push atualizar um elemento orfao, e a linha ficava
+   eternamente em "Desligado". */
 function _pushBindRow(root){
-  const row = root.querySelector('#row-push'); if(!row) return;
-  const sub = row.querySelector('#row-push-s');
-  const sw  = row.querySelector('#row-push-sw');
-  const paint = (estado)=>{
-    const on = estado==='ativo';
-    sw.classList.toggle('on', on);
-    row.setAttribute('aria-checked', String(on));
-    sub.textContent =
-      estado==='ativo'        ? 'Ligado — avisamos se esquecer o check-in' :
-      estado==='bloqueado'    ? 'Bloqueado nas configurações do navegador' :
-      estado==='nao_suportado'? 'Não disponível neste aparelho' :
-      estado==='sem_config'   ? 'Ainda não configurado pela academia' :
-                                'Desligado — toque para ligar';
-    row.dataset.estado = estado;
-  };
-  if(DEMO || typeof sbPush==='undefined'){ paint('nao_suportado'); return; }
-  if(!sbPush.suportado()){ paint('nao_suportado'); return; }
-  if(!sbPush.configurado()){ paint('sem_config'); return; }
-  sbPush.estado().then(paint).catch(()=>paint('inativo'));
-
-  const toggle = async ()=>{
-    const est = row.dataset.estado;
-    if(est==='nao_suportado'||est==='sem_config'){ toast(sub.textContent); return; }
-    if(est==='bloqueado'){ toast('Libere as notificações nas configurações do navegador'); return; }
-    try{
-      if(est==='ativo'){ await sbPush.desativar(); paint('inativo'); toast('Avisos desligados'); }
-      else{ await sbPush.ativar(); paint('ativo'); toast('Avisos ligados 🔔'); }
-    }catch(e){ paint(Notification.permission==='denied'?'bloqueado':'inativo'); }
-  };
-  row.onclick = toggle;
-  row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+  const row = root.querySelector('#row-push');
+  if(!row) return;
+  row.setAttribute('data-click','pushToggle');
+  const paint = _pushPintar;
+  if(DEMO || typeof sbPush==='undefined'){ row.dataset.estado='nao_suportado'; setTimeout(()=>paint('nao_suportado'),0); return; }
+  if(!sbPush.suportado()){ row.dataset.estado='nao_suportado'; setTimeout(()=>paint('nao_suportado'),0); return; }
+  if(!sbPush.configurado()){ row.dataset.estado='sem_config'; setTimeout(()=>paint('sem_config'),0); return; }
+  sbPush.estado().then(paint).catch(()=>paint('inativo'));   // morph-ok: _pushPintar resolve #row-push no DOM vivo
 }
+_dlgRegister('pushToggle', async (row) => {
+  const sub = row.querySelector('#row-push-s');
+  const est = row.dataset.estado;
+  const paint = (e2) => _pushPintar(e2);
+  if(est==='nao_suportado'||est==='sem_config'){ toast(sub ? sub.textContent : ''); return; }
+  if(est==='bloqueado'){ toast('Libere as notificações nas configurações do navegador'); return; }
+  try{
+    if(est==='ativo'){ await sbPush.desativar(); paint('inativo'); toast('Avisos desligados'); }
+    else{ await sbPush.ativar(); paint('ativo'); toast('Avisos ligados 🔔'); }
+  }catch(e){ paint(Notification.permission==='denied'?'bloqueado':'inativo'); }
+});
 /* Boot: registra o SW se o aluno JÁ tinha avisos ligados (não pede permissão
    — só reata o registro perdido quando o kill-switch antigo se desregistrou).
    E, se o app abriu por um toque na notificação (?checkin=1), marca como lida
@@ -4711,7 +5049,7 @@ function _renderPhase1(){
     <button class="btn-scan">📷 Abrir câmera</button>
     <div class="qr-foot">Não deu certo? Peça ao professor pra registrar sua presença.</div>
   </div>`);
-  qr.querySelector('.btn-scan').onclick = presencaScan;
+  qr.querySelector('.btn-scan').setAttribute('data-click','presencaScan');
   body.appendChild(qr);
   body.appendChild(el(`<div style="height:24px"></div>`));
   v.appendChild(body);
@@ -4897,30 +5235,25 @@ function renderLoja(){
   const body = el(`<div></div>`);
   // v449: "Meus pedidos" saiu do card Loja Yama da Home (confundia com a vitrine) e virou
   // um botão dedicado dentro da própria loja aberta, no topo.
-  const pedRow = el(`<div class="cfg-row" style="margin:8px 20px 6px" role="button" tabindex="0">
+  body.appendChild(el(`<div class="cfg-row" style="margin:8px 20px 6px" role="button" tabindex="0" data-click="abrirMeusPedidos">
     <span>🧾 Meus pedidos</span>
-    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  pedRow.onclick = openMeusPedidos;
-  pedRow.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openMeusPedidos(); } };
-  body.appendChild(pedRow);
+    <span style="margin-left:auto;color:var(--muted)">›</span></div>`));
 
   // busca por nome (filtra a grade in-place, sem re-render → preserva o foco do input)
   const search = el(`<div class="loja-search"><span class="ls-ic">🔍</span>
-    <input class="ls-inp" type="search" placeholder="Buscar produto…" value="${safeAttr(DB._lojaBusca||'')}">
-    <button class="ls-clear" aria-label="Limpar busca" style="${(DB._lojaBusca)?'':'display:none'}">✕</button></div>`);
+    <input class="ls-inp" id="loja-q" data-input="lojaBusca" type="search" placeholder="Buscar produto…" value="${safeAttr(DB._lojaBusca||'')}">
+    <button class="ls-clear" id="loja-q-clr" data-click="lojaBuscaLimpar" aria-label="Limpar busca" style="${(DB._lojaBusca)?'':'display:none'}">✕</button></div>`);
   body.appendChild(search);
 
   // chips de categoria
   const chips = el(`<div class="cat-chips"></div>`);
   ['Todos','Kimonos','Vestuário','Acessórios'].forEach(c=>{
-    const ch = el(`<button class="cat-chip ${DB.loja.cat===c?'on':''}">${c}</button>`);
-    ch.onclick = ()=> setLojaCat(c);
-    chips.appendChild(ch);
+    chips.appendChild(el(`<button class="cat-chip ${DB.loja.cat===c?'on':''}" data-click="lojaCat" data-v="${safeAttr(c)}">${c}</button>`));
   });
   body.appendChild(chips);
 
   // grade de produtos
-  const grid = el(`<div class="prod-grid"></div>`);
+  const grid = el(`<div class="prod-grid" id="loja-grid"></div>`);
   const _prods = DB.loja.produtos
     .filter(p=> p.ativo!==false)
     .filter(p=> DB.loja.cat==='Todos' || p.cat===DB.loja.cat);
@@ -4949,7 +5282,8 @@ function renderLoja(){
           <div class="prod-price">${_priceHTML(p.preco)}</div>
           ${tamsHTML}
         </div></div>`);
-      c.onclick = ()=> abrirProduto(p.id);
+      c.setAttribute('data-click','abrirProduto');
+      c.setAttribute('data-id', p.id);
       grid.appendChild(c);
       _mountProdImg(c.querySelector('.prod-img'), p);         // nó cacheado → sem flash no re-render
       _revealGalleryIcon(c.querySelector('.prod-img'), p);   // ícone só aparece se ≥1 foto extra REALMENTE carregar
@@ -4960,24 +5294,8 @@ function renderLoja(){
   body.appendChild(el(`<div style="height:28px"></div>`));
 
   // filtro de busca in-place (esconde cards que não batem; sem re-render → mantém foco)
-  const inp = search.querySelector('.ls-inp');
-  const clr = search.querySelector('.ls-clear');
-  const aplicaBusca = ()=>{
-    const q = (DB._lojaBusca||'').trim().toLowerCase();
-    let vis = 0;
-    grid.querySelectorAll('.prod-card').forEach(card=>{
-      const hit = !q || (card.getAttribute('data-nm')||'').includes(q);
-      card.style.display = hit ? '' : 'none';
-      if(hit) vis++;
-    });
-    _emptyMsg.style.display = (_prods.length && vis===0) ? 'block' : 'none';
-    if(clr) clr.style.display = q ? '' : 'none';
-  };
-  if(inp){
-    inp.oninput = ()=>{ DB._lojaBusca = inp.value; aplicaBusca(); };
-    if(clr) clr.onclick = ()=>{ DB._lojaBusca=''; inp.value=''; aplicaBusca(); inp.focus(); };
-    aplicaBusca();
-  }
+  _emptyMsg.id = 'loja-empty';
+  _lojaAplicaBusca();
   v.appendChild(body);
   return v;
 }
@@ -5497,7 +5815,7 @@ function renderProfessor(){
   _loadProfData();
   const v = el(`<div class="view"></div>`);
   v.innerHTML = topbar('Painel do professor');
-  const body = el('<div></div>');
+  const body = el('<div id="prof-body"></div>');    // alvo do morph (v553)
   // Ficha do aluno em tela cheia tem precedência sobre as abas (voltar limpa DB.alunoAberto).
   if (DB.alunoAberto){ body.appendChild(profAlunoDetalhe(DB.alunoAberto)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   if (DB.batchCheckin){ body.appendChild(profBatchCheckin(DB.batchCheckin.t, DB.batchCheckin.s, DB.batchCheckin.data)); v.appendChild(body); return v; }   // modo foco: sem tabbar (botão "Adicionar" fica visível no mobile)
@@ -5686,199 +6004,15 @@ function profBatchCheckin(turma, sessao, dataISO){
    aniversariantes do mês em tabela, alertas acionáveis.
    REMOVIDO: BETA KPIs, "Atividade da gestão" (fica em Config).
    ============================================================ */
-function profPainel(){
-  const w = el('<div></div>');
-  const d = _profData;
-  const alunos = d ? d.alunos : [];
-  const kpis   = d ? d.kpis   : { total:0, ativos:0, receitaMes:0 };
-
-  // Header institucional: nome da academia + saudação
-  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
-  const dashHd = el(`<div class="erp-dash-hd">
-    <div class="erp-dash-hd-l">
-      <div class="erp-dash-acad">${safeTxt(acadNm)}</div>
-      <div class="erp-dash-greet">Olá, ${safeTxt(DB.professor.nome||'Professor')} — ${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
-    </div>
-    <button class="erp-yama-btn" aria-label="Yama · Configurações" title="Yama · Configurações">⚙️</button>
-  </div>`);
-  dashHd.querySelector('.erp-yama-btn').onclick = ()=>{ DB.navProf='yama'; render(); window.scrollTo(0,0); };
-  w.appendChild(dashHd);
-
-  // ---- Strip de dias com navegação de SEMANA (‹ ›) ----
-  // DB._painelSemana = offset em semanas (0=atual, -1=passada, +1=próxima).
-  // Limite: 2 semanas atrás (cobre o retroativo de 14 dias) e 1 à frente.
-  const DIAS_K = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
-  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
-  const diaHoje = jsToKey[hoje.getDay()];
-  const turmas = (typeof _turmasArr==='function'?_turmasArr():[]);
-  const diasComTurma = new Set();
-  turmas.forEach(t=> (t.sessoes||[]).forEach(s=> diasComTurma.add(s.dia)));
-  const DIAS_ATIVOS = DIAS_K.filter(([k])=> diasComTurma.has(k));
-  const semOff = DB._painelSemana || 0;
-  // Data de um dia-da-semana dentro da semana selecionada
-  const _dataDoDia = (k)=>{
-    const dt = new Date(hoje);
-    dt.setDate(dt.getDate() + (jsToKey.indexOf(k) - hoje.getDay()) + semOff*7);
-    dt.setHours(0,0,0,0);
-    return dt;
-  };
-  let diaSel = DB._painelDia;
-  if(!diasComTurma.has(diaSel)) diaSel = diasComTurma.has(diaHoje) ? diaHoje : (DIAS_ATIVOS[0]?.[0] || diaHoje);
-  const dataSel = _dataDoDia(diaSel);
-  const hojeMid = new Date(hoje); hojeMid.setHours(0,0,0,0);
-  if(DIAS_ATIVOS.length){
-    // Container único: ‹ · [dias...] · › — setas AO LADO da strip (não em cima)
-    const bar = el('<div class="erp-daystrip block"></div>');
-    // Só passado (até 2 semanas atrás). Futuro sem valor prático — turma da próxima semana ainda não rodou.
-    const btnPrev = el(`<button class="erp-weekbtn" id="wk-prev" aria-label="Semana anterior"${semOff<=-2?' disabled':''}>‹</button>`);
-    const btnNext = el(`<button class="erp-weekbtn" id="wk-next" aria-label="Próxima semana"${semOff>=0?' disabled':''}>›</button>`);
-    btnPrev.onclick = ()=>{ if(semOff>-2){ DB._painelSemana = semOff-1; render(); } };
-    btnNext.onclick = ()=>{ if(semOff<0){ DB._painelSemana = semOff+1; render(); } };
-    bar.appendChild(btnPrev);
-    DIAS_ATIVOS.forEach(([k,lbl])=>{
-      const dt = _dataDoDia(k);
-      const isHoje = dt.getTime()===hojeMid.getTime();
-      const isSel  = k===diaSel;
-      const b = el(`<button class="erp-daycell${isSel?' on':''}${isHoje?' hoje':''}" type="button">
-        <span class="erp-daynum">${dt.getDate()}</span>
-        <span class="erp-daylbl">${lbl}</span>
-      </button>`);
-      b.onclick = ()=>{ DB._painelDia = k; render(); };
-      bar.appendChild(b);
-    });
-    bar.appendChild(btnNext);
-    w.appendChild(bar);
-  }
-
-  // ---- Turmas do dia selecionado (horizontal scroll) ----
-  const sessionsDoDia = [];
-  turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
-    if(s.dia===diaSel) sessionsDoDia.push({t, s});
-  }));
-  sessionsDoDia.sort((a,b)=> (a.s.hora||'').localeCompare(b.s.hora||''));
-  if(sessionsDoDia.length){
-    const strip2 = el('<div class="erp-classes-strip block"></div>');
-    sessionsDoDia.forEach(({t,s})=>{
-      const sub = s.variacao || t.faixaEtaria || '';
-      const c = el(`<button class="erp-class-card" type="button" style="--tc:${safeAttr(t.cor||'#334155')}">
-        <div class="erp-class-hora">🕐 ${safeTxt(s.hora)}</div>
-        <div class="erp-class-nome">${safeTxt(t.nome)}</div>
-        ${sub?`<div class="erp-class-sub">${safeTxt(sub)}</div>`:''}
-      </button>`);
-      // Passa a DATA já resolvida — o batch não decide mais data, só executa.
-      c.onclick = ()=>{ DB.batchCheckin = {t, s, data: dataSel.toISOString().slice(0,10)}; render(); window.scrollTo(0,0); };
-      strip2.appendChild(c);
-    });
-    w.appendChild(strip2);
-  } else {
-    w.appendChild(el(`<div class="empty-line block" style="padding:16px 20px">Sem turmas em ${DIAS_K.find(([k])=>k===diaSel)[1]}.</div>`));
-  }
-
-  if(!d){
-    w.appendChild(el('<div class="loading-center block">Carregando dados da nuvem…</div>'));
-    return w;
-  }
-
-  // Cálculos
-  const total = kpis.total;
-  const ativos = kpis.ativos;
-  const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
-  const vencidos = alunos.filter(a=>a.pago==='late').length;
-  const aptosGrad = _aptosGraduar().length;
-  const aptosFaixa = _aptosNovaFaixa().length;
-  const recebendoGrau = aptosGrad + aptosFaixa;
-  const anivMes = _aniversariantes();
-  const inativos = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
-
-  // Grid de KPI macros — reusa .stat-card (design consagrado com ícone pastel)
-  // mas cada card é CLICÁVEL e leva pra tela relevante.
-  const kpiCard = (siClass, ico, valor, label, fn)=>{
-    const c = el(`<div class="stat-card kpi-click" role="button" tabindex="0">
-      <div class="si ${siClass}">${ico}</div>
-      <div class="sv">${valor}</div>
-      <div class="sl">${label}</div>
-    </div>`);
-    c.onclick = fn;
-    c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } };
-    return c;
-  };
-  const grid = el('<div class="stat-grid block"></div>');
-  grid.appendChild(kpiCard('blue', icoRoster(), total, 'Alunos totais', ()=>goProf('alunos')));
-  grid.appendChild(kpiCard('green', icoPulse(), ativos, 'Ativos (14d)', ()=>goProf('alunos')));
-  grid.appendChild(kpiCard('gold', icoAlert(), ausentes, 'Ausentes 7+ dias', ()=>{ DB.relTab='risco'; goProf('relatorios'); }));
-  grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', ()=>goProf('graduacao')));
-  grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', ()=>{ DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); }));
-  grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', ()=>goProf('alunos')));
-  grid.appendChild(kpiCard('gray', '⏸️', inativos, 'Inativos', ()=>{ DB._pendingAlunosFiltro='inativos'; goProf('alunos'); }));
-  w.appendChild(grid);
-
-  // "O que fazer hoje" — alertas acionáveis (mantido, é o coração do painel)
-  _ensureLojaAdmin();
-  const _zerados=DB.loja.produtos.filter(p=> p.ativo!==false && _estoqueTotal(p)===0).length;
-  const _pend=_pedidosPendentesN();
-  const _anivHj=_aniversariantesHoje().length;
-  const alerts=[];
-  if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', ()=>_profErrosSheet(), 'red']);
-  if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', ()=>goProf('pedidos'), 'red']);
-  if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante${_anivHj>1?'s':''} hoje`, 'Mandar parabéns ›', ()=>{
-    // v384: leva pra lista de Alunos com filtro pelos aniversariantes DE HOJE
-    // (MM-DD, nao mais so MM), pra o professor ver quem eh e mandar WhatsApp.
-    // Antes ia pra Relatorios/Retencao, tela onde nao ha como contatar aluno.
-    const d = new Date();
-    DB._pendingAlunosAniv = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    goProf('alunos');
-  }, 'good']);
-  if(_zerados>0) alerts.push(['📦', `${_zerados} produto${_zerados>1?'s':''} com estoque zerado`, 'Ver loja ›', ()=>goProf('loja'), 'red']);
-  if(alerts.length){
-    w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">O que fazer hoje</div>`));
-    alerts.forEach(([ic,tx,go,fn,kind])=>{
-      const al=el(`<div class="alert-row block ${kind}" role="button" tabindex="0" aria-label="${safeAttr(tx)}"><span class="ar-ic">${ic}</span>
-        <span class="ar-tx">${tx}</span><span class="ar-go">${go}</span></div>`);
-      al.onclick=fn; al.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } }; w.appendChild(al);
-    });
-  }
-
-  // Aniversariantes do mês — tabela (Kanri style)
-  if(anivMes.length){
-    w.appendChild(el(`<div class="sec-row"><div class="sec-title">Aniversariantes do mês</div>
-      <a role="button" tabindex="0" data-click="verAnivFull">Ver todos</a></div>`));
-    const tbl = el(`<div class="erp-dash-birth block"></div>`);
-    tbl.appendChild(el(`<div class="erp-dash-birth-hd">
-      <span>Aluno</span><span>Faixa</span><span>Dia</span><span></span>
-    </div>`));
-    anivMes.slice(0,5).forEach(a=>{
-      const dia = (a.nascData||'').slice(8,10);
-      const mes = (a.nascData||'').slice(5,7);
-      const belt = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
-      const wa = _waLink(a);
-      const row = el(`<div class="erp-dash-birth-row">
-        <span class="erp-dash-birth-nm">${safeTxt(_nomeInst(a))}</span>
-        <span class="erp-dash-birth-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)}</span>
-        <span class="erp-dash-birth-dt">${dia}/${mes}</span>
-        <span class="erp-dash-birth-acts">${wa?'<button class="erp-mini" data-a="wa" aria-label="WhatsApp">💬</button>':''}
-          <button class="erp-mini" data-a="open" aria-label="Abrir">›</button></span>
-      </div>`);
-      row.querySelector('[data-a="open"]').onclick=()=>{ _navPush(); DB.alunoAberto=a; render(); window.scrollTo(0,0); };
-      const waBtn=row.querySelector('[data-a="wa"]');
-      if(waBtn && wa) waBtn.onclick=()=> window.open(wa, '_blank', 'noopener');
-      tbl.appendChild(row);
-    });
-    w.appendChild(tbl);
-  }
-
-  // v487: check-ins de hoje saíram do painel. Trocado por resumo financeiro
-  // (Proposta A) — Saldo do mês + Recebido/A receber/Vencido + Despesas do mês
-  // + linha de ação (cobranças vencendo nos próximos 7 dias). Reusa `.fin-head`
-  // do Financeiro pra manter consistência visual. Check-ins continuam na tela
-  // Alunos (filtro "hoje") e em Presenças (relatório).
-  const mesAtualNome = new Date().toLocaleDateString('pt-BR',{month:'long'});
-  const mesRef = HOJE_ISO.slice(0,7);
-  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Financeiro · ${mesAtualNome}</div>
-    <a role="button" tabindex="0" data-click="verFinanceiro">Ver todos ›</a></div>`));
-  const finCard = el('<div class="block fin-summary-card" style="padding:14px 16px"></div>');
-  w.appendChild(finCard);
-
-  const pintaFin = ()=>{
+/* v554 — card do Financeiro no Painel. `pintaFin` capturava o `finCard`; sob
+   morphdom o no' que permanece e' o antigo, entao o resultado do `_finReload`
+   ia pintar num orfao e o card ficava eternamente em "Carregando financeiro…".
+   Agora resolve `#painel-fin` no DOM vivo e os dois links viraram delegacao. */
+function _painelPintarFin(alvo){
+  const finCard = alvo || document.getElementById('painel-fin');
+  if(!finCard) return;
+  const alunos = _profAlunosArr();
+  const mesRef = _finMes();
     finCard.innerHTML='';
     // Sem backend do Financeiro (demo/offline): mostra placeholder amigável.
     if(!_finBackend() || _finCobrancas===null){
@@ -5948,7 +6082,7 @@ function profPainel(){
         <span style="font-weight:800">${moneyBR(custoAluno)}</span>
       </div>
       ${proxN > 0 ? `
-      <div class="fin-cta" role="button" tabindex="0" style="margin-top:10px;padding:8px 10px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px;color:var(--muted);cursor:pointer">
+      <div class="fin-cta" role="button" tabindex="0" data-click="verFinanceiro" style="margin-top:10px;padding:8px 10px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px;color:var(--muted);cursor:pointer">
         <b>${proxN}</b> cobrança${proxN>1?'s':''} vence${proxN>1?'m':''} nos próximos 7 dias ›
       </div>` : ''}
       ${inadTop.length > 0 ? `
@@ -5958,35 +6092,247 @@ function profPainel(){
           <span>${safeTxt(x.nome)}</span>
           <span style="font-weight:800;color:var(--red)">${moneyBR(x.total)}</span>
         </div>`).join('')}
-        ${inadArr.length > inadTop.length ? `<div class="fin-ver-inad" role="button" tabindex="0" style="margin-top:4px;font-size:11.5px;color:var(--muted);cursor:pointer;text-align:right">Ver todos os ${inadArr.length} ›</div>` : ''}
+        ${inadArr.length > inadTop.length ? `<div class="fin-ver-inad" role="button" tabindex="0" data-click="verFinanceiro" style="margin-top:4px;font-size:11.5px;color:var(--muted);cursor:pointer;text-align:right">Ver todos os ${inadArr.length} ›</div>` : ''}
       </div>` : ''}
     `;
-    // clique no CTA de próximas 7 dias abre Financeiro
-    const cta = finCard.querySelector('.fin-cta');
-    if(cta){
-      // v551: `_finCobFiltro` saiu (era gravada e nunca lida). Sem filtro por
-      // aluno, a aba abre com todas as cobranças do mês.
-      cta.onclick = ()=>{ _finTab='cobrancas'; _finCobAluno=null; goProf('financeiro'); };
-      cta.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); cta.click(); } };
-    }
-    // Link "Ver todos" da lista de inadimplentes
-    const verInad = finCard.querySelector('.fin-ver-inad');
-    if(verInad){
-      verInad.onclick = ()=>{ _finTab='cobrancas'; _finCobAluno=null; goProf('financeiro'); };
-      verInad.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); verInad.click(); } };
-    }
-  };
+}
 
-  // Link "Ver todos ›"
-  const verLink = w.querySelector('[data-click="verFinanceiro"]');
-  if(verLink) verLink.onclick = ()=>goProf('financeiro');
+/* Destinos dos KPIs e dos alertas do Painel. Tabela em vez de callback por
+   card — o `fn` colado no no' era o que sobrava velho depois do diff. */
+const _PAINEL_IR = {
+  alunos:    () => goProf('alunos'),
+  graduacao: () => goProf('graduacao'),
+  pedidos:   () => goProf('pedidos'),
+  loja:      () => goProf('loja'),
+  erros:     () => _profErrosSheet(),
+  risco:     () => { DB.relTab = 'risco'; goProf('relatorios'); },
+  inativos:  () => { DB._pendingAlunosFiltro = 'inativos'; goProf('alunos'); },
+  anivMes:   () => { DB._pendingAlunosAniv = String(new Date().getMonth()+1).padStart(2,'0'); goProf('alunos'); },
+  anivHoje:  () => {
+    const d = new Date();
+    DB._pendingAlunosAniv = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    goProf('alunos');
+  },
+};
+_dlgRegister('painelIr', (elm) => { const fn = _PAINEL_IR[elm.dataset.v]; if (fn) fn(); });
+_dlgRegister('irYama',        () => { DB.navProf = 'yama'; render(); window.scrollTo(0,0); });
+_dlgRegister('painelSemana',  (elm) => {
+  const off = DB._painelSemana || 0, d = +elm.dataset.v;
+  if (d < 0 && off > -2) DB._painelSemana = off - 1;
+  if (d > 0 && off < 0)  DB._painelSemana = off + 1;
+  render();
+});
+_dlgRegister('painelDia',     (elm) => { DB._painelDia = elm.dataset.v; render(); });
+_dlgRegister('verFinanceiro', () => { _finTab = 'cobrancas'; _finCobAluno = null; goProf('financeiro'); });
+_dlgRegister('abrirUrl',      (elm) => window.open(elm.dataset.url, '_blank', 'noopener'));
+_dlgRegister('painelChamada', (elm) => {
+  // turma e sessao resolvidas por id/hora no clique — a closure guardava os
+  // objetos daquela renderizacao.
+  const t = (typeof _turmasArr === 'function' ? _turmasArr() : []).find(x => String(x.id) === elm.dataset.t);
+  if (!t) return;
+  const s = (t.sessoes || []).find(x => String(x.hora || '') === elm.dataset.h) || (t.sessoes || [])[0];
+  if (!s) return;
+  DB.batchCheckin = { t, s, data: elm.dataset.d };
+  render(); window.scrollTo(0,0);
+});
+
+function profPainel(){
+  const w = el('<div></div>');
+  const d = _profData;
+  const alunos = d ? d.alunos : [];
+  const kpis   = d ? d.kpis   : { total:0, ativos:0, receitaMes:0 };
+
+  // Header institucional: nome da academia + saudação
+  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
+  const dashHd = el(`<div class="erp-dash-hd">
+    <div class="erp-dash-hd-l">
+      <div class="erp-dash-acad">${safeTxt(acadNm)}</div>
+      <div class="erp-dash-greet">Olá, ${safeTxt(DB.professor.nome||'Professor')} — ${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
+    </div>
+    <button class="erp-yama-btn" aria-label="Yama · Configurações" title="Yama · Configurações">⚙️</button>
+  </div>`);
+  dashHd.querySelector('.erp-yama-btn').setAttribute('data-click','irYama');
+  w.appendChild(dashHd);
+
+  // ---- Strip de dias com navegação de SEMANA (‹ ›) ----
+  // DB._painelSemana = offset em semanas (0=atual, -1=passada, +1=próxima).
+  // Limite: 2 semanas atrás (cobre o retroativo de 14 dias) e 1 à frente.
+  const DIAS_K = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
+  const jsToKey = ['dom','seg','ter','qua','qui','sex','sab'];
+  const diaHoje = jsToKey[hoje.getDay()];
+  const turmas = (typeof _turmasArr==='function'?_turmasArr():[]);
+  const diasComTurma = new Set();
+  turmas.forEach(t=> (t.sessoes||[]).forEach(s=> diasComTurma.add(s.dia)));
+  const DIAS_ATIVOS = DIAS_K.filter(([k])=> diasComTurma.has(k));
+  const semOff = DB._painelSemana || 0;
+  // Data de um dia-da-semana dentro da semana selecionada
+  const _dataDoDia = (k)=>{
+    const dt = new Date(hoje);
+    dt.setDate(dt.getDate() + (jsToKey.indexOf(k) - hoje.getDay()) + semOff*7);
+    dt.setHours(0,0,0,0);
+    return dt;
+  };
+  let diaSel = DB._painelDia;
+  if(!diasComTurma.has(diaSel)) diaSel = diasComTurma.has(diaHoje) ? diaHoje : (DIAS_ATIVOS[0]?.[0] || diaHoje);
+  const dataSel = _dataDoDia(diaSel);
+  const hojeMid = new Date(hoje); hojeMid.setHours(0,0,0,0);
+  if(DIAS_ATIVOS.length){
+    // Container único: ‹ · [dias...] · › — setas AO LADO da strip (não em cima)
+    const bar = el('<div class="erp-daystrip block"></div>');
+    // Só passado (até 2 semanas atrás). Futuro sem valor prático — turma da próxima semana ainda não rodou.
+    const btnPrev = el(`<button class="erp-weekbtn" id="wk-prev" aria-label="Semana anterior"${semOff<=-2?' disabled':''}>‹</button>`);
+    const btnNext = el(`<button class="erp-weekbtn" id="wk-next" aria-label="Próxima semana"${semOff>=0?' disabled':''}>›</button>`);
+    btnPrev.setAttribute('data-click','painelSemana'); btnPrev.setAttribute('data-v','-1');
+    btnNext.setAttribute('data-click','painelSemana'); btnNext.setAttribute('data-v','1');
+    bar.appendChild(btnPrev);
+    DIAS_ATIVOS.forEach(([k,lbl])=>{
+      const dt = _dataDoDia(k);
+      const isHoje = dt.getTime()===hojeMid.getTime();
+      const isSel  = k===diaSel;
+      const b = el(`<button class="erp-daycell${isSel?' on':''}${isHoje?' hoje':''}" type="button">
+        <span class="erp-daynum">${dt.getDate()}</span>
+        <span class="erp-daylbl">${lbl}</span>
+      </button>`);
+      b.setAttribute('data-click','painelDia'); b.setAttribute('data-v', k);
+      bar.appendChild(b);
+    });
+    bar.appendChild(btnNext);
+    w.appendChild(bar);
+  }
+
+  // ---- Turmas do dia selecionado (horizontal scroll) ----
+  const sessionsDoDia = [];
+  turmas.forEach(t=> (t.sessoes||[]).forEach(s=>{
+    if(s.dia===diaSel) sessionsDoDia.push({t, s});
+  }));
+  sessionsDoDia.sort((a,b)=> (a.s.hora||'').localeCompare(b.s.hora||''));
+  if(sessionsDoDia.length){
+    const strip2 = el('<div class="erp-classes-strip block"></div>');
+    sessionsDoDia.forEach(({t,s})=>{
+      const sub = s.variacao || t.faixaEtaria || '';
+      const c = el(`<button class="erp-class-card" type="button" style="--tc:${safeAttr(t.cor||'#334155')}">
+        <div class="erp-class-hora">🕐 ${safeTxt(s.hora)}</div>
+        <div class="erp-class-nome">${safeTxt(t.nome)}</div>
+        ${sub?`<div class="erp-class-sub">${safeTxt(sub)}</div>`:''}
+      </button>`);
+      // Passa a DATA já resolvida — o batch não decide mais data, só executa.
+      c.setAttribute('data-click','painelChamada');
+    c.setAttribute('data-t', t.id);
+    c.setAttribute('data-h', s.hora || '');
+    c.setAttribute('data-d', dataSel.toISOString().slice(0,10));
+      strip2.appendChild(c);
+    });
+    w.appendChild(strip2);
+  } else {
+    w.appendChild(el(`<div class="empty-line block" style="padding:16px 20px">Sem turmas em ${DIAS_K.find(([k])=>k===diaSel)[1]}.</div>`));
+  }
+
+  if(!d){
+    w.appendChild(el('<div class="loading-center block">Carregando dados da nuvem…</div>'));
+    return w;
+  }
+
+  // Cálculos
+  const total = kpis.total;
+  const ativos = kpis.ativos;
+  const ausentes = alunos.filter(a=>(a.diasSem||0)>=7).length;
+  const vencidos = alunos.filter(a=>a.pago==='late').length;
+  const aptosGrad = _aptosGraduar().length;
+  const aptosFaixa = _aptosNovaFaixa().length;
+  const recebendoGrau = aptosGrad + aptosFaixa;
+  const anivMes = _aniversariantes();
+  const inativos = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
+
+  // Grid de KPI macros — reusa .stat-card (design consagrado com ícone pastel)
+  // mas cada card é CLICÁVEL e leva pra tela relevante.
+  const kpiCard = (siClass, ico, valor, label, acao)=>{
+    const c = el(`<div class="stat-card kpi-click" role="button" tabindex="0" data-click="painelIr" data-v="${safeAttr(acao)}">
+      <div class="si ${siClass}">${ico}</div>
+      <div class="sv">${valor}</div>
+      <div class="sl">${label}</div>
+    </div>`);
+    return c;
+  };
+  const grid = el('<div class="stat-grid block"></div>');
+  grid.appendChild(kpiCard('blue', icoRoster(), total, 'Alunos totais', 'alunos'));
+  grid.appendChild(kpiCard('green', icoPulse(), ativos, 'Ativos (14d)', 'alunos'));
+  grid.appendChild(kpiCard('gold', icoAlert(), ausentes, 'Ausentes 7+ dias', 'risco'));
+  grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', 'graduacao'));
+  grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', 'anivMes'));
+  grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', 'alunos'));
+  grid.appendChild(kpiCard('gray', '⏸️', inativos, 'Inativos', 'inativos'));
+  w.appendChild(grid);
+
+  // "O que fazer hoje" — alertas acionáveis (mantido, é o coração do painel)
+  _ensureLojaAdmin();
+  const _zerados=DB.loja.produtos.filter(p=> p.ativo!==false && _estoqueTotal(p)===0).length;
+  const _pend=_pedidosPendentesN();
+  const _anivHj=_aniversariantesHoje().length;
+  const alerts=[];
+  if(kpis.erros>0) alerts.push(['🐞', `${kpis.erros} erro${kpis.erros>1?'s':''} de app nas últimas 24h`, 'Ver detalhes ›', 'erros', 'red']);
+  if(_pend>0) alerts.push(['🧾', `${_pend} pedido${_pend>1?'s':''} pendente${_pend>1?'s':''}`, 'Ver pedidos ›', 'pedidos', 'red']);
+  // v384: "aniversariantes hoje" leva pra lista de Alunos com filtro MM-DD, pra
+  // o professor ver quem é e mandar WhatsApp. Antes ia pra Relatórios/Retenção,
+  // tela onde não há como contatar aluno.
+  if(_anivHj>0) alerts.push(['🎂', `${_anivHj} aniversariante${_anivHj>1?'s':''} hoje`, 'Mandar parabéns ›', 'anivHoje', 'good']);
+  if(_zerados>0) alerts.push(['📦', `${_zerados} produto${_zerados>1?'s':''} com estoque zerado`, 'Ver loja ›', 'loja', 'red']);
+  if(alerts.length){
+    w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">O que fazer hoje</div>`));
+    alerts.forEach(([ic,tx,go,acao,kind])=>{
+      w.appendChild(el(`<div class="alert-row block ${kind}" role="button" tabindex="0" data-click="painelIr" data-v="${safeAttr(acao)}" aria-label="${safeAttr(tx)}"><span class="ar-ic">${ic}</span>
+        <span class="ar-tx">${tx}</span><span class="ar-go">${go}</span></div>`));
+    });
+  }
+
+  // Aniversariantes do mês — tabela (Kanri style)
+  if(anivMes.length){
+    w.appendChild(el(`<div class="sec-row"><div class="sec-title">Aniversariantes do mês</div>
+      <a role="button" tabindex="0" data-click="verAnivFull">Ver todos</a></div>`));
+    const tbl = el(`<div class="erp-dash-birth block"></div>`);
+    tbl.appendChild(el(`<div class="erp-dash-birth-hd">
+      <span>Aluno</span><span>Faixa</span><span>Dia</span><span></span>
+    </div>`));
+    anivMes.slice(0,5).forEach(a=>{
+      const dia = (a.nascData||'').slice(8,10);
+      const mes = (a.nascData||'').slice(5,7);
+      const belt = BELTS[a.faixa] || {nome:a.faixa||'—', cor:'#888'};
+      const wa = _waLink(a);
+      const row = el(`<div class="erp-dash-birth-row">
+        <span class="erp-dash-birth-nm">${safeTxt(_nomeInst(a))}</span>
+        <span class="erp-dash-birth-belt"><i style="background:${belt.cor}"></i>${safeTxt(belt.nome)}</span>
+        <span class="erp-dash-birth-dt">${dia}/${mes}</span>
+        <span class="erp-dash-birth-acts">${wa?'<button class="erp-mini" data-a="wa" aria-label="WhatsApp">💬</button>':''}
+          <button class="erp-mini" data-a="open" aria-label="Abrir">›</button></span>
+      </div>`);
+      const _ab = row.querySelector('[data-a="open"]');
+    _ab.setAttribute('data-click','alunoAbrir'); _ab.setAttribute('data-id', a.id||a.nm);
+      const waBtn=row.querySelector('[data-a="wa"]');
+      if(waBtn && wa){ waBtn.setAttribute('data-click','abrirUrl'); waBtn.setAttribute('data-url', wa); }
+      tbl.appendChild(row);
+    });
+    w.appendChild(tbl);
+  }
+
+  // v487: check-ins de hoje saíram do painel. Trocado por resumo financeiro
+  // (Proposta A) — Saldo do mês + Recebido/A receber/Vencido + Despesas do mês
+  // + linha de ação (cobranças vencendo nos próximos 7 dias). Reusa `.fin-head`
+  // do Financeiro pra manter consistência visual. Check-ins continuam na tela
+  // Alunos (filtro "hoje") e em Presenças (relatório).
+  const mesAtualNome = new Date().toLocaleDateString('pt-BR',{month:'long'});
+  const mesRef = HOJE_ISO.slice(0,7);
+  w.appendChild(el(`<div class="sec-row"><div class="sec-title">Financeiro · ${mesAtualNome}</div>
+    <a role="button" tabindex="0" data-click="verFinanceiro">Ver todos ›</a></div>`));
+  const finCard = el('<div class="block fin-summary-card" style="padding:14px 16px"></div>');
+  w.appendChild(finCard);
+
 
   // Backend liga o financeiro (Sprint 1). Carrega em background.
+  finCard.id = 'painel-fin';
   if(_finBackend()){
     if(_finCobrancas === null){
-      _finReload(true).then(()=>{ pintaFin(); }).catch(()=>{ pintaFin(); });
+      _finReload(true).then(_painelPintarFin).catch(_painelPintarFin);   // morph-ok: _painelPintarFin resolve #painel-fin no DOM vivo
     }
-    pintaFin();
+    _painelPintarFin(finCard);   // sincrono, no no' recem-criado
   } else {
     finCard.innerHTML = '<div class="empty-line" style="padding:8px">Financeiro não disponível.</div>';
   }
@@ -6838,118 +7184,88 @@ function _alunosExportPDF(alunos, turmaMap){
    `.dt-add-wrap` no app.css. Lançamento de presença em lote vive em Presenças,
    onde a sessão da turma é escolhida. */
 
-function profAlunos(){
-  const w = el('<div></div>');
-  const alunos = (_profData?.alunos)||[];
-  // v384: TODOS os chips (exceto "Inativos") ignoram alunos inativos. Antes,
-  // "Presentes"/"Ativos (14d)"/"Ausentes 7+d"/"Vencidos" contavam inativos junto,
-  // criando dissonancia entre chip e lista (chip 34 presentes, mas lista mostra 3
-  // porque "Todos" ja excluia inativos desde v382).
-  const _naoInativo = a => _statusAluno(a).valor !== 'inativo';
-  const presentes = alunos.filter(a=> _naoInativo(a) && a.pres).length;
-  const ativos = alunos.filter(a=> _naoInativo(a) && (a.diasSem ?? 999) <= 14).length;
-  const ausentes = alunos.filter(a=> _naoInativo(a) && (a.diasSem||0)>=7).length;
-  const vencidosN = alunos.filter(a=> _naoInativo(a) && a.pago==='late').length;
-  const aptosN = typeof _aptosGraduar==='function'
-    ? _aptosGraduar().filter(_naoInativo).length : 0;
-  const inativosN = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
-  // v382: "Todos" da lista deixa de contar inativos — usuario ve o total LIQUIDO
-  // por padrao. Inativos ainda aparecem via chip "Inativos" (dedicado).
-  const totalLiquido = alunos.length - inativosN;
+/* ============================================================
+   ALUNOS (professor) — estado da tela FORA da closure (v554)
+   ============================================================
+   A tela tinha 8 variaveis vivendo na closure de `profAlunos` e um
+   `renderList` que repintava a `list` capturada. Sob morphdom o no' que fica
+   no DOM e' o ANTIGO: os handlers seguiam pintando numa lista orfa, e o painel
+   de filtros perdia tudo que o professor tinha digitado a cada repaint de
+   fundo. O estado passou pra ca, e os painters resolvem o container pelo id.
 
-  // Cabeçalho compacto ERP
-  w.innerHTML = `<div class="erp-alunos-hd">
-    <div class="erp-alunos-title">Alunos</div>
-    <div class="erp-alunos-sub" id="alunos-sub-kpi">${_profData?totalLiquido+' ativos · '+alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
-  </div>`;
+   A lista continua sendo repintada IN-PLACE (sem render()) de proposito: com o
+   morphdom desligado, um redesenho completo tiraria o foco do campo de busca a
+   cada tecla. */
+const _ALUNOS_PAGE = 20;
+const _ALUNOS_UI = {
+  filtro: 'todos', busca: '', filtroEt: 'todos',
+  sortKey: 'nm', sortDir: 'asc',
+  advOpen: false, shown: _ALUNOS_PAGE,
+  advF: { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'', status:'' },
+};
+let _alunosFiltrados = [];
 
-  _loadTurmas();
-  const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
+function _alunosTurmaMap(){
+  const m = {};
+  (typeof _turmasArr === 'function' ? _turmasArr() : []).forEach(t => { m[t.id] = t.nome; });
+  return m;
+}
 
-  let filtro = DB._pendingAlunosFiltro || 'todos'; DB._pendingAlunosFiltro=null;
-  let busca = '', filtroEt = 'todos';
-  let sortKey='nm', sortDir='asc';
-  let showAdv = false;
-  // Filtros avançados (painel colapsável). '' = "Todos" (ignora).
-  const advF = { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'', status:'' };
-  if(DB._pendingAlunosAniv){ advF.aniversario = DB._pendingAlunosAniv; DB._pendingAlunosAniv=null; }
-  const PAGE = 20; let shown = PAGE;
+function _alunosPintarHead(alvo){
+  const head = alvo || document.getElementById('alunos-head');
+  if (!head) return;
+  const { sortKey, sortDir } = _ALUNOS_UI;
+  head.querySelectorAll('[data-sort]').forEach(b => {
+    const k = b.dataset.sort;
+    b.classList.toggle('sort-on', sortKey === k);
+    b.classList.toggle('sort-desc', sortKey === k && sortDir === 'desc');
+  });
+}
 
-  const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
+function _alunosAdvBadge(alvo){
+  const bar = alvo || document.querySelector('.erp-alunos-adv-bar');
+  if (!bar) return;
+  const n = Object.values(_ALUNOS_UI.advF).filter(Boolean).length;
+  const b = bar.querySelector('#adv-count');
+  if (b) { b.textContent = n; b.hidden = !n; }
+  bar.querySelector('#adv-toggle')?.classList.toggle('filtered', !!n);
+  const ci = bar.querySelector('#adv-clear-inline');
+  if (ci) ci.hidden = !n;
+}
 
-  // Chips-KPI clicáveis semânticos (substituem filter-seg antigo)
-  const kpiChip = (id, lbl, valor, cls)=>{
-    const b = el(`<button class="erp-alunos-kpi ${cls}${filtro===id?' on':''}" data-f="${id}">
-      <span class="erp-alunos-kpi-v">${valor}</span>
-      <span class="erp-alunos-kpi-l">${lbl}</span>
-    </button>`);
-    b.onclick = ()=>{
-      filtro = id; shown = PAGE;
-      w.querySelectorAll('.erp-alunos-kpi').forEach(x=>x.classList.remove('on'));
-      b.classList.add('on');
-      renderList();
-    };
-    return b;
-  };
-  const chipsRow = el(`<div class="erp-alunos-chips block"></div>`);
-  chipsRow.appendChild(kpiChip('todos',    'Todos',        totalLiquido, 'gray'));
-  chipsRow.appendChild(kpiChip('presentes','Presentes',    presentes,     'green'));
-  chipsRow.appendChild(kpiChip('ativos',   'Ativos (14d)', ativos,        'blue'));
-  chipsRow.appendChild(kpiChip('sumidos',  'Ausentes 7+d', ausentes,      'gold'));
-  chipsRow.appendChild(kpiChip('aptos',    'Aptos a grau', aptosN,        'purple'));
-  chipsRow.appendChild(kpiChip('vencidos', 'Vencidos',     vencidosN,     'red'));
-  chipsRow.appendChild(kpiChip('inativos', 'Inativos',     inativosN,     'gray'));
+function _alunosRepintar(){
+  _alunosPintarLista();
+  _alunosPintarHead();
+  _alunosAdvBadge();
+}
 
-  // Faixa etária: chips SEMPRE visíveis (v311). Antes ficava escondido atrás do
-  // painel de filtros avançados; o professor filtra por idade o tempo todo, então
-  // não faz sentido custar dois cliques. Fonte ÚNICA do filtro — o select que
-  // existia no painel avançado foi removido pra não haver dois controles
-  // disputando o mesmo estado.
-  const chipsEt = el(`<div class="erp-et-bar"></div>`);
-  const _mkFxChip=(id,lbl)=>{ const b=el(`<button class="et-chip ${filtroEt===id?'on':''}">${lbl}</button>`);
-    b.onclick=()=>{ filtroEt=id; shown=PAGE; chipsEt.querySelectorAll('.et-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); renderList(); };
-    return b; };
-  // Busca exposta (desktop): antes só existia dentro de "Filtros avançados" (advf-nome,
-  // campo redundante) — some daqui, e a busca do topo (mesma var `busca` do toolbar
-  // mobile) fica visível também no desktop, à esquerda da faixa etária.
-  const srchEt = el(`<div class="erp-et-search dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…"></div>`);
-  srchEt.querySelector('input').oninput=(e)=>{ busca=e.target.value.trim(); shown=PAGE; renderList(); };
-  chipsEt.appendChild(srchEt);
-  const etGroup = el('<div class="erp-et-group"></div>');
-  etGroup.appendChild(el('<div class="erp-et-lbl">Faixa etária</div>'));
-  const fxRow = el('<div class="et-chips"></div>');
-  fxRow.appendChild(_mkFxChip('todos','Todas'));
-  FAIXA_ETARIA_OPCOES.forEach(op=> fxRow.appendChild(_mkFxChip(op,op)));
-  etGroup.appendChild(fxRow);
-  chipsEt.appendChild(etGroup);
+function _alunosLerAdv(){
+  const pn = document.getElementById('alunos-adv-panel');
+  if (!pn) return;
+  const v = (id) => { const e = pn.querySelector(id); return e ? e.value : ''; };
+  const a = _ALUNOS_UI.advF;
+  a.matricula = v('#advf-mat').trim();
+  a.ativos = v('#advf-ativos');
+  a.aguardando = v('#advf-agu');
+  a.mensagens = v('#advf-msg');
+  a.faixa = v('#advf-faixa');
+  a.turma = v('#advf-turma');
+  a.plano = v('#advf-plano');
+  a.aniversario = v('#advf-aniv');
+  a.status = v('#advf-status');
+  _ALUNOS_UI.shown = _ALUNOS_PAGE;
+  _alunosRepintar();
+}
 
-  // Mantém referência dummy pra "seg" (código antigo usa) — não renderiza mais.
-  const seg = el('<div style="display:none"></div>');
-  // Header da tabela ERP — só aparece em desktop (CSS controla)
-  const head = el(`<div class="erp-head" role="row">
-    <div class="erp-c erp-c-avatar" aria-hidden="true"></div>
-    <button class="erp-c erp-c-name"   data-sort="nm">Nome completo</button>
-    <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
-    <button class="erp-c erp-c-etaria" data-sort="etaria">Faixa etária</button>
-    <div class="erp-c erp-c-turmas">Turmas</div>
-    <button class="erp-c erp-c-pres"   data-sort="diasSem">Últ. presença</button>
-    <button class="erp-c erp-c-grau"   data-sort="grau" title="Presenças desde o último grau">Grau</button>
-    <button class="erp-c erp-c-faixapres" data-sort="faixapres" title="Presenças desde o início da faixa">Faixa</button>
-    <button class="erp-c erp-c-aniv"   data-sort="aniv" title="Data de aniversário">Aniv.</button>
-    <div class="erp-c erp-c-wa" aria-hidden="true"></div>
-  </div>`);
-  const list = el('<div class="list erp-tbl"></div>');
+function _alunosParaExportar(){
+  return _alunosFiltrados.length ? _alunosFiltrados : ((_profData?.alunos) || []);
+}
+function _alunoPorChave(chave){
+  return ((_profData?.alunos) || []).find(a => String(a.id || a.nm) === String(chave));
+}
 
-  const refresh = ()=>{ renderList(); paintHead(); };
-
-  const paintHead = ()=>{
-    head.querySelectorAll('[data-sort]').forEach(b=>{
-      const k=b.dataset.sort; b.classList.toggle('sort-on', sortKey===k);
-      b.classList.toggle('sort-desc', sortKey===k && sortDir==='desc');
-    });
-  };
-
-  const _cmp = (a,b)=>{
+function _alunosCmp(a, b){
+  const { sortKey, sortDir } = _ALUNOS_UI;
     const dir = sortDir==='asc'?1:-1;
     if(sortKey==='faixa'){
       // v383: usa BELT_ORDEM (hierarquia CBJJ completa, 20 posicoes) — antes
@@ -6993,13 +7309,10 @@ function profAlunos(){
       return an.localeCompare(bn)*dir;
     }
     return String(a.nm||'').localeCompare(String(b.nm||''))*dir;
-  };
+}
 
-  // v350: lista filtrada exposta pro subtítulo (KPI responsivo) e pro Excel.
-  // Antes o Excel exportava a base inteira ignorando filtros; o subtítulo só
-  // mostrava o total absoluto sem refletir busca/filtro/faixa etária.
-  let _arrFiltrada = [];
-  const _aplicarFiltros = ()=>{
+function _alunosAplicarFiltros(){
+  const { filtro, busca, filtroEt, advF } = _ALUNOS_UI;
     let arr = ((_profData?.alunos)||[]).filter(a=>{
       // v384: exceto o chip "Inativos" (dedicado), TODOS os outros excluem
       // inativos. Antes so "Todos" excluia (v382); agora Presentes/Ativos/
@@ -7042,11 +7355,13 @@ function profAlunos(){
       });
     }
     if(filtro==='sumidos') arr.sort((a,b)=> (b.diasSem||0)-(a.diasSem||0));
-    else arr.sort(_cmp);
+    else arr.sort(_alunosCmp);
     return arr;
-  };
-  const _atualizarSubKPI = (arr)=>{
-    const sub = w.querySelector('#alunos-sub-kpi'); if(!sub) return;
+}
+
+function _alunosSubKPI(arr){
+  const { filtro, busca, filtroEt, advF } = _ALUNOS_UI;
+    const sub = document.getElementById('alunos-sub-kpi'); if(!sub) return;
     if(!_profData){ sub.textContent='Carregando…'; return; }
     const total = ((_profData?.alunos)||[]).length;
     const n = arr.length;
@@ -7062,14 +7377,19 @@ function profAlunos(){
     } else {
       sub.textContent = `${n} de ${total} · ${presN} presentes · ${inatN} inativos · ${vencN} vencidos`;
     }
-  };
+}
 
-  const renderList = ()=>{
+function _alunosPintarLista(alvo){
+  const { filtro, shown } = _ALUNOS_UI;
+  const PAGE = _ALUNOS_PAGE;
+  const turmaMap = _alunosTurmaMap();
+  const list = alvo || document.getElementById('alunos-list');
+  if(!list) return;
     list.innerHTML='';
     if(!_profData){ list.appendChild(el('<div class="loading-center">Carregando dados da nuvem…</div>')); return; }
-    _arrFiltrada = _aplicarFiltros();
-    _atualizarSubKPI(_arrFiltrada);
-    const arr = _arrFiltrada;
+    _alunosFiltrados = _alunosAplicarFiltros();
+    _alunosSubKPI(_alunosFiltrados);
+    const arr = _alunosFiltrados;
     if(!arr.length){ list.appendChild(el(`<div class="empty-line">Nenhum aluno encontrado.</div>`)); return; }
     const totalN = arr.length;
     arr.slice(0, shown).forEach(a=>{
@@ -7106,52 +7426,152 @@ function profAlunos(){
         <button class="erp-c erp-c-wa-btn wa-ico" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="Mandar WhatsApp">💬</button>
       </div>`);
       const waBtn = row.querySelector('.wa-ico');
-      if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
-      row.onclick=()=>_profAlunoSheet(a);
+      if(waBtn){ waBtn.setAttribute('data-click','alunoWhats'); waBtn.setAttribute('data-id', a.id||a.nm); }
+      row.setAttribute('data-click','alunoAbrir');
+      row.setAttribute('data-id', a.id||a.nm);
       list.appendChild(row);
     });
     if(totalN > shown){
-      const more = el(`<button class="dt-more">Ver mais (${totalN - shown})</button>`);
-      more.onclick=()=>{ shown += PAGE; renderList(); };
-      list.appendChild(more);
+      list.appendChild(el(`<button class="dt-more" data-click="alunosMais">Ver mais (${totalN - shown})</button>`));
     }
-  };
+}
 
-  srch.querySelector('input').oninput=(e)=>{ busca=e.target.value.trim(); shown=PAGE; renderList(); };
-  seg.querySelectorAll('[data-f]').forEach(b=>{
-    b.onclick=()=>{
-      filtro=b.dataset.f; shown=PAGE;
-      seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active'); renderList();
-    };
-  });
-  head.querySelectorAll('[data-sort]').forEach(b=>{
-    b.onclick=()=>{
-      const k=b.dataset.sort;
-      if(sortKey===k) sortDir = sortDir==='asc'?'desc':'asc';
-      else { sortKey=k; sortDir='asc'; }
-      refresh();
-    };
-  });
+_dlgRegister('alunosFiltro', (elm) => { _ALUNOS_UI.filtro = elm.dataset.f; _ALUNOS_UI.shown = _ALUNOS_PAGE; render(); });
+_dlgRegister('alunosEtaria', (elm) => { _ALUNOS_UI.filtroEt = elm.dataset.v; _ALUNOS_UI.shown = _ALUNOS_PAGE; render(); });
+_dlgRegister('alunosBusca',  (elm) => { _ALUNOS_UI.busca = elm.value.trim(); _ALUNOS_UI.shown = _ALUNOS_PAGE; _alunosRepintar(); });
+_dlgRegister('alunosMais',   () => { _ALUNOS_UI.shown += _ALUNOS_PAGE; _alunosRepintar(); });
+_dlgRegister('alunosSort',   (elm) => {
+  const k = elm.dataset.sort;
+  if (_ALUNOS_UI.sortKey === k) _ALUNOS_UI.sortDir = _ALUNOS_UI.sortDir === 'asc' ? 'desc' : 'asc';
+  else { _ALUNOS_UI.sortKey = k; _ALUNOS_UI.sortDir = 'asc'; }
+  _alunosRepintar();
+});
+_dlgRegister('alunoAbrir',   (elm) => { const a = _alunoPorChave(elm.dataset.id); if (a) _profAlunoSheet(a); });
+_dlgRegister('alunoWhats',   (elm, ev) => { ev.stopPropagation(); const a = _alunoPorChave(elm.dataset.id); if (a) _waSheet(a); });
+_dlgRegister('alunosAdv',    () => _alunosLerAdv());
+_dlgRegister('alunosAdvLimpar', () => {
+  Object.keys(_ALUNOS_UI.advF).forEach(k => { _ALUNOS_UI.advF[k] = ''; });
+  _ALUNOS_UI.shown = _ALUNOS_PAGE;
+  render();
+});
+_dlgRegister('alunosAdvToggle', () => { _ALUNOS_UI.advOpen = !_ALUNOS_UI.advOpen; render(); });
+_dlgRegister('cadastrarAluno',     () => abrirCadastroAluno());
+_dlgRegister('cadastrarProfessor', () => _profCadastrarProfessorSheet(_alunosRepintar));
+_dlgRegister('erpDensidade', (elm) => {
+  const next = _erpDensity() === 'compact' ? 'comfortable' : 'compact';
+  _setErpDensity(next);
+  elm.textContent = next === 'compact' ? '⇕ Confortável' : '⇔ Compacto';
+});
+_dlgRegister('alunosXlsx',     () => _alunosExportXLSXSheet(_alunosParaExportar(), _alunosTurmaMap()));
+_dlgRegister('alunosPdf',      () => _alunosExportPDF(_alunosParaExportar(), _alunosTurmaMap()));
+_dlgRegister('alunosModelo',   () => _alunosImportTemplate());
+_dlgRegister('alunosImportar', () => _alunosImportOpen());
+
+function profAlunos(){
+  const w = el('<div></div>');
+  const alunos = (_profData?.alunos)||[];
+  // v384: TODOS os chips (exceto "Inativos") ignoram alunos inativos. Antes,
+  // "Presentes"/"Ativos (14d)"/"Ausentes 7+d"/"Vencidos" contavam inativos junto,
+  // criando dissonancia entre chip e lista (chip 34 presentes, mas lista mostra 3
+  // porque "Todos" ja excluia inativos desde v382).
+  const _naoInativo = a => _statusAluno(a).valor !== 'inativo';
+  const presentes = alunos.filter(a=> _naoInativo(a) && a.pres).length;
+  const ativos = alunos.filter(a=> _naoInativo(a) && (a.diasSem ?? 999) <= 14).length;
+  const ausentes = alunos.filter(a=> _naoInativo(a) && (a.diasSem||0)>=7).length;
+  const vencidosN = alunos.filter(a=> _naoInativo(a) && a.pago==='late').length;
+  const aptosN = typeof _aptosGraduar==='function'
+    ? _aptosGraduar().filter(_naoInativo).length : 0;
+  const inativosN = alunos.filter(a=>_statusAluno(a).valor==='inativo').length;
+  // v382: "Todos" da lista deixa de contar inativos — usuario ve o total LIQUIDO
+  // por padrao. Inativos ainda aparecem via chip "Inativos" (dedicado).
+  const totalLiquido = alunos.length - inativosN;
+
+  // Cabeçalho compacto ERP
+  w.innerHTML = `<div class="erp-alunos-hd">
+    <div class="erp-alunos-title">Alunos</div>
+    <div class="erp-alunos-sub" id="alunos-sub-kpi">${_profData?totalLiquido+' ativos · '+alunos.length+' cadastrados · '+presentes+' presentes hoje':'Carregando…'}</div>
+  </div>`;
+
+  _loadTurmas();
+  const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
+
+  // v554: o estado da tela mora em _ALUNOS_UI (fora da closure). Era o unico
+  // jeito de os handlers delegados enxergarem filtro/busca/ordenacao depois do
+  // diff — closure colada no no' morre, e o painel de filtros perdia o que o
+  // professor tinha digitado a cada repaint de fundo.
+  if(DB._pendingAlunosFiltro){ _ALUNOS_UI.filtro = DB._pendingAlunosFiltro; DB._pendingAlunosFiltro = null; _ALUNOS_UI.shown = _ALUNOS_PAGE; }
+  if(DB._pendingAlunosAniv){ _ALUNOS_UI.advF.aniversario = DB._pendingAlunosAniv; DB._pendingAlunosAniv = null; _ALUNOS_UI.advOpen = true; DB._alunosAvisoAniv = true; }
+  const filtro = _ALUNOS_UI.filtro, filtroEt = _ALUNOS_UI.filtroEt, advF = _ALUNOS_UI.advF;
+  const PAGE = _ALUNOS_PAGE;
+
+  const srch = el(`<div class="dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" data-input="alunosBusca" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…" value="${safeAttr(_ALUNOS_UI.busca)}"></div>`);
+
+  // Chips-KPI clicáveis semânticos (substituem filter-seg antigo)
+  const kpiChip = (id, lbl, valor, cls)=>{
+    return el(`<button class="erp-alunos-kpi ${cls}${filtro===id?' on':''}" data-click="alunosFiltro" data-f="${id}">
+      <span class="erp-alunos-kpi-v">${valor}</span>
+      <span class="erp-alunos-kpi-l">${lbl}</span>
+    </button>`);
+  };
+  const chipsRow = el(`<div class="erp-alunos-chips block"></div>`);
+  chipsRow.appendChild(kpiChip('todos',    'Todos',        totalLiquido, 'gray'));
+  chipsRow.appendChild(kpiChip('presentes','Presentes',    presentes,     'green'));
+  chipsRow.appendChild(kpiChip('ativos',   'Ativos (14d)', ativos,        'blue'));
+  chipsRow.appendChild(kpiChip('sumidos',  'Ausentes 7+d', ausentes,      'gold'));
+  chipsRow.appendChild(kpiChip('aptos',    'Aptos a grau', aptosN,        'purple'));
+  chipsRow.appendChild(kpiChip('vencidos', 'Vencidos',     vencidosN,     'red'));
+  chipsRow.appendChild(kpiChip('inativos', 'Inativos',     inativosN,     'gray'));
+
+  // Faixa etária: chips SEMPRE visíveis (v311). Antes ficava escondido atrás do
+  // painel de filtros avançados; o professor filtra por idade o tempo todo, então
+  // não faz sentido custar dois cliques. Fonte ÚNICA do filtro — o select que
+  // existia no painel avançado foi removido pra não haver dois controles
+  // disputando o mesmo estado.
+  const chipsEt = el(`<div class="erp-et-bar"></div>`);
+  const _mkFxChip=(id,lbl)=> el(`<button class="et-chip ${filtroEt===id?'on':''}" data-click="alunosEtaria" data-v="${safeAttr(id)}">${lbl}</button>`);
+  // Busca exposta (desktop): antes só existia dentro de "Filtros avançados" (advf-nome,
+  // campo redundante) — some daqui, e a busca do topo (mesma var `busca` do toolbar
+  // mobile) fica visível também no desktop, à esquerda da faixa etária.
+  const srchEt = el(`<div class="erp-et-search dt-search"><span class="dt-search-ic" aria-hidden="true">🔎</span><input class="dt-search-inp" data-input="alunosBusca" type="search" aria-label="Buscar aluno" placeholder="Buscar por nome…" value="${safeAttr(_ALUNOS_UI.busca)}"></div>`);
+  chipsEt.appendChild(srchEt);
+  const etGroup = el('<div class="erp-et-group"></div>');
+  etGroup.appendChild(el('<div class="erp-et-lbl">Faixa etária</div>'));
+  const fxRow = el('<div class="et-chips"></div>');
+  fxRow.appendChild(_mkFxChip('todos','Todas'));
+  FAIXA_ETARIA_OPCOES.forEach(op=> fxRow.appendChild(_mkFxChip(op,op)));
+  etGroup.appendChild(fxRow);
+  chipsEt.appendChild(etGroup);
+
+  // Header da tabela ERP — só aparece em desktop (CSS controla)
+  const head = el(`<div class="erp-head" role="row">
+    <div class="erp-c erp-c-avatar" aria-hidden="true"></div>
+    <button class="erp-c erp-c-name"   data-sort="nm">Nome completo</button>
+    <button class="erp-c erp-c-belt"   data-sort="faixa">Faixa</button>
+    <button class="erp-c erp-c-etaria" data-sort="etaria">Faixa etária</button>
+    <div class="erp-c erp-c-turmas">Turmas</div>
+    <button class="erp-c erp-c-pres"   data-sort="diasSem">Últ. presença</button>
+    <button class="erp-c erp-c-grau"   data-sort="grau" title="Presenças desde o último grau">Grau</button>
+    <button class="erp-c erp-c-faixapres" data-sort="faixapres" title="Presenças desde o início da faixa">Faixa</button>
+    <button class="erp-c erp-c-aniv"   data-sort="aniv" title="Data de aniversário">Aniv.</button>
+    <div class="erp-c erp-c-wa" aria-hidden="true"></div>
+  </div>`);
+  const list = el('<div class="list erp-tbl" id="alunos-list"></div>');
+  head.id = 'alunos-head';
+
+
+
+
+  head.querySelectorAll('[data-sort]').forEach(b=> b.setAttribute('data-click','alunosSort'));
   // Ações de cadastro num toolbar único (botões sólidos, sem tracejado de protótipo).
   const actions = el(`<div class="dt-actions"></div>`);
-  const addBtn = el(`<button class="btn-cad primary">＋ Cadastrar aluno</button>`);
-  addBtn.onclick=()=>abrirCadastroAluno();
-  actions.appendChild(addBtn);
+  actions.appendChild(el(`<button class="btn-cad primary" data-click="cadastrarAluno">＋ Cadastrar aluno</button>`));
   // Só o DONO cadastra professores (Edge Function create-professor é gated em is_dono no servidor).
   if(DB.eu && DB.eu.role==='dono'){
-    const addProfBtn = el(`<button class="btn-cad dark">＋ Cadastrar professor</button>`);
-    addProfBtn.onclick=()=>_profCadastrarProfessorSheet(refresh);
-    actions.appendChild(addProfBtn);
+    actions.appendChild(el(`<button class="btn-cad dark" data-click="cadastrarProfessor">＋ Cadastrar professor</button>`));
   }
   // Toggle de densidade (só faz efeito no desktop; CSS ignora no mobile)
   const dens = _erpDensity();
-  const densBtn = el(`<button class="btn-cad ghost erp-dens" aria-label="Densidade da tabela" title="Densidade">${dens==='compact'?'⇕ Confortável':'⇔ Compacto'}</button>`);
-  densBtn.onclick=()=>{
-    const cur=_erpDensity(); const next=cur==='compact'?'comfortable':'compact';
-    _setErpDensity(next); densBtn.textContent = next==='compact'?'⇕ Confortável':'⇔ Compacto';
-  };
-  actions.appendChild(densBtn);
+  actions.appendChild(el(`<button class="btn-cad ghost erp-dens" data-click="erpDensidade" aria-label="Densidade da tabela" title="Densidade">${dens==='compact'?'⇕ Confortável':'⇔ Compacto'}</button>`));
 
   // Toolbar mobile: [busca] [Filtros ▾] — botão + Novo vira FAB
   const toolbar = el('<div class="erp-alunos-toolbar block"></div>');
@@ -7172,95 +7592,62 @@ function profAlunos(){
     <button class="erp-alunos-add primary" id="adv-new" type="button">＋ Novo aluno</button>
   </div>`);
   // Painel de filtros (colapsado por padrão). IDs e handlers ligam ao advF/renderList.
-  const advPanel = el(`<div class="erp-alunos-adv-panel" style="display:none">
+  // v554: cada campo renderiza o valor que esta' em _ALUNOS_UI.advF. Antes o
+  // valor morava so' no DOM — um repaint de fundo zerava o painel inteiro.
+  const _o = (v, atual)=> `value="${safeAttr(v)}"${String(atual||'')===String(v)?' selected':''}`;
+  const advPanel = el(`<div class="erp-alunos-adv-panel" style="display:${_ALUNOS_UI.advOpen?'block':'none'}">
     <div class="erp-alunos-adv-grid">
-      <label><span>Código / matrícula</span><input class="inp" id="advf-mat" placeholder="Ex: 00042"></label>
-      <label><span>Ativos</span><select class="inp" id="advf-ativos"><option value="">Todos</option><option value="ativos">Ativos (14d)</option><option value="inativos">Inativos (14d+)</option></select></label>
-      <label><span>Aguardando faixa</span><select class="inp" id="advf-agu"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
-      <label><span>Recebe mensagens</span><select class="inp" id="advf-msg"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
-      <label><span>Faixa</span><select class="inp" id="advf-faixa"><option value="">Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option value="${k}">${v.nome}</option>`).join('')}</select></label>
-      <label><span>Turma / grupo</span><select class="inp" id="advf-turma"><option value="">Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option value="${t.id}">${safeTxt(t.nome)}</option>`).join('')}</select></label>
-      <label><span>Status plano</span><select class="inp" id="advf-plano"><option value="">Todos</option><option value="ok">Em dia</option><option value="soon">A vencer</option><option value="late">Vencido</option></select></label>
-      <label><span>Status atividade</span><select class="inp" id="advf-status"><option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
-      <label><span>Aniversário no mês</span><select class="inp" id="advf-aniv"><option value="">Todos</option>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('')}</select></label>
+      <label><span>Código / matrícula</span><input class="inp" id="advf-mat" data-input="alunosAdv" placeholder="Ex: 00042" value="${safeAttr(advF.matricula)}"></label>
+      <label><span>Ativos</span><select class="inp" id="advf-ativos" data-change="alunosAdv"><option ${_o('',advF.ativos)}>Todos</option><option ${_o('ativos',advF.ativos)}>Ativos (14d)</option><option ${_o('inativos',advF.ativos)}>Inativos (14d+)</option></select></label>
+      <label><span>Aguardando faixa</span><select class="inp" id="advf-agu" data-change="alunosAdv"><option ${_o('',advF.aguardando)}>Todos</option><option ${_o('sim',advF.aguardando)}>Sim</option><option ${_o('nao',advF.aguardando)}>Não</option></select></label>
+      <label><span>Recebe mensagens</span><select class="inp" id="advf-msg" data-change="alunosAdv"><option ${_o('',advF.mensagens)}>Todos</option><option ${_o('sim',advF.mensagens)}>Sim</option><option ${_o('nao',advF.mensagens)}>Não</option></select></label>
+      <label><span>Faixa</span><select class="inp" id="advf-faixa" data-change="alunosAdv"><option ${_o('',advF.faixa)}>Todas</option>${Object.entries(BELTS).map(([k,v])=>`<option ${_o(k,advF.faixa)}>${v.nome}</option>`).join('')}</select></label>
+      <label><span>Turma / grupo</span><select class="inp" id="advf-turma" data-change="alunosAdv"><option ${_o('',advF.turma)}>Todas</option>${(typeof _turmasArr==='function'?_turmasArr():[]).map(t=>`<option ${_o(t.id,advF.turma)}>${safeTxt(t.nome)}</option>`).join('')}</select></label>
+      <label><span>Status plano</span><select class="inp" id="advf-plano" data-change="alunosAdv"><option ${_o('',advF.plano)}>Todos</option><option ${_o('ok',advF.plano)}>Em dia</option><option ${_o('soon',advF.plano)}>A vencer</option><option ${_o('late',advF.plano)}>Vencido</option></select></label>
+      <label><span>Status atividade</span><select class="inp" id="advf-status" data-change="alunosAdv"><option ${_o('',advF.status)}>Todos</option><option ${_o('ativo',advF.status)}>Ativo</option><option ${_o('inativo',advF.status)}>Inativo</option></select></label>
+      <label><span>Aniversário no mês</span><select class="inp" id="advf-aniv" data-change="alunosAdv"><option ${_o('',advF.aniversario.slice(0,2))}>Todos</option>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option ${_o(String(i+1).padStart(2,'0'), advF.aniversario.slice(0,2))}>${m}</option>`).join('')}</select></label>
     </div>
     <div class="erp-alunos-adv-acts">
-      <button class="erp-alunos-adv-clear" type="button" id="advf-clear">Limpar</button>
+      <button class="erp-alunos-adv-clear" type="button" id="advf-clear" data-click="alunosAdvLimpar">Limpar</button>
     </div>
   </div>`);
+  advPanel.id = 'alunos-adv-panel';
   // Filtro AO VIVO (change/input). O botão "Pesquisar" foi removido (v309): a lista
   // já refiltra a cada alteração, então ele não fazia nada além de sugerir que
   // era preciso clicar pra valer.
-  const _readAdv = ()=>{
-    advF.matricula = advPanel.querySelector('#advf-mat').value.trim();
-    advF.ativos    = advPanel.querySelector('#advf-ativos').value;
-    advF.aguardando= advPanel.querySelector('#advf-agu').value;
-    advF.mensagens = advPanel.querySelector('#advf-msg').value;
-    advF.faixa     = advPanel.querySelector('#advf-faixa').value;
-    advF.turma     = advPanel.querySelector('#advf-turma').value;
-    advF.plano     = advPanel.querySelector('#advf-plano').value;
-    advF.aniversario = advPanel.querySelector('#advf-aniv').value;
-    advF.status    = advPanel.querySelector('#advf-status').value;
-    _advBadge();
-    shown=PAGE; renderList();
-  };
-  // Badge no botão: quantos filtros avançados estão ativos (visível com o painel fechado).
-  const _advBadge = ()=>{
-    const n = Object.values(advF).filter(Boolean).length;
-    const b = advBar.querySelector('#adv-count');
-    b.textContent = n; b.hidden = !n;
-    advBar.querySelector('#adv-toggle').classList.toggle('filtered', !!n);
-    advBar.querySelector('#adv-clear-inline').hidden = !n;
-  };
-  advPanel.querySelectorAll('input,select').forEach(el0=>{
-    const ev = el0.tagName==='SELECT' ? 'change' : 'input';
-    el0.addEventListener(ev, _readAdv);
-  });
-  advPanel.querySelector('#advf-clear').onclick = ()=>{
-    advPanel.querySelectorAll('input').forEach(i=> i.value='');
-    advPanel.querySelectorAll('select').forEach(s=> s.value='');
-    _readAdv();
-  };
   advWrap.appendChild(advBar);
   advWrap.appendChild(advPanel);
   const advDesktop = advWrap;   // rename pra não quebrar refs abaixo
-  advBar.querySelector('#adv-new').onclick = ()=>abrirCadastroAluno();
-  advBar.querySelector('#adv-clear-inline').onclick = ()=>{
-    advPanel.querySelectorAll('input').forEach(i=> i.value='');
-    advPanel.querySelectorAll('select').forEach(s=> s.value='');
-    _readAdv();
-  };
-  advBar.querySelector('#adv-toggle').onclick = (ev)=>{
-    const open = advPanel.style.display==='none';
-    advPanel.style.display = open?'block':'none';
-    ev.currentTarget.classList.toggle('on', open);
-  };
-  advBar.querySelector('#adv-csv').onclick = ()=> _alunosExportXLSXSheet(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
-  advBar.querySelector('#adv-pdf').onclick = ()=> _alunosExportPDF(_arrFiltrada.length?_arrFiltrada:((_profData?.alunos)||[]), turmaMap);
-  advBar.querySelector('#adv-tpl').onclick = ()=> _alunosImportTemplate();
-  advBar.querySelector('#adv-import').onclick = ()=> _alunosImportOpen();
-  _advBadge();
+  advBar.querySelector('#adv-new').setAttribute('data-click','cadastrarAluno');
+  advBar.querySelector('#adv-clear-inline').setAttribute('data-click','alunosAdvLimpar');
+  advBar.querySelector('#adv-toggle').setAttribute('data-click','alunosAdvToggle');
+  advBar.querySelector('#adv-csv').setAttribute('data-click','alunosXlsx');
+  advBar.querySelector('#adv-pdf').setAttribute('data-click','alunosPdf');
+  advBar.querySelector('#adv-tpl').setAttribute('data-click','alunosModelo');
+  advBar.querySelector('#adv-import').setAttribute('data-click','alunosImportar');
+  if(_ALUNOS_UI.advOpen) advBar.querySelector('#adv-toggle').classList.add('on');
+  _alunosAdvBadge(advBar);
   // Preset vindo do painel (KPI/Ver todos aniversariantes/Mandar parabens):
   // aceita MM (mes) OU MM-DD (dia especifico, do alerta "Mandar parabens").
-  if(advF.aniversario){
+  // O dropdown so' tem opcoes MM; quando o preset vem como MM-DD (alerta
+  // "Mandar parabens" do painel) ele mostra o mes, e o filtro real segue usando
+  // advF.aniversario inteiro. O aviso so' aparece na PRIMEIRA pintura — repintar
+  // de fundo nao pode repetir o toast.
+  if(advF.aniversario && DB._alunosAvisoAniv){
+    DB._alunosAvisoAniv = false;
     const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    const isDia = advF.aniversario.length >= 5;   // MM-DD
+    const isDia = advF.aniversario.length >= 5;
     const mm = advF.aniversario.slice(0,2);
-    // Dropdown so tem opcoes MM — preenche com MM se for MM-DD (o filtro real
-    // olha advF.aniversario completo, o dropdown fica so pra o professor ver).
-    advPanel.querySelector('#advf-aniv').value = mm;
-    advPanel.style.display='block';
-    advBar.querySelector('#adv-toggle')?.classList.add('on');
     const mesLbl = MESES[parseInt(mm,10)-1] || mm;
     const lbl = isDia ? `aniversariantes de hoje (${advF.aniversario.slice(3,5)}/${mm})` : `aniversariantes de ${mesLbl}`;
-    setTimeout(()=>{ toast(`Filtrando ${lbl}`); advPanel.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
+    setTimeout(()=>{ toast(`Filtrando ${lbl}`); const pn=document.getElementById('alunos-adv-panel'); if(pn) pn.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
   }
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
-  const fab = el(`<button class="erp-fab" type="button" aria-label="Cadastrar aluno">＋</button>`);
-  fab.onclick=()=>abrirCadastroAluno();
+  const fab = el(`<button class="erp-fab" type="button" data-click="cadastrarAluno" aria-label="Cadastrar aluno">＋</button>`);
 
-  refresh();
+  _alunosPintarLista(list);   // sincrono: recebe o no' recem-criado
+  _alunosPintarHead(head);
   w.appendChild(chipsRow);
   w.appendChild(advDesktop);   // aparece só em desktop (CSS)
   w.appendChild(toolbar);      // aparece só em mobile (CSS)
@@ -9169,15 +9556,14 @@ function profRelatorios(){
       <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
         <div class="meta">${beltPill(a.faixa,a.graus)} ${metaHTML||''}</div></div>
       <div class="st-right">${rightHTML||'<span style="color:var(--muted)">›</span>'}</div></div>`);
-    row.onclick=()=>_profAlunoSheet(a);
+    row.setAttribute('data-click','alunoAbrir'); row.setAttribute('data-id', a.id||a.nm);
     return row;
   };
 
   // Modo DETALHE: ao tocar num painel da Visão geral, abre a tela cheia robusta (sem bottom sheet).
   if(DB.relDetalhe){
     const back=el(`<div class="rel-back" role="button" tabindex="0"><span>‹ Relatórios</span></div>`);
-    const voltar=()=>{ DB.relDetalhe=null; render(); window.scrollTo(0,0); };
-    back.onclick=voltar; back.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); voltar(); } };
+    back.setAttribute('data-click','relVoltar');
     w.appendChild(back);
     _relDetalhe(w, DB.relDetalhe, secTitle, note);
     w.appendChild(el(`<div style="height:24px"></div>`));
@@ -9189,7 +9575,7 @@ function profRelatorios(){
   const seg=el('<div class="filter-seg rel-seg"></div>');
   TABS.forEach(([id,lbl])=>{
     const b=el(`<button class="${(DB.relTab||'visao')===id?'active':''}">${lbl}</button>`);
-    b.onclick=()=>{ DB.relTab=id; render(); };
+    b.setAttribute('data-click','relTab'); b.setAttribute('data-v', id);
     seg.appendChild(b);
   });
   w.appendChild(seg);
@@ -9240,9 +9626,8 @@ function _relRisco(w, secTitle, note){
         ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}">💬 WhatsApp</button>`:''}
       </div>`);
       const waBtn = row.querySelector('.risco-wa');
-      if(waBtn) waBtn.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
-      row.onclick=()=>_profAlunoSheet(a);
-      row.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _profAlunoSheet(a); }};
+      if(waBtn){ waBtn.setAttribute('data-click','alunoWhats'); waBtn.setAttribute('data-id', a.id||a.nm); }
+      row.setAttribute('data-click','alunoAbrir'); row.setAttribute('data-id', a.id||a.nm);
       list.appendChild(row);
     });
     w.appendChild(list);
@@ -9251,6 +9636,68 @@ function _relRisco(w, secTitle, note){
 
 /* Relatórios · Alunos (Excel) — tabela ampla estilo planilha, muitas colunas visíveis.
    Sem paginação (500 alunos cabem numa scroll interna). Export CSV nativo. */
+/* v554 — tabela "Alunos (Excel)" dos Relatorios. O `rebuild` capturava
+   `table`/`chips`/`countLbl`; sob morphdom os nos que ficam sao os antigos e a
+   tabela parava de repintar. Os filtros ja moravam em DB.alunosFiltro (v514),
+   entao so' faltava o painter sair da closure. */
+let _xlsCols = [];
+function _xlsFiltrados(){
+  const F = DB.alunosFiltro || {};
+  let arr = _profAlunosArr().slice();
+  if(F.et && F.et!=='todos')         arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===F.et);
+  if(F.risco && F.risco!=='todos')   arr = arr.filter(a=>_riscoNivel(a)===F.risco);
+  if(F.status && F.status!=='todos') arr = arr.filter(a=>_statusAluno(a).valor===F.status);
+  if(F.busca){
+    arr = arr.filter(a=>{
+      const bag = [a.nm, a.cad?.email, a.cad?.telefone, a.cad?.endereco?.cidade].join(' ').toLowerCase();
+      return bag.includes(F.busca);
+    });
+  }
+  return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
+}
+function _xlsPintar(chipsAlvo, tabelaAlvo, contaAlvo){
+  const chips = chipsAlvo || document.getElementById('xls-filters');
+  const table = tabelaAlvo || document.getElementById('xls-tbl');
+  const conta = contaAlvo  || document.getElementById('xls-count');
+  if(!chips || !table) return;
+  const F = DB.alunosFiltro;
+  const chip = (lbl, campo, val)=>
+    `<button class="et-chip ${F[campo]===val?'on':''}" data-click="xlsChip" data-campo="${campo}" data-v="${safeAttr(val)}">${safeTxt(lbl)}</button>`;
+  chips.innerHTML =
+    chip('Todas idades','et','todos') +
+    FAIXA_ETARIA_OPCOES.map(op=> chip(op,'et',op)).join('') +
+    '<span class="xls-sep"></span>' +
+    RISCO_NIVEIS.map(([id,lbl])=> chip(lbl,'risco',id)).join('') +
+    chip('Todos','risco','todos') +
+    '<span class="xls-sep"></span>' +
+    chip('Status: Todos','status','todos') + chip('Ativos','status','ativo') + chip('Inativos','status','inativo');
+  const rows = _xlsFiltrados();
+  const head = '<thead><tr>'+_xlsCols.map(([lbl])=>`<th>${lbl}</th>`).join('')+'<th>Ação</th></tr></thead>';
+  const body = '<tbody>'+rows.map(a=>{
+    const chave = safeAttr(a.id||a.nm);
+    const cells = _xlsCols.map(([,fn])=>`<td>${safeTxt(String(fn(a)))}</td>`).join('');
+    return `<tr data-click="alunoAbrir" data-id="${chave}">${cells}<td class="xls-act"><button class="wa-ico" data-click="alunoWhats" data-id="${chave}" data-nm="${safeAttr(_nomeInst(a))}" title="WhatsApp">💬</button></td></tr>`;
+  }).join('')+'</tbody>';
+  table.innerHTML = head + body;
+  const total = _profAlunosArr().length;
+  if(conta) conta.textContent = `${rows.length} de ${total} aluno${total>1?'s':''}`;
+}
+_dlgRegister('xlsChip',   (elm) => { DB.alunosFiltro[elm.dataset.campo] = elm.dataset.v; _xlsPintar(); });
+_dlgRegister('xlsBusca',  (elm) => { DB.alunosFiltro.busca = elm.value.trim().toLowerCase(); _xlsPintar(); });
+_dlgRegister('xlsExport', () => _xlsExportCSV(_xlsFiltrados()));
+
+_dlgRegister('relTab',     (elm) => { DB.relTab = elm.dataset.v; render(); });
+_dlgRegister('relDetalhe', (elm) => _irRelDetalhe(elm.dataset.v));
+_dlgRegister('relVoltar',  () => { DB.relDetalhe = null; render(); window.scrollTo(0,0); });
+_dlgRegister('regrasFaixa',        () => _regrasFaixaSheet());
+_dlgRegister('relProdutoVendas',   (elm) => _produtoVendasSheet(elm.dataset.v));
+_dlgRegister('relComprador',       (elm) => _compradorDetalheSheet(elm.dataset.v));
+_dlgRegister('relProdutoEstoque',  (elm) => {
+  const pr = (DB.loja?.produtos||[]).find(x => String(x.id) === elm.dataset.v);
+  if (pr) _profProdutoSheet(pr);
+});
+_dlgRegister('noop', (_elm, ev) => ev.stopPropagation());
+
 function _relAlunosExcel(w, secTitle, note){
   const alunos = _profAlunosArr().slice();
   _loadTurmas(); const turmaMap = {}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
@@ -9266,25 +9713,12 @@ function _relAlunosExcel(w, secTitle, note){
     <div class="xls-filters"></div>
     <button class="btn-cad ghost" id="xls-csv">⬇ Exportar Excel</button>
   </div>`);
-  const chips = bar.querySelector('.xls-filters');
-  const _chip=(lbl,cur,set,val)=>{ const b=el(`<button class="et-chip ${cur===val?'on':''}">${lbl}</button>`); b.onclick=()=>{ set(val); rebuild(); }; return b; };
-  const paintChips=()=>{
-    chips.innerHTML='';
-    chips.appendChild(_chip('Todas idades', F.et, v=>F.et=v, 'todos'));
-    FAIXA_ETARIA_OPCOES.forEach(op=> chips.appendChild(_chip(op, F.et, v=>F.et=v, op)));
-    chips.appendChild(el(`<span class="xls-sep"></span>`));
-    RISCO_NIVEIS.forEach(([id,lbl])=> chips.appendChild(_chip(lbl, F.risco, v=>F.risco=v, id)));
-    chips.appendChild(_chip('Todos', F.risco, v=>F.risco=v, 'todos'));
-    chips.appendChild(el(`<span class="xls-sep"></span>`));
-    chips.appendChild(_chip('Status: Todos', F.status, v=>F.status=v, 'todos'));
-    chips.appendChild(_chip('Ativos', F.status, v=>F.status=v, 'ativo'));
-    chips.appendChild(_chip('Inativos', F.status, v=>F.status=v, 'inativo'));
-  };
-  bar.querySelector('.dt-search-inp').oninput=(e)=>{ F.busca=e.target.value.trim().toLowerCase(); rebuild(); };
-  bar.querySelector('#xls-csv').onclick=()=>_xlsExportCSV(getRows());
+  bar.querySelector('.xls-filters').id = 'xls-filters';
+  bar.querySelector('.dt-search-inp').setAttribute('data-input','xlsBusca');
+  bar.querySelector('#xls-csv').setAttribute('data-click','xlsExport');
 
   const scroll = el('<div class="xls-scroll"></div>');
-  const table  = el('<table class="xls-tbl"></table>');
+  const table  = el('<table class="xls-tbl" id="xls-tbl"></table>');
   scroll.appendChild(table);
 
   const COLS = [
@@ -9310,7 +9744,7 @@ function _relAlunosExcel(w, secTitle, note){
   ];
 
   const getRows = ()=>{
-    let arr = alunos.slice();
+    let arr = _profAlunosArr().slice();
     if(F.et!=='todos')    arr = arr.filter(a=>_faixaEtariaLbl(a.nascimento)===F.et);
     if(F.risco!=='todos') arr = arr.filter(a=>_riscoNivel(a)===F.risco);
     if(F.status!=='todos') arr = arr.filter(a=>_statusAluno(a).valor===F.status);
@@ -9323,36 +9757,142 @@ function _relAlunosExcel(w, secTitle, note){
     return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
   };
 
-  const rebuild = ()=>{
-    paintChips();
-    const rows = getRows();
-    const head = '<thead><tr>'+COLS.map(([lbl])=>`<th>${lbl}</th>`).join('')+'<th>Ação</th></tr></thead>';
-    const body = '<tbody>'+rows.map(a=>{
-      const cells = COLS.map(([,fn])=>`<td>${safeTxt(String(fn(a)))}</td>`).join('');
-      return `<tr data-id="${safeAttr(a.id||a.nm)}">${cells}<td class="xls-act"><button class="wa-ico" data-nm="${safeAttr(_nomeInst(a))}" title="WhatsApp">💬</button></td></tr>`;
-    }).join('')+'</tbody>';
-    table.innerHTML = head + body;
-    table.querySelectorAll('tbody tr').forEach(tr=>{
-      const id=tr.dataset.id; const a = alunos.find(x=>(x.id||x.nm)===id);
-      const wa = tr.querySelector('.wa-ico');
-      if(wa && a) wa.onclick=(e)=>{ e.stopPropagation(); _waSheet(a); };
-      tr.onclick=()=>{ if(a) _profAlunoSheet(a); };
-    });
-    countLbl.textContent = `${rows.length} de ${alunos.length} aluno${alunos.length>1?'s':''}`;
-  };
-  const countLbl = el('<div class="xls-count">—</div>');
+  // v554: `_xlsCols` guarda as colunas pro painter top-level. A tabela e' pesada
+  // (24 colunas x N alunos) e o repaint continua in-place, sem render(): com o
+  // morphdom desligado, um redesenho tiraria o foco da busca a cada tecla.
+  _xlsCols = COLS;
+  const countLbl = el('<div class="xls-count" id="xls-count">—</div>');
 
   wrap.appendChild(bar); wrap.appendChild(countLbl); wrap.appendChild(scroll);
   w.appendChild(wrap);
-  rebuild();
+  _xlsPintar(bar.querySelector('.xls-filters'), table, countLbl);
 }
 
 /* Vídeos de onboarding — CRUD simples pro professor (localStorage por academia).
    Aluno faixa-branca-sem-grau vê os vídeos no INÍCIO; some ao ganhar o 1º grau. */
+/* v554 — Vídeos de onboarding. Reescrito no mesmo padrao das outras telas:
+   · a lista (`arr`) morava numa closure e era repintada pela `paint()` local —
+     sob morphdom quem fica no DOM e' o no' antigo, entao a lista parava de
+     atualizar depois de qualquer repaint;
+   · `_initList()` era `async` e pintava DEPOIS do await (o furo que o guard so'
+     passou a ver na v554, quando aprendeu a detectar `await`);
+   · os dois campos do formulario guardavam o texto digitado so' no DOM.
+   Agora: cache em `_onbVideos`, painter top-level que resolve `#onb-list`, e o
+   formulario e' projecao de `_onbForm`. */
+let _onbVideos = null, _onbCarregando = false;
+const _onbForm = { url: '', titulo: '' };
+
+function _onbCloudOn(){ return !DEMO && typeof sbVideos !== 'undefined' && DB.sbUser; }
+
+function _onbCarregar(){
+  if (_onbCarregando) return;
+  if (!_onbCloudOn()) { _onbVideos = _getOnboardVideos(); return; }
+  _onbCarregando = true;
+  _loadOnboardVideosCloud(true)
+    .then(rows => { _onbVideos = rows || []; })
+    .catch(() => { _onbVideos = _getOnboardVideos(); })
+    .finally(() => { _onbCarregando = false; _onbPintarLista(); });   // morph-ok: _onbPintarLista resolve #onb-list no DOM vivo
+}
+
+function _onbPintarLista(alvo){
+  const lista = alvo || document.getElementById('onb-list');
+  if (!lista) return;
+  if (_onbVideos === null) { lista.innerHTML = '<div class="loading-center">Carregando lista…</div>'; return; }
+  if (!_onbVideos.length) {
+    lista.innerHTML = '<div class="empty-line" style="padding:14px 12px;text-align:center;color:var(--muted);font-size:13px">Nenhum vídeo cadastrado ainda. Cole a URL de um vídeo do YouTube acima.</div>';
+    return;
+  }
+  lista.innerHTML = _onbVideos.map((v, i) => `<div class="onb-admin-row">
+        <img class="onb-admin-thumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
+        <div class="onb-admin-mid">
+          <div class="nm">${safeTxt(v.title)}</div>
+          <div class="meta"><a href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">${safeTxt(v.id)}${v.isShort?' · SHORT':''}</a></div>
+        </div>
+        <div class="onb-admin-acts">
+          <button class="onb-mv" data-click="onbMover" data-i="${i}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">▲</button>
+          <button class="onb-mv" data-click="onbMover" data-i="${i}" data-d="1" ${i===_onbVideos.length-1?'disabled':''} aria-label="Descer">▼</button>
+          <button class="onb-del" data-click="onbExcluir" data-i="${i}" aria-label="Excluir">✕</button>
+        </div>
+      </div>`).join('');
+}
+
+/* O preview e' derivado da URL — pintado junto com o resto do markup, sem
+   setTimeout. Assim ele sobrevive ao diff igual a qualquer outro pedaco da tela. */
+function _onbPreviewHTML(){
+  const id = _ytIdFromUrl(_onbForm.url);
+  if (!id) return '';
+  return `<div class="onb-prev"><img src="${safeAttr(_ytThumb(id))}" alt="" data-fallback="remove"><span class="onb-prev-id">ID: ${safeTxt(id)}${_ytIsShort(_onbForm.url)?' · SHORT':''}</span></div>`;
+}
+function _onbPreview(){
+  const prev = document.getElementById('onb-preview');
+  if (!prev) return;
+  const html = _onbPreviewHTML();
+  prev.innerHTML = html;
+  prev.hidden = !html;
+}
+
+async function _onbSalvarOrdem(){
+  if (!_onbCloudOn()) return;
+  try{ await sbVideos.reorder(_onbVideos.map(v => v.dbId).filter(Boolean)); }
+  catch(_){ toast('Ordem não sincronizada'); }
+}
+
+_dlgRegister('onbUrl',    (elm) => { _onbForm.url = elm.value; _onbPreview(); });
+_dlgRegister('onbTitulo', (elm) => { _onbForm.titulo = elm.value; });
+_dlgRegister('onbMover',  async (elm) => {
+  const i = +elm.dataset.i, d = +elm.dataset.d, j = i + d;
+  if (!_onbVideos || j < 0 || j >= _onbVideos.length) return;
+  [_onbVideos[j], _onbVideos[i]] = [_onbVideos[i], _onbVideos[j]];
+  _setOnboardVideos(_onbVideos);
+  _onbPintarLista();
+  await _onbSalvarOrdem();
+});
+_dlgRegister('onbExcluir', async (elm) => {
+  const i = +elm.dataset.i;
+  if (!_onbVideos || !_onbVideos[i]) return;
+  if (!confirm('Excluir este vídeo?')) return;
+  const removido = _onbVideos.splice(i, 1)[0];
+  _setOnboardVideos(_onbVideos);
+  _onbPintarLista();
+  toast('Vídeo removido');
+  if (_onbCloudOn() && removido.dbId){
+    try{ await sbVideos.delete(removido.dbId); }catch(_){ toast('Exclusão não sincronizada'); }
+  }
+});
+_dlgRegister('onbAdd', async (btn) => {
+  const id = _ytIdFromUrl(_onbForm.url);
+  const titulo = (_onbForm.titulo || '').trim();
+  if (!id)     { toast('URL inválida — cole um link do YouTube'); return; }
+  if (!titulo) { toast('Dê um título curto ao vídeo'); return; }
+  _onbVideos = _onbVideos || [];
+  if (_onbVideos.some(v => v.id === id)) { toast('Esse vídeo já está na lista'); return; }
+  const isShort = _ytIsShort(_onbForm.url);
+  if (_onbCloudOn()){
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try{
+      const row = await sbVideos.add(id, titulo, isShort);
+      _onbVideos.push({ id, dbId: row.id, title: titulo, isShort });
+      _setOnboardVideos(_onbVideos);
+    }catch(e){
+      toast('Falha ao salvar na nuvem: ' + (e.message || e));
+      btn.disabled = false; btn.textContent = 'Adicionar vídeo';
+      return;
+    }
+    btn.disabled = false; btn.textContent = 'Adicionar vídeo';
+  } else {
+    _onbVideos.push({ id, title: titulo, isShort });
+    _setOnboardVideos(_onbVideos);
+  }
+  _onbForm.url = ''; _onbForm.titulo = '';
+  render();
+  toast('Vídeo adicionado ✔');
+});
+
+/* Vídeos de onboarding — CRUD simples pro professor.
+   Aluno faixa-branca-sem-grau vê os vídeos no INÍCIO; some ao ganhar o 1º grau. */
 function profVideosOnboard(){
   const w = el('<div></div>');
-  const cloudOn = !DEMO && typeof sbVideos!=='undefined' && DB.sbUser;
-  const subtitulo = cloudOn
+  const subtitulo = _onbCloudOn()
     ? 'Compartilhado com outros professores · aparece no INÍCIO do aluno faixa branca sem grau'
     : 'Aparece no INÍCIO do aluno enquanto faixa branca sem grau · some no 1º grau';
   w.innerHTML = `<div class="hello">
@@ -9360,118 +9900,22 @@ function profVideosOnboard(){
     <div class="greet">${subtitulo}</div>
   </div>`;
 
-  const form = el(`<div class="onb-form block">
+  w.appendChild(el(`<div class="onb-form block">
     <div class="cad-sec" style="margin-top:0">Adicionar vídeo do YouTube</div>
     <label class="flbl">URL do YouTube <span class="ca-opt">(watch, shorts ou youtu.be — cola aqui)</span></label>
-    <input class="inp" id="onb-url" type="url" placeholder="https://www.youtube.com/watch?v=…">
+    <input class="inp" id="onb-url" data-input="onbUrl" type="url" placeholder="https://www.youtube.com/watch?v=…" value="${safeAttr(_onbForm.url)}">
     <label class="flbl" style="margin-top:10px">Título curto <span class="ca-opt">(ex: "Como amarrar a faixa")</span></label>
-    <input class="inp" id="onb-title" placeholder="Ex: Amarrar a faixa · Higiene das unhas · Lavagem do kimono">
-    <div id="onb-preview" hidden></div>
-    <button class="btn-save" id="onb-add" style="margin-top:10px">Adicionar vídeo</button>
-  </div>`);
+    <input class="inp" id="onb-title" data-input="onbTitulo" placeholder="Ex: Amarrar a faixa · Higiene das unhas · Lavagem do kimono" value="${safeAttr(_onbForm.titulo)}">
+    <div id="onb-preview" ${_onbPreviewHTML() ? '' : 'hidden'}>${_onbPreviewHTML()}</div>
+    <button class="btn-save" id="onb-add" data-click="onbAdd" style="margin-top:10px">Adicionar vídeo</button>
+  </div>`));
 
-  const listWrap = el('<div class="onb-admin-list"></div>');
-  const secTitle = el(`<div class="sec-title" style="margin:16px 20px 8px">Vídeos publicados</div>`);
-  const hint     = el(`<div class="onb-hint-block">Reordene com ▲▼ · o topo aparece primeiro pro aluno. Exclua com ✕.</div>`);
+  w.appendChild(el(`<div class="sec-title" style="margin:16px 20px 8px">Vídeos publicados</div>`));
+  w.appendChild(el(`<div class="onb-hint-block">Reordene com ▲▼ · o topo aparece primeiro pro aluno. Exclua com ✕.</div>`));
 
-  // Estado local — sincronizado com nuvem (se disponível) ou localStorage
-  let arr = [];
-
-  const paint = ()=>{
-    listWrap.innerHTML = '';
-    if(!arr.length){
-      listWrap.appendChild(el('<div class="empty-line" style="padding:14px 12px;text-align:center;color:var(--muted);font-size:13px">Nenhum vídeo cadastrado ainda. Cole a URL de um vídeo do YouTube acima.</div>'));
-      return;
-    }
-    arr.forEach((v,i)=>{
-      const row = el(`<div class="onb-admin-row">
-        <img class="onb-admin-thumb" src="${safeAttr(_ytThumb(v.id))}" alt="" data-fallback="remove">
-        <div class="onb-admin-mid">
-          <div class="nm">${safeTxt(v.title)}</div>
-          <div class="meta"><a href="${safeAttr(_ytWatch(v.id))}" target="_blank" rel="noopener">${safeTxt(v.id)}${v.isShort?' · SHORT':''}</a></div>
-        </div>
-        <div class="onb-admin-acts">
-          <button class="onb-mv" data-a="up"   ${i===0?'disabled':''} aria-label="Subir">▲</button>
-          <button class="onb-mv" data-a="down" ${i===arr.length-1?'disabled':''} aria-label="Descer">▼</button>
-          <button class="onb-del" aria-label="Excluir">✕</button>
-        </div>
-      </div>`);
-      row.querySelector('[data-a="up"]').onclick = async()=>{
-        if(i===0) return;
-        [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; _setOnboardVideos(arr); paint();
-        if(cloudOn){ try{ await sbVideos.reorder(arr.map(v=>v.dbId).filter(Boolean)); }catch(_){ toast('Ordem não sincronizada'); } }
-      };
-      row.querySelector('[data-a="down"]').onclick = async()=>{
-        if(i===arr.length-1) return;
-        [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; _setOnboardVideos(arr); paint();
-        if(cloudOn){ try{ await sbVideos.reorder(arr.map(v=>v.dbId).filter(Boolean)); }catch(_){ toast('Ordem não sincronizada'); } }
-      };
-      row.querySelector('.onb-del').onclick = async()=>{
-        if(!confirm('Excluir este vídeo?')) return;
-        const removed = arr[i]; arr.splice(i,1); _setOnboardVideos(arr); paint();
-        toast('Vídeo removido');
-        if(cloudOn && removed.dbId){ try{ await sbVideos.delete(removed.dbId); }catch(_){ toast('Exclusão não sincronizada'); } }
-      };
-      listWrap.appendChild(row);
-    });
-  };
-
-  // Boot: puxa lista atual (nuvem se possível; senão localStorage)
-  const _initList = async()=>{
-    if(cloudOn){
-      listWrap.innerHTML = '<div class="loading-center">Carregando lista…</div>';
-      try{ arr = await _loadOnboardVideosCloud(true); }catch(_){ arr = _getOnboardVideos(); }
-    } else {
-      arr = _getOnboardVideos();
-    }
-    paint();
-  };
-  _initList();
-
-  // Preview ao digitar/colar URL
-  const urlInp = form.querySelector('#onb-url');
-  const prevEl = form.querySelector('#onb-preview');
-  const _updatePreview = ()=>{
-    const id = _ytIdFromUrl(urlInp.value);
-    if(!id){ prevEl.hidden=true; prevEl.innerHTML=''; return; }
-    const isShort = _ytIsShort(urlInp.value);
-    prevEl.hidden=false;
-    prevEl.innerHTML = `<div class="onb-prev"><img src="${safeAttr(_ytThumb(id))}" alt="" data-fallback="remove"><span class="onb-prev-id">ID: ${safeTxt(id)}${isShort?' · SHORT':''}</span></div>`;
-  };
-  urlInp.addEventListener('input', _updatePreview);
-  urlInp.addEventListener('paste',  ()=>setTimeout(_updatePreview,50));
-
-  const addBtn = form.querySelector('#onb-add');
-  addBtn.onclick = async()=>{
-    const id = _ytIdFromUrl(urlInp.value);
-    const title = form.querySelector('#onb-title').value.trim();
-    if(!id){ toast('URL inválida — cole um link do YouTube'); return; }
-    if(!title){ toast('Dê um título curto ao vídeo'); return; }
-    if(arr.some(v=>v.id===id)){ toast('Esse vídeo já está na lista'); return; }
-    const isShort = _ytIsShort(urlInp.value);
-    if(cloudOn){
-      addBtn.disabled = true; addBtn.textContent = 'Enviando…';
-      try{
-        const row = await sbVideos.add(id, title, isShort);
-        arr.push({ id, dbId: row.id, title, isShort });
-        _setOnboardVideos(arr);
-      }catch(e){
-        toast('Falha ao salvar na nuvem: '+(e.message||e));
-        addBtn.disabled = false; addBtn.textContent = 'Adicionar vídeo';
-        return;
-      }
-      addBtn.disabled = false; addBtn.textContent = 'Adicionar vídeo';
-    } else {
-      arr.push({ id, title, isShort });
-      _setOnboardVideos(arr);
-    }
-    urlInp.value=''; form.querySelector('#onb-title').value=''; prevEl.hidden=true; prevEl.innerHTML='';
-    paint(); toast('Vídeo adicionado ✔');
-  };
-
-  w.appendChild(form);
-  w.appendChild(secTitle);
-  w.appendChild(hint);
+  const listWrap = el('<div class="onb-admin-list" id="onb-list"></div>');
+  if (_onbVideos === null) _onbCarregar();
+  _onbPintarLista(listWrap);   // sincrono, no no' recem-criado
   w.appendChild(listWrap);
   return w;
 }
@@ -9527,7 +9971,7 @@ function _relVisao(w, secTitle, note){
       <div class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${BELTS[f].cor||'var(--red)'}"></span></div>
       <span class="bar-n">${n}</span></div>`));
   });
-  distWrap.onclick=()=>_irRelDetalhe('faixas'); distWrap.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _irRelDetalhe('faixas'); } };
+  distWrap.setAttribute('data-click','relDetalhe'); distWrap.setAttribute('data-v','faixas');
   w.appendChild(distWrap);
 
   // Presença por turma/sessão (§7.1-A). Derivado do JOIN via aula_id (0025).
@@ -9542,7 +9986,7 @@ function _relVisao(w, secTitle, note){
         <div class="bar-track"><span class="bar-fill" style="width:${Math.round(n/maxT*100)}%;background:var(--blue,#2f6fe5)"></span></div>
         <span class="bar-n">${n}</span></div>`));
     });
-    tw.onclick=()=>_irRelDetalhe('tipoAula'); tw.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _irRelDetalhe('tipoAula'); } };
+    tw.setAttribute('data-click','relDetalhe'); tw.setAttribute('data-v','tipoAula');
     w.appendChild(tw);
   }
 
@@ -9559,7 +10003,7 @@ function _relVisao(w, secTitle, note){
         <span class="bar-n">${o.media}</span></div>`));
     });
     if(occ.length>6) ow.appendChild(el(`<div class="empty-line" style="padding:8px 12px;font-size:11px;color:var(--muted)">+${occ.length-6} horários · toque para ver tudo</div>`));
-    ow.onclick=()=>_irRelDetalhe('ocupacao'); ow.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _irRelDetalhe('ocupacao'); } };
+    ow.setAttribute('data-click','relDetalhe'); ow.setAttribute('data-v','ocupacao');
     w.appendChild(ow);
   }
 
@@ -9571,7 +10015,7 @@ function _relVisao(w, secTitle, note){
     const lw=el('<div class="list block panel-link" role="button" tabindex="0" aria-label="Abrir relatório de lesões"></div>');
     lw.appendChild(el(`<div class="mt-row"><span>Em recuperação agora</span><b style="color:${les.ativas?'var(--red-strong)':'var(--ink)'}">${les.ativas}</b></div>`));
     les.partes.slice(0,4).forEach(([parte,n])=> lw.appendChild(el(`<div class="mt-row"><span>${safeTxt(parte)}</span><b>${n}</b></div>`)));
-    lw.onclick=()=>_irRelDetalhe('lesoes'); lw.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); _irRelDetalhe('lesoes'); } };
+    lw.setAttribute('data-click','relDetalhe'); lw.setAttribute('data-v','lesoes');
     w.appendChild(lw);
   }
 }
@@ -9611,8 +10055,7 @@ function _alunosPorFaixaSheet(faixa){
 // Título de seção que leva à tela cheia daquele painel.
 function _secTitleLink(t, tipo){
   const e=el(`<div class="sec-title sec-link" role="button" tabindex="0" style="margin:16px 20px 8px" aria-label="Abrir ${safeAttr(t)}"><span>${t}</span><span class="sl-go">Ver tudo ›</span></div>`);
-  const go=()=>_irRelDetalhe(tipo);
-  e.onclick=go; e.onkeydown=(ev)=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); go(); } };
+  e.setAttribute('data-click','relDetalhe'); e.setAttribute('data-v', tipo);
   return e;
 }
 function _relDetalhe(w, tipo, secTitle, note){
@@ -9642,7 +10085,7 @@ function _relDetFaixas(w, secTitle, note){
         <div class="st-mid"><div class="nm">${safeTxt(_nomeInst(a))}</div>
           <div class="meta">${beltPill(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${a.diasSem!=null?a.diasSem+'d sem treinar':''}</span></div></div>
         <div class="st-right">${apto?'<span class="status-chip green">apto</span>':'<span style="color:var(--muted)">›</span>'}</div></div>`);
-      row.onclick=()=>_profAlunoSheet(a);
+      row.setAttribute('data-click','alunoAbrir'); row.setAttribute('data-id', a.id||a.nm);
       lst.appendChild(row);
     });
     w.appendChild(lst);
@@ -9711,7 +10154,7 @@ function _relDetLesoes(w, secTitle, note){
         <div class="meta"><span class="status-chip ${ativa?'red':'green'}">${ativa?safeTxt(x.parte):'recuperado'}</span> <span style="font-size:11px;color:var(--muted)">${ativa?'':safeTxt(x.parte)+' · '}${safeTxt(x.data||'')}</span></div>
         ${x.nota?`<div class="les-nota">🩹 ${safeTxt(x.nota)}</div>`:''}</div>
       <div class="st-right"><span style="color:var(--muted)">›</span></div></div>`);
-    if(x.aluno) row.onclick=()=>_profAlunoSheet(x.aluno);
+    if(x.aluno){ row.setAttribute('data-click','alunoAbrir'); row.setAttribute('data-id', x.aluno.id||x.aluno.nm); }
     mw.appendChild(row);
   });
   w.appendChild(mw);
@@ -9761,7 +10204,7 @@ function _relRetencao(w, secTitle, note, alunoRow){
       const wa=_waLink(a);
       const right=wa?`<a class="wa-btn" href="${safeAttr(wa)}" target="_blank" rel="noopener">WhatsApp</a>`:`<span class="ci-time">dia ${dia}</span>`;
       const row=alunoRow(a, `<span style="font-size:11px;color:var(--muted);font-weight:600">🎂 dia ${dia}</span>`, right);
-      const waEl=row.querySelector('.wa-btn'); if(waEl) waEl.onclick=(e)=>e.stopPropagation();
+      const waEl=row.querySelector('.wa-btn'); if(waEl) waEl.setAttribute('data-click','noop');
       nw.appendChild(row);
     });
     w.appendChild(nw);
@@ -9865,7 +10308,7 @@ function _regrasFaixaSheet(){
 
 function _relGraduacao(w, secTitle, note, alunoRow){
   const cfgRow=el('<div class="list block" style="margin:12px 16px 0"><div class="cfg-row"><span>⚙️ Meta de aulas por faixa (regras da academia)</span></div></div>');
-  cfgRow.querySelector('.cfg-row').onclick=()=>_regrasFaixaSheet();
+  cfgRow.querySelector('.cfg-row').setAttribute('data-click','regrasFaixa');
   w.appendChild(cfgRow);
   w.appendChild(secTitle('Prontidão de graduação (tempo CBJJ · aulas · técnicas)'));
   const cand=_profAlunosArr().map(a=>({a, s:_semaforoGrad(a)}))
@@ -9926,7 +10369,7 @@ function _relLoja(w, secTitle, note){
       <span class="bar-lbl">${safeTxt(nome)}</span>
       <div class="bar-track"><span class="bar-fill" style="width:${Math.round(q/max*100)}%;background:var(--red)"></span></div>
       <span class="bar-n">${q} ›</span></div>`);
-      row.onclick=()=>_produtoVendasSheet(nome); mv.appendChild(row); });
+      row.setAttribute('data-click','relProdutoVendas'); row.setAttribute('data-v', nome); mv.appendChild(row); });
     w.appendChild(mv);
   }
   // Top compradores (por valor gasto) — clique no cliente → o que ele comprou
@@ -9936,7 +10379,7 @@ function _relLoja(w, secTitle, note){
     vd.clientes.forEach(([nome,info])=>{ const row=el(`<div class="mt-row" style="cursor:pointer">
       <span>${safeTxt(nome)} <span style="color:var(--muted);font-size:11px">· ${info.pedidos} pedido${info.pedidos>1?'s':''}</span></span>
       <b>${moneyBR(info.gasto)} <span style="color:var(--muted);font-weight:600">›</span></b></div>`);
-      row.onclick=()=>_compradorDetalheSheet(nome); cw.appendChild(row); });
+      row.setAttribute('data-click','relComprador'); row.setAttribute('data-v', nome); cw.appendChild(row); });
     w.appendChild(cw);
   }
   // Tamanhos que mais saem
@@ -9956,7 +10399,7 @@ function _relLoja(w, secTitle, note){
     lj.baixos.forEach(p=>{
       const tams=(p.tam||[]).filter(t=>((p.estoque&&p.estoque[t])||0)<=3).map(t=>`${safeTxt(t)}: ${(p.estoque&&p.estoque[t])||0}`).join(' · ');
       const row=el(`<div class="mt-row" style="cursor:pointer"><span>${safeTxt(p.emoji||'')} ${safeTxt(p.nome)}</span><b style="color:var(--red-strong)">${tams||'—'} <span style="color:var(--muted);font-weight:600">›</span></b></div>`);
-      row.onclick=()=>_profProdutoSheet(p);   // drill: abre o produto p/ ajustar estoque
+      row.setAttribute('data-click','relProdutoEstoque'); row.setAttribute('data-v', p.id);   // drill: abre o produto p/ ajustar estoque
       bw.appendChild(row);
     });
     w.appendChild(bw);
@@ -10101,17 +10544,62 @@ function _finReload(what){
   if(want('rec') && sbProf.getDespesasRecorrentes) tasks.push(sbProf.getDespesasRecorrentes().then(r=>{ _finRec = r; ok('rec'); }).catch(()=>{}));
   if(want('matriculas') && sbProf.getAllMatriculas) tasks.push(sbProf.getAllMatriculas().then(r=>{ _finMatriculas = r; ok('matriculas'); }).catch(()=>{}));
   if(want('turmas'))     tasks.push(sbProf.getTurmas().then(ts=>{ _finTurmasMap = {}; (ts||[]).forEach(t=>{ _finTurmasMap[t.id] = t.nome; }); ok('turmas'); }).catch(()=>{}));
-  return Promise.all(tasks).then(()=>{
+  return Promise.all(tasks).then(()=>{   // morph-ok: so' pinta se .fin-body existir no DOM vivo; fora do Financeiro cai no renderBg
     if(_finRenderingInProgress) return;
     // v512: se estamos NA tela do Financeiro, repaint SÓ o body (moldura estável —
     // topbar/sidebar/mesBar/tabs não piscam). Fora dele, renderBg normal.
-    // v541: passa body direto — morphdom off, body ref sempre válida.
+    // v554: o lookup e no DOM VIVO — e o que torna esta chamada segura sob
+    // morphdom e o que faz o Painel (que tambem chama _finReload) cair no
+    // renderBg em vez de tentar pintar um #fin-body que nao existe ali.
     const finBody = document.querySelector('.fin-body');
     if(finBody && typeof _finPaintBody === 'function') _finPaintBody(finBody);
     else try { renderBg(); } catch(_){}
   });
 }
 function _finBackend(){ return !DEMO && typeof sbProf!=='undefined' && !!sbProf.getCobrancas; }
+/* v554 — cabecalho do Financeiro (seletor de mes, "Preparar", abas) delegado.
+   O corpo (#fin-body) ja rodava morphdom desde a v543; faltava o topo, que
+   ainda prendia `mesBar`/`prep`/`body` em closures. Todos os alvos agora sao
+   resolvidos por id no DOM vivo — o `_finPaintBody` inclusive, via
+   `_finRepintarAbaAtual`, que ja existia pra isso. */
+function _finProxMes(){
+  const [y, m] = _finMes().split('-').map(Number);
+  const d = new Date(y, m, 1);   // m e' 1-indexed em _finMes e Date usa 0-indexed → +1 natural
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2, '0');
+}
+function _finAtualizaMesNome(){
+  const nomeEl = document.getElementById('fm-nome');
+  if (nomeEl) nomeEl.textContent = _finMesNome();
+  const prepEl = document.getElementById('fm-prep');
+  if (prepEl) prepEl.innerHTML = `🗓 Preparar ${safeTxt(_finMesNome(_finProxMes()))}`;
+}
+_dlgRegister('finMes', (elm) => {
+  const d = +elm.dataset.v;
+  if (d === 0) _finMesRef = null; else _finMesShift(d);
+  _finAtualizaMesNome();
+  _finReload('cobrancas');
+});
+_dlgRegister('finTab', (elm) => {
+  _finTab = elm.dataset.t;
+  _finCobAluno = null;            // v551: trocar de aba limpa o filtro por aluno
+  _finSyncTabsAtiva();
+  _finRepintarAbaAtual();
+});
+_dlgRegister('finPreparar', (elm) => {
+  const proxMes = _finProxMes();   // v518: recalcula na hora do clique
+  const proxNome = _finMesNome(proxMes);
+  if (!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
+  const orig = elm.innerHTML;
+  elm.disabled = true; elm.textContent = 'Gerando…';
+  sbProf.gerarCobrancasDoMes(proxMes)
+    .then(n => {
+      toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
+      elm.disabled = false; elm.innerHTML = orig;
+      _finReload('cobrancas');
+    })
+    .catch(e => { elm.disabled = false; elm.innerHTML = orig; toast('Erro: '+(e.message||e)); });
+});
+
 function profFinanceiro(){
   const w = el('<div></div>');
   if(!_finBackend()){
@@ -10135,47 +10623,19 @@ function profFinanceiro(){
     <button class="btn-cad ghost" id="fm-next" aria-label="Próximo mês" style="min-width:34px;padding:6px 8px">›</button>
     ${eMesCorrente ? '' : '<button class="btn-cad ghost" id="fm-hoje" style="padding:6px 10px;font-size:11.5px">Hoje</button>'}
   </div>`);
-  // v510/v512: mês só afeta cobrancas. v512 atualiza o texto do mesBar inline
-  // (sem render()) — _finReload dispara paint do body só quando chega, sem flash.
-  const atualizaMesNome = () => {
-    const nomeEl = mesBar.querySelector('#fm-nome');
-    if(nomeEl) nomeEl.textContent = _finMesNome();
-  };
   // v518: helpers pra calcular sempre o PRÓXIMO mês do mês corrente selecionado.
   // Antes: proxMes era bakeado 1 vez no HTML — se user mudava mês, o botão
   // continuava apontando pro antigo (ex: Julho na tela, botão "Preparar outubro").
-  const calcProxMes = ()=>{
-    const [y,m] = _finMes().split('-').map(Number);
-    const proxD = new Date(y, m, 1);   // m é 1-indexed no _finMes, e Date usa 0-indexed → soma +1 natural
-    return proxD.getFullYear()+'-'+String(proxD.getMonth()+1).padStart(2,'0');
-  };
-  const atualizaPrep = ()=>{
-    const prox = calcProxMes();
-    const prepEl = w.querySelector('#fm-prep');
-    if(prepEl) prepEl.innerHTML = `🗓 Preparar ${safeTxt(_finMesNome(prox))}`;
-  };
-  const atualizaTudo = ()=>{ atualizaMesNome(); atualizaPrep(); _finReload('cobrancas'); };
-  mesBar.querySelector('#fm-prev').onclick = ()=>{ _finMesShift(-1); atualizaTudo(); };
-  mesBar.querySelector('#fm-next').onclick = ()=>{ _finMesShift(1); atualizaTudo(); };
+
+  mesBar.querySelector('#fm-prev').setAttribute('data-click','finMes');
+  mesBar.querySelector('#fm-prev').setAttribute('data-v','-1');
+  mesBar.querySelector('#fm-next').setAttribute('data-click','finMes');
+  mesBar.querySelector('#fm-next').setAttribute('data-v','1');
   const btnHoje = mesBar.querySelector('#fm-hoje');
-  if(btnHoje) btnHoje.onclick = ()=>{ _finMesRef=null; atualizaTudo(); };
+  if(btnHoje){ btnHoje.setAttribute('data-click','finMes'); btnHoje.setAttribute('data-v','0'); }
   w.appendChild(mesBar);
 
-  const prep = el(`<button class="btn-cad" id="fm-prep" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(_finMesNome(calcProxMes()))}</button>`);
-  prep.onclick = ()=>{
-    const proxMes = calcProxMes();   // v518: recalcula na hora do clique
-    const proxNome = _finMesNome(proxMes);
-    if(!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
-    prep.disabled=true; const orig=prep.innerHTML; prep.textContent='Gerando…';
-    sbProf.gerarCobrancasDoMes(proxMes)
-      .then(n => {
-        toast(n>0 ? `${n} cobrança${n===1?'':'s'} de ${proxNome} criada${n===1?'':'s'} ✔` : `Nenhuma cobrança nova (${proxNome} já preparado)`);
-        prep.disabled=false; prep.innerHTML=orig;
-        _finReload('cobrancas');
-      })
-      .catch(e=>{ prep.disabled=false; prep.innerHTML=orig; toast('Erro: '+(e.message||e)); });
-  };
-  w.appendChild(prep);
+  w.appendChild(el(`<button class="btn-cad" id="fm-prep" data-click="finPreparar" style="margin:0 12px 10px;width:calc(100% - 24px)">🗓 Preparar ${safeTxt(_finMesNome(_finProxMes()))}</button>`));
 
   const tabs = el(`<div class="filter-seg" id="fin-tabs" style="margin:6px 12px 10px;overflow-x:auto" role="tablist">
     <button data-t="dashboard" ${_finTab==='dashboard'?'class="active"':''}>Dashboard</button>
@@ -10190,14 +10650,7 @@ function profFinanceiro(){
   // Comportamento estável desde v512, provado em prod. Sem morphdom, root
   // e children NUNCA são substituídos entre renders (innerHTML='' apaga
   // TUDO, novo append reusa a mesma root). body ref permanece válida.
-  tabs.querySelectorAll('[data-t]').forEach(b=>{
-    b.onclick=()=>{
-      _finTab=b.dataset.t;
-      _finCobAluno = null;         // v551: trocar de aba limpa o filtro por aluno
-      _finSyncTabsAtiva();
-      _finPaintBody(body);
-    };
-  });
+  tabs.querySelectorAll('[data-t]').forEach(b=> b.setAttribute('data-click','finTab'));
   w.appendChild(tabs);
 
   const body = el('<div class="fin-body" id="fin-body"></div>');
@@ -10211,8 +10664,11 @@ function profFinanceiro(){
   }
 
   _finRenderingInProgress = true;
-  _finReload().then(()=>{
-    _finPaintBody(body);
+  // v554: resolve o #fin-body no DOM vivo em vez de usar o `body` capturado.
+  // Sob morphdom o no' que sobrevive ao diff e' o ANTIGO (match por id): pintar
+  // no capturado mandava o resultado do fetch pra um orfao.
+  _finReload().then(()=>{   // morph-ok: _finRepintarAbaAtual busca #fin-body no DOM
+    _finRepintarAbaAtual();
     _finRenderingInProgress = false;
   }).catch(()=>{ _finRenderingInProgress = false; });
 
@@ -12808,31 +13264,71 @@ function _vendaPickItem(prods, cb){
   requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
+/* v554 — acoes de Pedidos e Loja do professor, por id. As de pedido eram
+   `async` coladas no botao: alem de nao sobreviverem ao diff, guardavam o `p`
+   daquela renderizacao — confirmar um pedido depois de um refetch podia mirar
+   no registro errado. */
+async function _pedidoAcao(id, tipo, btn){
+  const p = _pedidosArr().find(x => String(x.id) === String(id));
+  if (!p) return;
+  const recarrega = ()=>{ _loadPedidos(true); render(); };
+  if (tipo === 'confirmar'){
+    if (btn){ btn.disabled = true; btn.textContent = 'Confirmando…'; }
+    if(!DEMO && typeof sbProf!=='undefined' && sbProf.confirmarPedido){
+      try{ await sbProf.confirmarPedido(p.id); }
+      catch(e){
+        if (btn){ btn.disabled = false; btn.textContent = '✓ Confirmar (baixa estoque)'; }
+        toast('Erro: '+(e.message||e)); return;
+      }
+    } else { p.status='concluido'; _baixaEstoqueMock(p); }   // demo
+    toast('Pedido confirmado · estoque baixado ✔'); recarrega(); return;
+  }
+  if (tipo === 'cancelar'){
+    if(!DEMO && typeof sbProf!=='undefined' && sbProf.cancelarPedido){
+      try{ await sbProf.cancelarPedido(p.id); }catch(e){ toast('Erro: '+(e.message||e)); return; }
+    } else { p.status='cancelado'; }   // demo
+    toast('Pedido cancelado'); recarrega(); return;
+  }
+  _abrirRespostaWhatsapp(p);
+}
+_dlgRegister('pedidoFiltro',    (elm) => { DB._pedidosFiltro = elm.dataset.f; render(); });
+_dlgRegister('pedidoConfirmar', (elm) => _pedidoAcao(elm.dataset.id, 'confirmar', elm));
+_dlgRegister('pedidoCancelar',  (elm) => _pedidoAcao(elm.dataset.id, 'cancelar', elm));
+_dlgRegister('pedidoWhats',     (elm) => _pedidoAcao(elm.dataset.id, 'whats', elm));
+_dlgRegister('irLoja',          () => goProf('loja'));
+_dlgRegister('irPedidos',       () => goProf('pedidos'));
+_dlgRegister('lojaConfig',      () => _lojaConfigSheet());
+_dlgRegister('produtoAbrir',    (elm) => {
+  const id = elm.dataset.id;
+  abrirProdutoForm(id ? (DB.loja?.produtos||[]).find(x => String(x.id) === String(id)) || null : null);
+});
+_dlgRegister('lojaOcultos',     (elm) => { DB.lojaOcultosOpen = elm.dataset.v === '1'; render(); window.scrollTo(0,0); });
+
 function profPedidos(){
   _loadPedidos();
   const w = el('<div></div>');
   w.innerHTML = `<div class="hello"><div class="date">Pedidos</div>
     <div class="greet">Confirme o recebimento para baixar o estoque</div></div>`;
-  const back = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0"><span>‹ Voltar à Loja</span></div>`);
-  back.onclick=()=>goProf('loja'); w.appendChild(back);
+  w.appendChild(el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0" data-click="irLoja"><span>‹ Voltar à Loja</span></div>`));
   // v484 (0043): botão "＋ Nova venda presencial" foi movido pra Financeiro >
   // Cobranças — venda é lançamento de receita, e agora aceita "a prazo" (aluno
   // pega o produto e paga depois, cobrança pendente linked ao pedido).
   if(!_pedidosData){ w.appendChild(el('<div class="loading-center">Carregando…</div>')); return w; }
   const arr = _pedidosArr();
-  let filtro = 'pendente';
+  // v554: o filtro morava numa variavel local e `renderList` repintava a `list`
+  // capturada. Sob morphdom a lista que fica no DOM e' a antiga — o filtro
+  // deixava de pintar. Virou estado do modelo, e a tela e' projecao dele.
+  const filtro = DB._pedidosFiltro || 'pendente';
   const cont = { pendente:arr.filter(p=>p.status==='pendente').length, concluido:arr.filter(p=>p.status==='concluido').length, cancelado:arr.filter(p=>p.status==='cancelado').length };
   const seg = el(`<div class="filter-seg" style="margin:0 20px 12px">
-    <button class="active" data-f="pendente">Pendentes (${cont.pendente})</button>
-    <button data-f="concluido">Concluídos (${cont.concluido})</button>
-    <button data-f="cancelado">Cancelados (${cont.cancelado})</button>
+    <button class="${filtro==='pendente'?'active':''}" data-click="pedidoFiltro" data-f="pendente">Pendentes (${cont.pendente})</button>
+    <button class="${filtro==='concluido'?'active':''}" data-click="pedidoFiltro" data-f="concluido">Concluídos (${cont.concluido})</button>
+    <button class="${filtro==='cancelado'?'active':''}" data-click="pedidoFiltro" data-f="cancelado">Cancelados (${cont.cancelado})</button>
   </div>`);
   const list = el('<div class="list"></div>');
-  const _reload = ()=>{ _loadPedidos(true); render(); };
-  const renderList = ()=>{
-    list.innerHTML='';
+  {
     const src = arr.filter(p=>p.status===filtro);
-    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum pedido aqui.</div>')); return; }
+    if(!src.length){ list.appendChild(el('<div class="empty-line">Nenhum pedido aqui.</div>')); }
     src.forEach(p=>{
       const [lbl,cor,cls] = _PED_STATUS[p.status]||['—','var(--muted)',''];
       const resumo = (p.itens||[]).map(it=>`${safeTxt(it.nome)} ${safeTxt(it.tam||'')} ×${it.qtd}`).join(' · ');
@@ -12846,32 +13342,15 @@ function profPedidos(){
         <div class="ped-foot"><span class="ped-dt">${dt}${p.canal?' · '+safeTxt(p.canal):''}</span><b class="ped-total">${moneyBR(p.total)}</b></div>
       </div>`);
       if(p.status==='pendente'){
-        const acts = el(`<div class="ped-acts">
-          <button class="ped-ok">✓ Confirmar (baixa estoque)</button>
-          <button class="ped-wa">📱 Responder no WhatsApp</button>
-          <button class="ped-no">Cancelar</button></div>`);
-        acts.querySelector('.ped-ok').onclick=async()=>{
-          const b=acts.querySelector('.ped-ok'); b.disabled=true; b.textContent='Confirmando…';
-          if(!DEMO && typeof sbProf!=='undefined' && sbProf.confirmarPedido){
-            try{ await sbProf.confirmarPedido(p.id); }
-            catch(e){ b.disabled=false; b.textContent='✓ Confirmar (baixa estoque)'; toast('Erro: '+(e.message||e)); return; }
-          } else { p.status='concluido'; _baixaEstoqueMock(p); }   // demo
-          toast('Pedido confirmado · estoque baixado ✔'); _reload();
-        };
-        acts.querySelector('.ped-wa').onclick=()=> _abrirRespostaWhatsapp(p);
-        acts.querySelector('.ped-no').onclick=async()=>{
-          if(!DEMO && typeof sbProf!=='undefined' && sbProf.cancelarPedido){
-            try{ await sbProf.cancelarPedido(p.id); }catch(e){ toast('Erro: '+(e.message||e)); return; }
-          } else { p.status='cancelado'; }   // demo
-          toast('Pedido cancelado'); _reload();
-        };
-        row.appendChild(acts);
+        const id = safeAttr(p.id);
+        row.appendChild(el(`<div class="ped-acts">
+          <button class="ped-ok" data-click="pedidoConfirmar" data-id="${id}">✓ Confirmar (baixa estoque)</button>
+          <button class="ped-wa" data-click="pedidoWhats"     data-id="${id}">📱 Responder no WhatsApp</button>
+          <button class="ped-no" data-click="pedidoCancelar"  data-id="${id}">Cancelar</button></div>`));
       }
       list.appendChild(row);
     });
-  };
-  seg.querySelectorAll('[data-f]').forEach(b=> b.onclick=()=>{ filtro=b.dataset.f; seg.querySelectorAll('[data-f]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderList(); });
-  renderList();
+  }
   w.appendChild(seg); w.appendChild(list);
   return w;
 }
@@ -12933,13 +13412,15 @@ function profLoja(){
       <div class="st-right" style="color:var(--muted);font-size:18px">›</div>
     </div>`);
     _mountProdImg(row.querySelector('.prod-mini'), p);
-    row.onclick=()=>abrirProdutoForm(p);
+    row.setAttribute('data-click','produtoAbrir');
+    row.setAttribute('data-id', p.id);
     return row;
   };
   if(modoOcultos){
     const back = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
       <span>‹ Voltar pra loja</span></div>`);
-    back.onclick=()=>{ DB.lojaOcultosOpen=false; render(); window.scrollTo(0,0); };
+    back.setAttribute('data-click','lojaOcultos');
+    back.setAttribute('data-v','0');
     w.appendChild(back);
     const list = el('<div class="list"></div>');
     if(!ocultos.length) list.appendChild(el(`<div class="empty-line" style="padding:30px 20px">Nenhum produto oculto. 🎉</div>`));
@@ -12952,20 +13433,20 @@ function profLoja(){
   const pedBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
     <span>🧾 Pedidos${pend?` <span class="low-badge" style="background:var(--red);color:#fff">${pend} pendente${pend>1?'s':''}</span>`:''}</span>
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  pedBtn.onclick=()=>goProf('pedidos');
+  pedBtn.setAttribute('data-click','irPedidos');
   w.appendChild(pedBtn);
   const cfgBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
     <span>⚙️ Configurações da loja</span>
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  cfgBtn.onclick=()=>_lojaConfigSheet();
+  cfgBtn.setAttribute('data-click','lojaConfig');
   w.appendChild(cfgBtn);
   const bar = el(`<div class="loja-actions">
     <button class="btn-cad" id="lj-add">＋ Novo produto</button>
     ${ocultos.length?`<button class="btn-ghost" id="lj-oct">🚫 Ocultos <span class="cnt">${ocultos.length}</span></button>`:''}
   </div>`);
-  bar.querySelector('#lj-add').onclick=()=>abrirProdutoForm(null);
+  bar.querySelector('#lj-add').setAttribute('data-click','produtoAbrir');
   const octBtn = bar.querySelector('#lj-oct');
-  if(octBtn) octBtn.onclick=()=>{ DB.lojaOcultosOpen=true; render(); window.scrollTo(0,0); };
+  if(octBtn){ octBtn.setAttribute('data-click','lojaOcultos'); octBtn.setAttribute('data-v','1'); }
   w.appendChild(bar);
   const list = el('<div class="list"></div>');
   ativos.forEach(p=> list.appendChild(linha(p)));
@@ -13199,6 +13680,15 @@ function _loadTurmas(){
   sbProf.getTurmas().then(ts=>{ DB.turmas = ts; renderBg(); }).catch(()=>{ _turmasTs = 0; });
 }
 
+/* v554 — handlers de Turmas (grade + heatmap). Todos eram closure sobre a
+   variavel do laco (a turma da celula, o id da aba); o id agora viaja no
+   atributo e `_turmaSheet` recebe null quando nao ha `data-id` (Nova turma). */
+_dlgRegister('turmasTab',  (elm) => { DB._turmasTab = elm.dataset.v; render(); });
+_dlgRegister('turmaAbrir', (elm) => _turmaSheet(elm.dataset.id || null));
+_dlgRegister('heatModo',   (elm) => { DB._heatMode = elm.dataset.m; render(); });
+_dlgRegister('heatJanela', (elm) => { DB._heatDias = +elm.dataset.d; render(); });
+_dlgRegister('gradeFaixa', (elm) => { DB._gradeFaixa = elm.dataset.v; render(); });
+
 function profTurmas(){
   _loadTurmas();
   const w = el('<div></div>');
@@ -13212,9 +13702,7 @@ function profTurmas(){
   const TABS = [['grade','Grade'],['heat','Ocupação']];
   const tabsBar = el('<div class="turmas-tabs"></div>');
   TABS.forEach(([k,l])=>{
-    const b = el(`<button class="turmas-tab${k===tab?' on':''}">${l}</button>`);
-    b.onclick = ()=>{ DB._turmasTab = k; render(); };
-    tabsBar.appendChild(b);
+    tabsBar.appendChild(el(`<button class="turmas-tab${k===tab?' on':''}" data-click="turmasTab" data-v="${k}">${l}</button>`));
   });
   w.appendChild(tabsBar);
   const grade = el('<div class="mod-card" style="padding:14px 12px"></div>');
@@ -13226,9 +13714,7 @@ function profTurmas(){
     grade.appendChild(_viewHeatmap(turmasArr));
   }
   w.appendChild(grade);
-  const add = el(`<button class="add-turma">+ Nova turma</button>`);
-  add.onclick=()=> _turmaSheet(null);
-  w.appendChild(add);
+  w.appendChild(el(`<button class="add-turma" data-click="turmaAbrir">+ Nova turma</button>`));
   const list = el('<div class="turma-list"></div>');
   _turmasArr().forEach(t=>{
     const ns=(t.sessoes||[]).length;
@@ -13240,7 +13726,8 @@ function profTurmas(){
         <span class="tr-meta">${ns} horário${ns!==1?'s':''}</span>
       </span>
       <span class="tr-caret">›</span></button>`);
-    row.onclick=()=> _turmaSheet(t.id);
+    row.setAttribute('data-click','turmaAbrir');
+    row.setAttribute('data-id', t.id);
     list.appendChild(row);
   });
   if(!n) list.appendChild(el('<div class="empty-hint">Nenhuma turma ainda. Crie a primeira.</div>'));
@@ -13276,13 +13763,13 @@ function _viewHeatmap(turmas){
     <button class="${modo==='matr'?'active':''}" data-m="matr" type="button">Matrículas</button>
     <button class="${modo==='pres'?'active':''}" data-m="pres" type="button">Presenças</button>
   </div>`);
-  seg.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatMode=b.dataset.m; render(); });
+  seg.querySelectorAll('button').forEach(b=> b.setAttribute('data-click','heatModo'));
   wrap.appendChild(seg);
   if(modo==='pres'){
     const jan = el(`<div class="seg heat-janela" style="margin-bottom:12px;flex-wrap:wrap">
       ${JANELAS.map(([n,lbl])=>`<button class="${n===janelaDias?'active':''}" data-d="${n}" type="button">${lbl}</button>`).join('')}
     </div>`);
-    jan.querySelectorAll('button').forEach(b=> b.onclick=()=>{ DB._heatDias = +b.dataset.d; render(); });
+    jan.querySelectorAll('button').forEach(b=> b.setAttribute('data-click','heatJanela'));
     wrap.appendChild(jan);
   }
   if(modo==='pres' && !_relData){ wrap.appendChild(el('<div class="loading-center">Carregando presenças…</div>')); return wrap; }
@@ -13308,16 +13795,15 @@ function _viewHeatmap(turmas){
     dias.forEach(([d])=>{
       const c = cells[d+'|'+h];
       if(!c){ heat.appendChild(el('<div class="heat-c empty"></div>')); return; }
-      const open = ()=> _turmaSheet(c.ids[0]);
       const n = modo==='pres' ? Math.round((presBy[d+'|'+h]||0)*10)/10 : c.n;
+      const abre = `data-click="turmaAbrir" data-id="${safeAttr(c.ids[0])}"`;
       if(!c.cap){
-        const cell = el(`<div class="heat-c nocap" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${n}</b><i>—</i></div>`);
-        cell.onclick = open; heat.appendChild(cell); return;
+        heat.appendChild(el(`<div class="heat-c nocap" style="cursor:pointer" ${abre} title="${safeAttr(c.turmas.join(', ')+' — sem capacidade cadastrada')}"><b>${n}</b><i>—</i></div>`));
+        return;
       }
       const pct = Math.round(n*100/c.cap);
       const kind = pct>=90?'red' : pct>=70?'gold' : pct>=40?'green' : 'blue';
-      const cell = el(`<div class="heat-c ${kind}" style="cursor:pointer" title="${safeAttr(c.turmas.join(', ')+' — '+n+'/'+c.cap+' ('+pct+'%)')}"><b>${n}</b><i>/${c.cap}</i></div>`);
-      cell.onclick = open; heat.appendChild(cell);
+      heat.appendChild(el(`<div class="heat-c ${kind}" style="cursor:pointer" ${abre} title="${safeAttr(c.turmas.join(', ')+' — '+n+'/'+c.cap+' ('+pct+'%)')}"><b>${n}</b><i>/${c.cap}</i></div>`));
     });
   });
   wrap.appendChild(heat);
@@ -13346,9 +13832,7 @@ function _gradeHorarios(turmas){
   if(faixasDisp.length > 1){
     const bar = el('<div class="grade-fchips"></div>');
     const mk = (id, lbl)=>{
-      const b = el(`<button class="grade-fchip${fSel===id?' on':''}">${safeTxt(lbl)}</button>`);
-      b.onclick = ()=>{ DB._gradeFaixa = id; render(); };
-      return b;
+      return el(`<button class="grade-fchip${fSel===id?' on':''}" data-click="gradeFaixa" data-v="${safeAttr(id)}">${safeTxt(lbl)}</button>`);
     };
     bar.appendChild(mk('todas','Todas'));
     faixasDisp.forEach(f=> bar.appendChild(mk(f,f)));
@@ -13384,7 +13868,8 @@ function _gradeHorarios(turmas){
       (cells[d+'|'+h]||[]).forEach(({t,s})=>{
         const chip = el(chipHTML(t,s));
         chip.style.cursor = 'pointer';
-        chip.onclick = ()=> _turmaSheet(t.id);
+        chip.setAttribute('data-click','turmaAbrir');
+        chip.setAttribute('data-id', t.id);
         cell.appendChild(chip);
       });
       table.appendChild(cell);
@@ -13405,7 +13890,8 @@ function _gradeHorarios(turmas){
       (cells[d+'|'+h]||[]).forEach(({t,s})=>{
         const chip = el(chipHTML(t,s));
         chip.style.cursor = 'pointer';
-        chip.onclick = ()=> _turmaSheet(t.id);
+        chip.setAttribute('data-click','turmaAbrir');
+        chip.setAttribute('data-id', t.id);
         cell.appendChild(chip);
       });
       tableM.appendChild(cell);
@@ -13846,6 +14332,28 @@ function _prontidaoGrad(a){
              tempo: tempoAviso, idadeAviso },
   };
 }
+/* v553: handlers da Graduação. Tabela em vez de closure por nó — é o que
+   permite a sub-tela entrar em _PROF_MORPH. A ficha é resolvida por id no
+   momento do clique: closure sobre o objeto `a` viraria refém da renderização
+   em que foi criada. O botão "Dar grau" e a linha compartilham o mesmo
+   `data-click`; o `closest` acha o botão primeiro (mais interno), e só ele
+   carrega `data-tab` — mesma semântica do `e.target.classList` que substituiu. */
+_dlgRegister('gradTab',   (elm) => { DB._gradTab = elm.dataset.t; render(); });
+_dlgRegister('gradMeta',  (elm) => _profMetaAulasSheet(elm.dataset.f, () => render()));
+_dlgRegister('gradGoto',  (elm) => {
+  const alvo = document.getElementById('grad-sec-' + elm.dataset.goto);
+  if (alvo) alvo.scrollIntoView({ behavior:'smooth', block:'start' });
+});
+_dlgRegister('gradAbrirFicha', (elm) => {
+  const a = _profAlunosArr().find(x => String(x.id) === elm.dataset.id);
+  if (!a) return;
+  _navPush();
+  DB.alunoAberto = a;
+  if (elm.dataset.tab) DB._alunoTab = elm.dataset.tab;
+  render();
+  window.scrollTo(0,0);
+});
+
 function _gradAptosSection(w){
   const PROXIMOS_PCT = 0.8;   // >= 80% da meta = "quase la" (v397). Ajustavel aqui.
   const cand = _profAlunosArr().map(a=>({a, s:_prontidaoGrad(a)}));
@@ -13864,11 +14372,8 @@ function _gradAptosSection(w){
     <div class="stat-card kpi-click" data-goto="prox-grau"  tabindex="0" role="button"><div class="si ${proxGrau.length?'gold':'gray'}">${icoAlert()}</div><div class="sv">${proxGrau.length}</div><div class="sl">Próx. p/ novo grau (${Math.round(PROXIMOS_PCT*100)}%+)</div></div>
     <div class="stat-card kpi-click" data-goto="prox-faixa" tabindex="0" role="button"><div class="si ${proxFaixa.length?'gold':'gray'}">${icoAlert()}</div><div class="sv">${proxFaixa.length}</div><div class="sl">Próx. p/ próxima faixa (${Math.round(PROXIMOS_PCT*100)}%+)</div></div>
   </div>`);
-  kpi.querySelectorAll('.kpi-click').forEach(c=>{
-    const scroll = ()=>{ const id = 'grad-sec-'+c.dataset.goto; const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth', block:'start'}); };
-    c.onclick = scroll;
-    c.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); scroll(); } };
-  });
+  // Enter/Espaço vem da delegação de teclado do router (v553) — role="button" já está no HTML.
+  kpi.querySelectorAll('.kpi-click').forEach(c=> c.setAttribute('data-click','gradGoto'));
   w.appendChild(kpi);
 
   const _row = (a, s, tipo, modo)=>{
@@ -13914,14 +14419,10 @@ function _gradAptosSection(w){
         <div class="grad-aptos-sub">${sub}</div>
         <div class="sem-chips" style="margin-top:6px">${chipsHtml}</div>
       </div>
-      <button class="grad-aptos-go" type="button">${btnLbl}</button>
+      <button class="grad-aptos-go" type="button" data-click="gradAbrirFicha" data-id="${safeAttr(a.id)}" data-tab="grad">${btnLbl}</button>
     </div>`);
-    row.querySelector('.grad-aptos-go').onclick = ()=>{
-      _navPush(); DB.alunoAberto = a; DB._alunoTab = 'grad'; render(); window.scrollTo(0,0);
-    };
-    row.onclick = (e)=>{ if(e.target.classList.contains('grad-aptos-go')) return;
-      _navPush(); DB.alunoAberto = a; render(); window.scrollTo(0,0);
-    };
+    row.setAttribute('data-click','gradAbrirFicha');
+    row.setAttribute('data-id', a.id);
     return row;
   };
 
@@ -13989,7 +14490,7 @@ function profGraduacao(){
     <button class="turmas-tab${tab==='aptos'?' on':''}" data-t="aptos">Aptos a graduar${aptos.length?` (${aptos.length})`:''}</button>
     <button class="turmas-tab${tab==='metas'?' on':''}" data-t="metas">Metas por faixa</button>
   </div>`);
-  tabsBar.querySelectorAll('.turmas-tab').forEach(b=> b.onclick=()=>{ DB._gradTab = b.dataset.t; render(); });
+  tabsBar.querySelectorAll('.turmas-tab').forEach(b=> b.setAttribute('data-click','gradTab'));
   w.appendChild(tabsBar);
   if(tab==='aptos'){ _gradAptosSection(w); return w; }
 
@@ -14027,9 +14528,8 @@ function profGraduacao(){
           <div class="grad-nome">${safeTxt(info.nome)}</div>
           <div class="grad-sub">${g.stripes>0?g.stripes+' graus por faixa · ':''}<b>${meta}</b> aulas/grau${isCustom?' <span class="grad-tag">personalizada</span>':''}</div>
         </div>
-        <button class="grad-edit" type="button" aria-label="Editar meta">✎</button>
+        <button class="grad-edit" type="button" aria-label="Editar meta" data-click="gradMeta" data-f="${safeAttr(f)}">✎</button>
       </div>`);
-      row.querySelector('.grad-edit').onclick = ()=> _profMetaAulasSheet(f, ()=>render());
       list.appendChild(row);
     });
     w.appendChild(list);
@@ -14316,7 +14816,9 @@ function emptyState(emoji, titulo, sub, btnText, btnAction){
     <div class="es-s">${sub}</div>
     ${btnText?`<button class="es-btn">${btnText}</button>`:''}
   </div>`);
-  if (btnText && btnAction) e.querySelector('.es-btn').onclick = btnAction;
+  // v553: btnAction e' o NOME de um handler delegado (data-click), nao uma
+  // funcao — closure colada no botao nao sobrevive ao diff do morphdom.
+  if (btnText && btnAction) e.querySelector('.es-btn').setAttribute('data-click', btnAction);
   return e;
 }
 
@@ -14752,40 +15254,52 @@ function profYama(){
   // grupos
   const grupos = [
     ['Academia', [
-      ['🏢 Dados da academia', 'Nome, telefone/WhatsApp, chave PIX', ()=> _dadosAcademiaSheet()],
-      ['🔑 Senha padrão dos alunos', 'Usada nos convites em lote', ()=> _senhaPadraoSheet()],
-      ['📨 Distribuir acesso', 'Aplicar senha padrão + convite WhatsApp em lote', ()=>{ DB.acessoAlunosOpen=true; render(); window.scrollTo(0,0); }],
+      ['dados',  '🏢 Dados da academia', 'Nome, telefone/WhatsApp, chave PIX'],
+      ['senha',  '🔑 Senha padrão dos alunos', 'Usada nos convites em lote'],
+      ['acesso', '📨 Distribuir acesso', 'Aplicar senha padrão + convite WhatsApp em lote'],
     ]],
     ['QR Codes', [
-      ['📷 QR de presença', qr ? 'Configurado · toque pra ver/renovar' : 'Ainda não configurado — configure antes do próximo treino', ()=> _qrTokenSheet()],
-      ['💸 QR do PIX', brCode ? 'Copia e Cola configurado' : 'Cole o Copia e Cola do seu banco', ()=> _pixQrSheet()],
+      ['qr',     '📷 QR de presença', qr ? 'Configurado · toque pra ver/renovar' : 'Ainda não configurado — configure antes do próximo treino'],
+      ['pixQr',  '💸 QR do PIX', brCode ? 'Copia e Cola configurado' : 'Cole o Copia e Cola do seu banco'],
     ]],
     ['Notificações', [
-      ['🔔 Aviso de check-in', 'Quem tem ativo · disparar teste · regras do push', ()=> _avisoCheckinSheet()],
-      ['💬 Mensagens WhatsApp', '8 textos prontos pra usar no botão WhatsApp do aluno', ()=> _waTemplatesSheet()],
+      ['aviso',  '🔔 Aviso de check-in', 'Quem tem ativo · disparar teste · regras do push'],
+      ['wa',     '💬 Mensagens WhatsApp', '8 textos prontos pra usar no botão WhatsApp do aluno'],
     ]],
     ['Conta', [
-      ['👤 Meu perfil', 'Seu perfil pessoal (o professor também é aluno)', ()=>{ DB.navProf='perfil'; render(); }],
+      ['perfil', '👤 Meu perfil', 'Seu perfil pessoal (o professor também é aluno)'],
     ]],
   ];
   grupos.forEach(([titulo, linhas])=>{
     box.appendChild(el(`<div class="yama-grp-t">${safeTxt(titulo)}</div>`));
     const grp = el(`<div class="yama-grp"></div>`);
-    linhas.forEach(([lbl, desc, fn])=>{
-      const row = el(`<div class="yama-row" role="button" tabindex="0">
+    linhas.forEach(([acao, lbl, desc])=>{
+      grp.appendChild(el(`<div class="yama-row" role="button" tabindex="0" data-click="yamaRow" data-acao="${safeAttr(acao)}">
         <div class="yama-row-t">${safeTxt(lbl)}</div>
         <div class="yama-row-s">${safeTxt(desc)}</div>
         <span class="yama-row-go">›</span>
-      </div>`);
-      row.onclick = fn;
-      row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } };
-      grp.appendChild(row);
+      </div>`));
     });
     box.appendChild(grp);
   });
   v.appendChild(box);
   return v;
 }
+
+/* v553: acoes do hub YAMA. Tabela em vez de closure por linha — e' o que
+   permite a tela entrar em _PROF_MORPH: o `data-click` sobrevive ao diff,
+   uma closure colada no no' nao. */
+const _YAMA_ACOES = {
+  dados:  () => _dadosAcademiaSheet(),
+  senha:  () => _senhaPadraoSheet(),
+  acesso: () => { DB.acessoAlunosOpen = true; render(); window.scrollTo(0,0); },
+  qr:     () => _qrTokenSheet(),
+  pixQr:  () => _pixQrSheet(),
+  aviso:  () => _avisoCheckinSheet(),
+  wa:     () => _waTemplatesSheet(),
+  perfil: () => { DB.navProf = 'perfil'; render(); },
+};
+_dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
 
 // Sheet: só nome + telefone + PIX (Copia e Cola vai em sheet próprio, senha em outro).
 // v443: config exclusiva da Loja (desconto Pix por enquanto). Vive em academies.config,
@@ -15743,7 +16257,7 @@ function selfTest(){
     }catch(e){ ok('toastUndo', false); }
     // helpers existência
     try{
-      ok('_attachLongPress existe', typeof _attachLongPress==='function');
+      ok('long-press delegado existe', typeof _lpInstall==='function' && typeof _lpStart==='function');
       ok('_attachSheetDrag existe', typeof _attachSheetDrag==='function');
       ok('_openActionSheet existe', typeof _openActionSheet==='function');
       ok('haptic existe', typeof haptic==='function');
@@ -16595,39 +17109,54 @@ document.addEventListener('visibilitychange', ()=>{
 function haptic(ms){ try{ if (navigator.vibrate) navigator.vibrate(ms||10); }catch(e){} }
 
 // Long-press menu genérico — abre action sheet ao segurar 500ms
-function _attachLongPress(el, opts){
-  if (!el || el.dataset.lpWired) return; el.dataset.lpWired = '1';
-  let timer = null, startXY = null, fired = false;
-  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer=null; } };
-  const start = (e)=>{
-    fired = false;
-    const t = e.touches?.[0] || e;
-    startXY = { x: t.clientX, y: t.clientY };
-    cancel();
-    timer = setTimeout(()=>{
-      fired = true;
-      haptic(15);
-      try{ opts.onLongPress(el); }catch(err){}
-    }, 500);
-  };
-  const move = (e)=>{
-    if(!startXY) return;
-    const t = e.touches?.[0] || e;
-    const dx = Math.abs(t.clientX - startXY.x), dy = Math.abs(t.clientY - startXY.y);
-    if (dx > 10 || dy > 10) cancel();
-  };
-  const end = ()=>{ cancel(); startXY = null; };
-  el.addEventListener('touchstart', start, { passive:true });
-  el.addEventListener('touchmove', move, { passive:true });
-  el.addEventListener('touchend', end);
-  el.addEventListener('touchcancel', end);
-  // desktop: mousedown/up para teste
-  el.addEventListener('mousedown', start);
-  el.addEventListener('mousemove', move);
-  el.addEventListener('mouseup', end);
-  el.addEventListener('mouseleave', end);
-  // suprime click se long-press disparou
-  el.addEventListener('click', (e)=>{ if(fired){ e.stopPropagation(); e.preventDefault(); fired = false; } }, true);
+/* v553 — long-press DELEGADO. A versão anterior colava 9 addEventListener em
+   cada nó (`_attachLongPress`), o que morre sob morphdom: o nó retido fica com
+   o listener ANTIGO, cuja closure captura o treino/técnica da renderização em
+   que foi criado — long-press no item errado depois de um repaint. Aqui os
+   listeners moram em `document` e a ação é resolvida pelo `data-longpress` no
+   momento em que dispara, então nunca envelhece.
+
+   Marcação: `data-longpress="nomeDoHandler"` (registrado com _dlgRegister,
+   mesma tabela do data-click) + os `data-*` que a ação precisar. */
+let _lpTimer = null, _lpXY = null, _lpFired = false;
+function _lpCancel(){ if(_lpTimer){ clearTimeout(_lpTimer); _lpTimer = null; } }
+function _lpAlvo(ev){
+  const el = ev.target && ev.target.closest && ev.target.closest('[data-longpress]');
+  if(!el) return null;
+  const root = document.getElementById('root');
+  return (root && root.contains(el)) ? el : null;
+}
+function _lpStart(ev){
+  _lpFired = false;
+  const el = _lpAlvo(ev);
+  if(!el) return;
+  const t = ev.touches?.[0] || ev;
+  _lpXY = { x: t.clientX, y: t.clientY };
+  _lpCancel();
+  _lpTimer = setTimeout(()=>{
+    _lpFired = true;
+    haptic(15);
+    try{ _dlgFire(el.getAttribute('data-longpress'), el, ev); }catch(err){}
+  }, 500);
+}
+function _lpMove(ev){
+  if(!_lpXY) return;
+  const t = ev.touches?.[0] || ev;
+  if (Math.abs(t.clientX - _lpXY.x) > 10 || Math.abs(t.clientY - _lpXY.y) > 10) _lpCancel();
+}
+function _lpEnd(){ _lpCancel(); _lpXY = null; }
+function _lpInstall(){
+  document.addEventListener('touchstart', _lpStart, { passive:true });
+  document.addEventListener('touchmove',  _lpMove,  { passive:true });
+  document.addEventListener('touchend',    _lpEnd);
+  document.addEventListener('touchcancel', _lpEnd);
+  document.addEventListener('mousedown',  _lpStart);
+  document.addEventListener('mousemove',  _lpMove);
+  document.addEventListener('mouseup',    _lpEnd);
+  // suprime o click que vem depois do long-press (captura, antes da delegação de click)
+  document.addEventListener('click', (e)=>{
+    if(_lpFired){ e.stopPropagation(); e.preventDefault(); _lpFired = false; }
+  }, true);
 }
 
 function _openActionSheet(title, actions){

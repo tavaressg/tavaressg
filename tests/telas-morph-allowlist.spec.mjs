@@ -13,7 +13,7 @@
 // Rodar: node tests/telas-morph-allowlist.spec.mjs
 
 import assert from 'node:assert/strict';
-import { src, TOPLEVEL, cadeia, exigirMorphSeguro, motivoDeFora } from './_fonte.mjs';
+import { src, TOPLEVEL, cadeia, subTelas, exigirMorphSeguro, motivoDeFora, EXCECOES } from './_fonte.mjs';
 
 // ---------- rotas ----------
 const iniRotas = src.indexOf('const _ROTAS = [');
@@ -70,12 +70,63 @@ declaradas.forEach((d, i) => {
   habilitadas.push(d.chave);
 });
 
+// ---------- roteadores com morph ESCOPADO (v553) ----------
+// aluno e professor não têm handler próprio: despacham pra sub-tela. O morph
+// é escopado no body interno (`alvo` na rota), então quem precisa estar limpo
+// é a cadeia da SUB-TELA habilitada — não a tela inteira. Topbar e tabbar
+// ficam fora do diff e por isso não entram na varredura.
+const ESCOPADAS = {
+  aluno:     { roteador: 'renderAluno',     lista: '_ALUNO_MORPH', alvo: '#aluno-body' },
+  professor: { roteador: 'renderProfessor', lista: '_PROF_MORPH',  alvo: '#prof-body'  },
+};
+
+function listaDe(nome){
+  const i = src.indexOf('const ' + nome);
+  assert.ok(i > 0, `achou "const ${nome}" no app.js`);
+  const ini = src.indexOf('[', i), fim = src.indexOf(']', ini);
+  assert.ok(ini > 0 && fim > ini, `${nome}: não achei o Set([...])`);
+  return [...src.slice(ini, fim).matchAll(/'(\w+)'/g)].map(x => x[1]);
+}
+
 // ---------- valida cada tela habilitada ----------
+let subsOk = 0;
 for (const chave of habilitadas) {
   const rota = rotas.find(r => r.chave === chave);
   assert.ok(rota,
     `tela "${chave}" está em _TELAS_MORPH mas não existe em _ROTAS — ` +
     `com a chave errada ela nunca seria morfada, e nada avisaria.`);
+
+  const esc = ESCOPADAS[chave];
+  if (esc) {
+    // o container do `alvo` precisa existir no código, com esse id exato:
+    // sem ele o morph cai no catch e volta pro innerHTML='' calado.
+    const id = esc.alvo.slice(1);
+    assert.ok(src.includes(`id="${id}"`),
+      `rota "${chave}" aponta alvo ${esc.alvo}, mas nenhum elemento com id="${id}" existe no app.js`);
+    assert.ok(src.replace(/\s+/g, ' ').includes(`alvo: '${esc.alvo}'`),
+      `rota "${chave}" deveria declarar alvo: '${esc.alvo}'`);
+
+    const mapa = subTelas(esc.roteador);
+    assert.ok(mapa.size > 0, `não parseei as sub-telas de ${esc.roteador}`);
+
+    for (const sub of listaDe(esc.lista)) {
+      const fn = mapa.get(sub);
+      assert.ok(fn,
+        `"${sub}" está em ${esc.lista} mas ${esc.roteador} não despacha essa sub-tela — ` +
+        `ela nunca seria morfada, e o silêncio esconderia isso.`);
+      const partes = cadeia(fn);
+      exigirMorphSeguro(`${chave}/${sub}`, partes);
+      console.log(`  ✔ ${(chave + '/' + sub).padEnd(15)} → ${fn.padEnd(30)}(+${partes.length - 1} aux) delegation pura, síncrona`);
+      subsOk++;
+    }
+    // diagnóstico das sub-telas ainda fora
+    const fora = [...mapa].filter(([k]) => !listaDe(esc.lista).includes(k));
+    for (const [sub, fn] of fora) {
+      const motivo = motivoDeFora(cadeia(fn)) || 'pronta, é só habilitar';
+      console.log(`  · ${(chave + '/' + sub).padEnd(15)}   ${fn.padEnd(28)} ${motivo}`);
+    }
+    continue;
+  }
 
   const partes = rota.alvos.flatMap(fn => cadeia(fn));
   exigirMorphSeguro(chave, partes);
@@ -97,4 +148,11 @@ if (fora.length) {
 }
 
 console.log('');
-console.log(`✔ telas-morph-allowlist: ${habilitadas.length} de ${rotas.length} telas habilitadas`);
+if (EXCECOES.length) {
+  console.log('');
+  console.log(`  ${EXCECOES.length} linha(s) isenta(s) por \`morph-ok:\` — confira cada uma:`);
+  [...new Set(EXCECOES)].forEach(x => console.log(`  ! ${x}`));
+}
+console.log('');
+console.log(`✔ telas-morph-allowlist: ${habilitadas.length} de ${rotas.length} telas habilitadas` +
+  (subsOk ? ` (${subsOk} sub-tela(s) escopada(s))` : ''));

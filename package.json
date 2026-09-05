@@ -7,9 +7,10 @@
     "check": "node --check app.js && node --check supabase.js && node --check sw.js",
     "test:morphdom": "node tests/morphdom-render.spec.mjs",
     "test:fin-gate": "node tests/fin-reload-gate.spec.mjs",
+    "test:escopado": "node tests/morph-escopado.spec.mjs",
     "test:fin-body": "node tests/morphdom-fin-body.spec.mjs",
     "test:allowlist": "node tests/fin-morph-allowlist.spec.mjs",
-    "test": "npm run check && npm run test:fin-gate && npm run test:allowlist && npm run test:telas && npm run test:csv && npm run test:fin-body && npm run test:morphdom",
+    "test": "npm run check && npm run test:fin-gate && npm run test:allowlist && npm run test:telas && npm run test:csv && npm run test:escopado && npm run test:fin-body && npm run test:morphdom",
     "test:csv": "node tests/csv-ptbr.spec.mjs",
     "test:telas": "node tests/telas-morph-allowlist.spec.mjs"
   },

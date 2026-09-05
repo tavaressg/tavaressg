@@ -9,6 +9,213 @@
 
 ## Concluídas ✓
 
+### v554 — morphdom no resto do app: 15 de 15 sub-telas, 10 de 13 telas (2026-09-05)
+
+Fecha a migração começada na v543. Todas as sub-telas do aluno e do professor
+estão no morphdom; sobraram três telas de topo, cada uma por um motivo escrito
+abaixo.
+
+**Migradas nesta versão:** `loja` · `treino` · `flow` · `share` ·
+`meusPedidos` · `aluno/inicio` · `aluno/perfil` · `professor/{painel, alunos,
+turmas, relatorios, loja, pedidos, videos, financeiro, perfil}`.
+
+**O padrão que se repetiu em quase todas.** Não era o `.onclick=`: era estado
+de tela vivendo numa **closure**, com um `paint()` local que escrevia num nó
+capturado. Sob morphdom o nó que fica no DOM é o ANTIGO, então esses painters
+seguiam escrevendo em órfãos — sem erro no console, a tela só parava de
+atualizar. Corrigido sempre do mesmo jeito: estado para o modelo, painter
+top-level resolvendo o container por id.
+
+- `profAlunos` — 8 variáveis de closure (`filtro`, `busca`, `filtroEt`,
+  `sortKey/Dir`, `shown`, `advF`, `advOpen`) foram para `_ALUNOS_UI`, e o
+  painel de filtros avançados passou a **renderizar os valores a partir do
+  estado**: antes eles moravam só no DOM e um repaint de fundo zerava o painel
+  inteiro no meio da busca do professor.
+- `_relAlunosExcel` (Relatórios) — `rebuild` capturava tabela, chips e
+  contador. Virou `_xlsPintar`. Os filtros já persistiam em `DB.alunosFiltro`
+  desde a v514.
+- `profPedidos` — o filtro era `let filtro` e o `renderList` repintava a lista
+  capturada; virou `DB._pedidosFiltro` e projeção do modelo.
+- `profVideosOnboard` — reescrita. Tinha os três problemas juntos: lista em
+  closure, `_initList()` **async** pintando depois do await, e os dois campos
+  do formulário guardando o texto digitado só no DOM.
+- `profPainel` — `pintaFin` escrevia no `finCard` capturado; virou
+  `_painelPintarFin` sobre `#painel-fin`. KPIs e alertas viraram tabela
+  `_PAINEL_IR` em vez de um callback por card.
+- `alunoInicio` — o banner "Ative os avisos" era **montado dentro do `.then`**
+  e inserido no container: o único append assíncrono real da tela. Virou cache
+  (`_pushEstado`) + pintura síncrona.
+- `renderShare` — as closures guardavam o `<canvas>`; depois de um repaint o
+  PNG sairia em branco. `_shareRedraw` resolve `#share-canvas` na hora.
+- `alunoPerfil` — a vitrine rolante da Loja tinha um `requestAnimationFrame`
+  preso ao nó: depois de um repaint o loop rodava **para sempre** contra um
+  órfão, e a vitrine congelava. Agora resolve `#ld-ticker` a cada quadro e
+  encerra sozinho quando o elemento sai do DOM.
+- `renderLoja` e `renderTreinoDetalhe` — busca in-place fora da closure; a
+  sheet de excluir treino virou função própria.
+
+**Escape hatch explícito.** Alguns `.then` são comprovadamente seguros porque o
+callback resolve o nó no DOM vivo em vez de appendar (`_shareRedraw`,
+`_painelPintarFin`, `_pushPintar`). Em vez de afrouxar a regra para todo mundo,
+a linha ganha `// morph-ok: <justificativa>` — e o guard **lista todas** ao
+final da execução, para que nenhuma passe despercebida. São 8 hoje.
+
+**Três correções no guard, achadas durante a migração:**
+
+1. **`corpoDaFuncao` estourava em função de uma linha.** `.replace(/\\./g,'')`
+   transformava `/\D/g` em `//g`, e o removedor de comentário logo abaixo comia
+   o resto da linha — **junto com a chave de fechamento**. A função passava a
+   "terminar" no fim do arquivo: a cadeia de `renderCadastroAluno` aparecia com
+   459 funções e 1648 handlers. Pior, `montaFora` podia pular uma função por
+   enxergar um `document.body.append` alheio. O escape agora vira `x`.
+2. **Modais eram puladas por NOME.** A regra era `*Sheet$`; agora é
+   comportamental — quem monta em `document.body` (direto ou via `openSheet`)
+   vive fora do container morfado. Função híbrida, que monta modal **e** devolve
+   nó, não é pulada: errar para o lado de não habilitar é o único erro barato.
+3. **`async` só era problema se a função também escrevesse DOM.** Um carregador
+   puro (`_loadMeusPedidos`: guarda o dado e chama `renderBg`) não pinta nada e
+   não deve travar a tela.
+
+**Fora, com motivo:**
+
+- **`onboarding`** — o `CLAUDE.md` proíbe mexer nele (consent 18+, LGPD) e o
+  consentimento digitado mora só no DOM, sem gaveta. Precisa de decisão do dono.
+- **`produtoForm`** — está na guarda do `renderBg` (`produtoFormOpen`), então
+  **nunca** recebe repaint de fundo: o morphdom não rodaria ali. Migrar seria
+  risco pelo risco.
+- **`cadastroAluno`** — o wizard inteiro (`step`, `showStep`, `validateStep`,
+  `val`) vive em closure, e o caso que importava (repaint de fundo no meio do
+  preenchimento) já é coberto pela gaveta `_bindFormDraft` desde a v425.
+
+**Delegação de teclado e de long-press** cobrem todo `data-click` novo, então a
+migração não precisou duplicar `.onkeydown=` em lugar nenhum.
+
+Estado: **15 de 15 sub-telas** + **10 de 13 telas** + 7 de 7 abas do
+Financeiro. selfTest 176/176. Ainda atrás da flag `?morphdom=1`.
+
+### v553 — morphdom escopado no aluno e no professor (2026-09-05)
+
+`aluno` e `professor` são **roteadores**: não têm handler próprio, só despacham
+pra sub-tela. Habilitá-los inteiros em `_TELAS_MORPH` exigiria `alunoPerfil`
+(59 `.onclick=`) e `profAlunos` limpos ao mesmo tempo — o "tudo ou nada" que
+produziu o vai-e-vem da v530–v541.
+
+**Morph escopado.** A rota ganha `alvo` (`#aluno-body` / `#prof-body`) e o diff
+acontece só dentro desse container. Duas consequências:
+
+- **topbar e tabbar ficam fora do diff** — nunca são reconstruídas, então os
+  `.onclick=` delas seguem válidos e **não precisam migrar**. Era o custo de
+  entrada que travava tudo;
+- dá pra habilitar **uma aba por vez** (`_ALUNO_MORPH` / `_PROF_MORPH`), com o
+  guard cobrando os pré-requisitos só daquela cadeia.
+
+**Chave de tela passa a carregar a sub-tela** (`professor|yama`). Sem isso,
+navegar entre abas seria "mesma tela" e o morph deixaria o `active` da tabbar
+— que está fora do alvo — no estado velho. Trocar de aba muda a chave e cai no
+rebuild, que é o correto: o usuário pediu a mudança e já espera o repaint.
+`_subProf()` inclui os modos-foco (ficha, chamada, edição de turma, import,
+acesso), que trocam a estrutura da tela e alguns nem tabbar têm.
+
+**Delegação de teclado no router.** `role="button" tabindex="0"` não dispara
+click no Enter/Espaço sozinho — cada `.onclick=` migrado arrastava junto um
+`.onkeydown=` gêmeo. Um listener só em `document` cobre todo `data-click`
+presente e futuro; nativos (`button`/`a`/`input`) ficam de fora pra não dobrar
+a ação.
+
+**Sub-telas migradas (4).** `professor/yama` (tabela `_YAMA_ACOES`),
+`professor/graduacao`, `aluno/jornada` e `aluno/jogo`.
+
+**Long-press delegado — `_attachLongPress` morreu.** Ele colava 9
+`addEventListener` em cada nó, o que morre sob morphdom pelo pior jeito
+possível: o nó retido fica com o listener ANTIGO, cuja closure captura o
+treino/técnica da renderização em que foi criado — long-press no item errado
+depois de um repaint, sem erro no console. Agora os listeners moram em
+`document` e a ação sai do `data-longpress` no instante em que dispara.
+
+**Busca da Biblioteca fora da closure.** `_doSearch` capturava
+`searchResults` e `catBlock`; sob morphdom quem fica no DOM são os nós
+antigos, então a busca seguia escrevendo em órfãos e simplesmente parava de
+pintar. Virou `_bibPintarBusca(valor)`, que resolve os nós por id a cada
+chamada — o mesmo conserto da v539 no Financeiro. Não virou `render()` por
+tecla de propósito: sem morphdom o input perderia o foco.
+
+**Seleção do gráfico de 30 dias saiu da closure** (`dayChartNode`): estava
+duplicada entre a variável `sel` e a classe `.sel` no DOM, mantidas em
+sincronia à mão. Ficou só a do DOM, que é a que sobrevive ao diff. A legenda
+de cada coluna viaja no `data-cap` do próprio nó.
+
+**`emptyState(…, btnAction)` passa a receber o NOME de um handler delegado**
+em vez de uma função — os 3 call sites usavam a mesma ação.
+
+**Dois furos do guard fechados nesta rodada:**
+
+- **`async`/`await` não era detectado.** O guard olhava só `.then(` e deixava
+  passar `async function _initList(){ …await…; paint(); }` — mesmo bug, outra
+  sintaxe. Achado migrando `profVideosOnboard`, que aparecia como "só handler
+  direto" e na verdade tem pintura assíncrona, estado em closure (`arr`) e
+  inputs com texto digitado. Ficou de fora; é da mesma classe do Dashboard do
+  Financeiro.
+- **Modais eram puladas por NOME** (`*Sheet$`), o que deixava dezenas de
+  `abrirX`/`rsX`/`bibX` contando como bloqueio — falso positivo que escondia
+  o trabalho real. Agora a regra é comportamental: quem monta em
+  `document.body` vive fora do container morfado. Função híbrida (monta modal
+  **e** devolve nó pro caller, como `profAlunos`) não é pulada — errar pro
+  lado de não habilitar é o único erro barato aqui.
+
+**Chave da ficha do professor** era `'ficha:' + DB.alunoAberto` — objeto vira
+`[object Object]`, então dois alunos diferentes davam a MESMA chave. Passou a
+usar o id.
+
+**Guard.** `tests/telas-morph-allowlist.spec.mjs` passou a validar por
+sub-tela, lendo o mapa `nav === '...' → função` do corpo do próprio roteador
+(em vez de repetir a lista no teste, que é como um guard se desatualiza sem
+avisar). Confere também que o `id` do `alvo` existe no `app.js` — sem ele o
+morph cairia no `catch` e voltaria pro `innerHTML=''` **calado**.
+`cadeia()` passou a pular `render`/`renderBg`/`goAluno`/`goProf`/`_dlg*`: são
+o roteador e o instalador da delegação, só aparecem dentro de handlers (rodam
+DEPOIS do diff) e seguir por eles arrastava o app inteiro — `profAlunos` ia a
+484 funções.
+`tests/morph-escopado.spec.mjs` (novo, 8 asserts) prova em jsdom a tese que
+sustenta o desenho: depois do diff a tabbar fora do alvo é o **mesmo nó**, com
+o handler original ainda disparando.
+
+Estado: 5 de 13 telas + 4 sub-telas (2 do aluno, 2 do professor) + 7 de 7
+abas do Financeiro.
+Ainda atrás da flag `?morphdom=1`.
+
+Diagnóstico do que falta (saída do guard): todas as sub-telas restantes
+(`aluno/inicio`, `aluno/perfil`, `professor/{painel,alunos,turmas,relatorios,
+loja,pedidos,financeiro,videos,perfil}`) têm handler **e** pintura assíncrona
+— nenhuma é só migração de handler.
+
+### v543–v552 — morphdom no Financeiro e no roteador (2026-09-04/05)
+
+Retomada do que a v541 tinha revertido, agora com o recorte que faltava:
+**container estável + allowlist + guard**, em vez de ligar tudo de uma vez.
+
+- **v543** — morphdom escopado no `#fin-body` com `childrenOnly:true`. A v530–v541
+  morfava o `#root` inteiro: na 2ª entrada numa tela o nó novo ficava órfão e o
+  antigo permanecia no DOM (documentado em `tests/morphdom-render.spec.mjs`,
+  CASO 4). Só as abas 100% delegadas entram, via `_FIN_MORPH`.
+- **v544** — Matrículas lê do cache: de 11 idas à rede por abertura (incluindo
+  assinar 168 URLs de foto numa tela sem foto) pra zero no caso comum.
+- **v545** — Matrículas entra na allowlist; `_FIN_MORPH` passa a ter predicado
+  (`pronto()`), porque a aba só pode morfar quando os dados já estão em memória.
+  O guard tinha um furo: CRLF do working tree fazia uma regex falhar **calada**.
+- **v546/v547** — Contratos vira gestão documental (data início/fim + PDF). O
+  valor negociado sai: ele já mora na matrícula, e ter o mesmo número em dois
+  lugares é divergência garantida.
+- **v548/v549/v550** — Despesas, Cobranças e Dashboard migradas. 7 de 7 abas.
+  Segundo furo do guard: uma regex global casava `dashboard:` com o `pintar:` da
+  entrada **seguinte**, validando a função errada e deixando `matriculas` fora
+  da checagem. Corrigido com parse **por entrada** + assert de contagem.
+- **v551** — inadimplente no dashboard leva pras cobranças dele; CSV em formato
+  pt-BR (decimal vírgula, separador `;`, BOM).
+- **v552** — a escada de `if` do `render()` vira a tabela `_ROTAS`; morphdom
+  passa a valer no roteador, com `_TELAS_MORPH` (retro, auth, trocarSenha) e o
+  guard `telas-morph-allowlist`. Parser compartilhado em `tests/_fonte.mjs`:
+  dois parsers separados divergem, e guard que erra calado é pior que não ter.
+
 ### v542 — três bugs do Financeiro: gate por chave + guarda de pintura async (2026-09-04)
 
 Fecha o ciclo v510→v541. Análise de impacto feita antes de tocar no código
