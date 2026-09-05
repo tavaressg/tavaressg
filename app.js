@@ -10182,8 +10182,9 @@ function _finPintarAba(target){
   else _finRenderCategorias(target);
 }
 
-/* v543 — abas habilitadas para morphdom. Para entrar aqui, a aba precisa de
-   DUAS propriedades:
+/* v543/v545 — abas habilitadas para morphdom.
+
+   Para entrar aqui a aba precisa de DUAS propriedades:
 
      (a) 100% event delegation — zero `.onclick=`/`addEventListener` nos nós que
          ela cria. Morphdom preserva nós por identidade, e um handler colado
@@ -10191,31 +10192,49 @@ function _finPintarAba(target){
          (nó preservado). Handlers no router (`data-click`) atravessam o morph
          sem nada disso — provado em tests/morphdom-fin-body.spec.mjs cenário 5.
 
-     (b) render SÍNCRONO — nada de `.then()` appendando depois. O morph pinta
+     (b) pintura SÍNCRONA — nada de `.then()` appendando depois. O morph pinta
          num container de staging que é DESCARTADO após o diff; uma resposta
-         async appendaria no staging morto. Dashboard e Matrículas fazem fetch
-         dentro do render, então ficam de fora até serem reescritas.
+         async appendaria no staging morto.
 
-   Fora desta lista a aba usa o caminho antigo (innerHTML='' + append), que
+   v545: (b) deixou de ser propriedade fixa da aba e virou uma pergunta feita
+   na hora — `pronto()`. Matrículas pinta síncrona quando os caches estão
+   quentes e assíncrona quando estão frios (v544); com o predicado ela usa
+   morphdom no caso comum e cai no caminho antigo no cold start, em vez de
+   ficar de fora para sempre.
+
+   `pintar` aponta para a função SÍNCRONA da aba — não para a que tem o
+   fallback async. É essa que o guard (tests/fin-morph-allowlist.spec.mjs)
+   varre, seguindo a cadeia de chamadas.
+
+   Fora deste mapa a aba usa o caminho antigo (innerHTML='' + append), que
    continua correto. Adicionar aba aqui sem checar (a) e (b) reintroduz
-   exatamente os bugs de v530-v541. */
-const _FIN_TABS_MORPH = ['categorias', 'planos'];
+   exatamente os bugs de v530-v541 — por isso o guard roda no CI. */
+const _FIN_MORPH = {
+  categorias: { pronto: () => true, pintar: (t) => _finRenderCategorias(t) },
+  planos:     { pronto: () => true, pintar: (t) => _finRenderPlanos(t) },
+  matriculas: {
+    pronto: () => !!(_finMatriculas && typeof _profData !== 'undefined' && _profData && _profData.alunos),
+    pintar: (t) => _finMatriculasPintar(t, _profData.alunos, _finMatriculas),
+  },
+};
 
 function _finPaintBody(body){
   if(!body) return;
   _finPaintSeq++;   // v542: invalida respostas async de pinturas anteriores
-  // v543: morphdom ESCOPADO — só nos filhos do body, só nas abas da allowlist.
+  // v543: morphdom ESCOPADO — só nos filhos do body, só nas abas do mapa.
   // childrenOnly preserva o próprio body, então as closures de profFinanceiro
   // que o referenciam continuam válidas (era exatamente o que quebrava quando
   // o morphdom rodava no #root inteiro — ver tests/morphdom-render.spec.mjs).
+  const morph = _FIN_MORPH[_finTab];
   const podeMorph = MORPHDOM
     && typeof morphdom === 'function'
     && body.isConnected                       // staging só faz sentido com body vivo
-    && _FIN_TABS_MORPH.includes(_finTab);
+    && morph
+    && morph.pronto();                        // v545: a aba consegue pintar síncrona AGORA?
   if(podeMorph){
     try {
       const staging = body.cloneNode(false);
-      _finPintarAba(staging);
+      morph.pintar(staging);
       morphdom(body, staging, { childrenOnly: true });
       return;
     } catch(_){ /* cai no caminho antigo */ }
@@ -11214,7 +11233,7 @@ function _finMatriculasPintar(body, alunos, matriculas){
       const badgeAluno = st.valor==='ativo'
         ? '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Ativo</span>'
         : `<span style="font-size:10.5px;color:#fff;background:var(--red);padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap">Inativo${st.origem==='manual'?'*':''}</span>`;
-      const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${semPl?'background:rgba(229,57,47,0.04)':''}">
+      const tr = el(`<tr data-click="finMatriculaPlano" data-id="${safeAttr(a.id)}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea);${semPl?'background:rgba(229,57,47,0.04)':''}">
         <td style="padding:10px 12px;font-weight:700">${safeTxt(_nomeInst(a))}</td>
         <td style="padding:10px 8px;font-size:12px">${safeTxt(turmas)}</td>
         <td style="padding:10px 8px">${safeTxt(plano ? plano.nome : '—')}</td>
@@ -11226,13 +11245,22 @@ function _finMatriculasPintar(body, alunos, matriculas){
         <td style="padding:10px 8px;text-align:center">${badgeMatricula}</td>
         <td style="padding:10px 8px;text-align:center" title="${safeAttr(_statusAlunoTxt(a))}">${badgeAluno}</td>
       </tr>`);
-      tr.onclick = ()=> _finAlunoPlanoSheet(a, ()=>{ _finReload(['matriculas','cobrancas']); });
       tbody.appendChild(tr);
     });
     wrap.appendChild(table);
     body.appendChild(wrap);
   }
 }
+
+/* v545: handler da linha de Matrículas via delegation. O aluno é buscado
+   fresh no `_profData.alunos` pelo data-id — nada de closure capturando o
+   `a` do forEach, que é o que impede o morphdom de preservar as linhas. */
+_dlgRegister('finMatriculaPlano', (el) => {
+  const alunos = (typeof _profData !== 'undefined' && _profData && _profData.alunos) || [];
+  const a = alunos.find(x => String(x.id) === el.dataset.id);
+  if(!a) return;
+  _finAlunoPlanoSheet(a, ()=>{ _finReload(['matriculas','cobrancas']); });
+});
 
 function _plus(iso, dias){
   const d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()+dias);

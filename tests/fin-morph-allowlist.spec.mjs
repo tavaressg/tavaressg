@@ -19,16 +19,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 
-const src = fs.readFileSync(path.resolve('app.js'), 'utf8');
+// Normaliza CRLF: no Windows o working tree vem com \r\n (core.autocrlf), e
+// regex que ancora em \n falha silenciosamente — o que já custou um debug aqui.
+const src = fs.readFileSync(path.resolve('app.js'), 'utf8').replace(/\r\n/g, '\n');
 const linhas = src.split('\n');
 
-// ---------- lê a allowlist do código real ----------
-const mAllow = src.match(/const _FIN_TABS_MORPH = (\[[^\]]*\]);/);
-assert.ok(mAllow, 'achou _FIN_TABS_MORPH no app.js');
-const allowlist = JSON.parse(mAllow[1].replace(/'/g, '"'));
-assert.ok(Array.isArray(allowlist) && allowlist.length > 0, 'allowlist é array não-vazio');
+// ---------- lê o mapa _FIN_MORPH do código real ----------
+// Cada entrada: { pronto: () => ..., pintar: (t) => _finAlgumaCoisa(t, ...) }
+// O guard varre a função apontada em `pintar` — a SÍNCRONA — e não a de
+// entrada da aba, que pode ter fallback async legítimo (v545, Matrículas).
+const iniMorph = src.indexOf('const _FIN_MORPH = {');
+assert.ok(iniMorph > 0, 'achou _FIN_MORPH no app.js');
+const blocoMorph = src.slice(iniMorph, src.indexOf('\n};', iniMorph));
+const pintarPorAba = {};
+for (const m of blocoMorph.matchAll(/(\w+):\s*\{[\s\S]*?pintar:\s*\([^)]*\)\s*=>\s*(_fin\w+)\(/g)) {
+  pintarPorAba[m[1]] = m[2];
+}
+const allowlist = Object.keys(pintarPorAba);
+assert.ok(allowlist.length > 0, '_FIN_MORPH tem ao menos uma aba');
 
 // ---------- mapeia aba → função de render (lido do _finPintarAba) ----------
+// Usado só na sanidade reversa (por que cada aba de fora está de fora).
 const iniPintar = src.indexOf('function _finPintarAba(');
 assert.ok(iniPintar > 0, 'achou _finPintarAba');
 const corpoPintar = src.slice(iniPintar, src.indexOf('\n}', iniPintar));
@@ -92,8 +103,19 @@ function cadeia(nome, vistos = new Set()){
 
 // ---------- valida cada aba da allowlist ----------
 for (const aba of allowlist) {
-  const fn = mapa[aba];
-  assert.ok(fn, `aba "${aba}" da allowlist tem função de render mapeada em _finPintarAba`);
+  const fn = pintarPorAba[aba];
+  assert.ok(fn, `aba "${aba}" do _FIN_MORPH aponta uma função em \`pintar\``);
+  assert.ok(TOPLEVEL.has(fn), `"${fn}" (pintar da aba "${aba}") é função top-level do app.js`);
+
+  // Toda aba precisa declarar `pronto()` — é o que impede o morph de rodar
+  // quando a pintura naquele instante seria assíncrona (cold start).
+  const iAba = blocoMorph.indexOf(aba + ':');
+  const iPintar = blocoMorph.indexOf('pintar:', iAba);
+  assert.ok(iAba >= 0 && iPintar > iAba, `aba "${aba}" está declarada no _FIN_MORPH`);
+  const antesDoPintar = blocoMorph.slice(iAba, iPintar);
+  assert.ok(/pronto:\s*\(\)\s*=>/.test(antesDoPintar),
+    `aba "${aba}" precisa declarar pronto() no _FIN_MORPH — é o que impede o morph ` +
+    `de rodar quando a pintura naquele instante seria assíncrona`);
 
   const partes = cadeia(fn);
 
