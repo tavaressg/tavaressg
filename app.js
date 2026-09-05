@@ -10172,6 +10172,15 @@ function _finPaintOk(body, seq){
   return !!body && body.isConnected && seq === _finPaintSeq;
 }
 
+/* v549 — repinta a aba ativa a partir de um handler global do router, que
+   não tem acesso ao `body` da closure de profFinanceiro. Com morphdom
+   ligado o repaint é um diff (só a linha que mudou toca o DOM); sem a flag
+   é o mesmo innerHTML='' que todas as outras abas já usam. */
+function _finRepintarAbaAtual(){
+  const body = document.getElementById('fin-body');
+  if(body) _finPaintBody(body);
+}
+
 // Pinta o conteúdo da aba ativa DENTRO de `target`. Extraído do _finPaintBody
 // (v543) para poder rodar tanto no body real quanto num container de staging.
 function _finPintarAba(target){
@@ -10216,6 +10225,7 @@ const _FIN_MORPH = {
   planos:     { pronto: () => true, pintar: (t) => _finRenderPlanos(t) },
   contratos:  { pronto: () => true, pintar: (t) => _finRenderContratos(t) },
   despesas:   { pronto: () => true, pintar: (t) => _finRenderDespesas(t) },
+  cobrancas:  { pronto: () => true, pintar: (t) => _finRenderCobrancas(t) },
   matriculas: {
     pronto: () => !!(_finMatriculas && typeof _profData !== 'undefined' && _profData && _profData.alunos),
     pintar: (t) => _finMatriculasPintar(t, _profData.alunos, _finMatriculas),
@@ -10574,12 +10584,9 @@ function _finRenderCobrancas(body){
   // v500: sub-tabs de status removidas — tabela unificada com coluna Status.
   // Dono viu tudo numa tela só, sem clicar. Ordenação: vencidas > a vencer >
   // pagas > isentas, e dentro do grupo por venc (mais antigo primeiro).
-  const novaBtn = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova venda</button>');
-  novaBtn.onclick = ()=> _vendaPresencialSheet(()=>{ _finReload('cobrancas'); if(_loadPedidos) _loadPedidos(true); });
-  const avulsaBtn = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Cobrança avulsa</button>');
-  avulsaBtn.onclick = ()=> _finCobrancaAvulsaSheet(()=>{ _finReload('cobrancas'); });
-  body.appendChild(novaBtn);
-  body.appendChild(avulsaBtn);
+  // v549: migrado pra event delegation (data-click) — ver _FIN_MORPH.
+  body.appendChild(el('<button class="btn-cad" data-click="finCobVendaNova" style="margin:8px 12px 4px">＋ Nova venda</button>'));
+  body.appendChild(el('<button class="btn-cad ghost" data-click="finCobAvulsaNova" style="margin:0 12px 8px">＋ Cobrança avulsa</button>'));
 
   if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
 
@@ -10673,66 +10680,85 @@ function _finRenderCobrancas(body){
       <td style="padding:10px 8px;white-space:nowrap">${c.data_pagamento ? dmyLong(c.data_pagamento) : '—'}</td>
       <td style="padding:10px 8px;font-size:12px;white-space:nowrap">${safeTxt(forma) || '—'}</td>
       <td style="padding:10px 8px;text-align:center;white-space:nowrap">
-        <button class="btn-cad ghost" data-act="edit" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
-        <button class="btn-cad ghost" data-act="desconto" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
-        <button class="btn-cad ghost" data-act="del" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="${c.pedido_id?'Cancelar venda (restaura estoque)':'Excluir cobrança'}">🗑️</button>
+        <button class="btn-cad ghost" data-click="finCobEdit" data-id="${safeAttr(c.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar (data / forma / obs)">✏️</button>
+        <button class="btn-cad ghost" data-click="finCobDesconto" data-id="${safeAttr(c.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Aplicar desconto (editar valor)">💰</button>
+        <button class="btn-cad ghost" data-click="finCobExcluir" data-id="${safeAttr(c.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="${c.pedido_id?'Cancelar venda (restaura estoque)':'Excluir cobrança'}">🗑️</button>
       </td>
     </tr>`);
-    // Bind actions — todas com optimistic update
-    tr.querySelector('[data-act="edit"]').onclick = ()=> _finCobrancaSheet(c, (patch)=> optimisticUpdate(c.id, patch));
-    tr.querySelector('[data-act="desconto"]').onclick = ()=> _finCobrancaDescontoSheet(c, (novoValor)=> optimisticUpdate(c.id, { valor: novoValor }));
-    const btnDel = tr.querySelector('[data-act="del"]');
-    if(btnDel) btnDel.onclick = ()=>{
-      const nome = p.nome_completo || p.apelido || 'aluno';
-      // v522: se a cobrança veio de uma venda (pedido_id), excluir só a cobrança
-      // deixaria o pedido + estoque órfãos. Cancela o pedido (restaura estoque
-      // via RPC cancelar_pedido). A cobrança some junto pela cascata do backend.
-      if(c.pedido_id){
-        if(!confirm(`Cancelar venda de ${nome} — ${moneyBR(c.valor)}?\n\nO estoque do produto será RESTAURADO e a cobrança removida. Não dá pra desfazer.`)) return;
-        sbProf.cancelarVendaEstornar(c.pedido_id)
-          .then(()=>{
-            toast('Venda cancelada, estoque restaurado ✔');
-            const idx = _finCobrancas.findIndex(x => x.id === c.id);
-            if(idx >= 0) _finCobrancas.splice(idx, 1);
-            tr.remove();
-            if(_loadPedidos) _loadPedidos(true);
-          })
-          .catch(err=> toast('Erro ao cancelar venda: '+(err.message||err)));
-        return;
-      }
-      if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
-      sbProf.excluirCobranca(c.id)
-        .then(()=>{
-          toast('Cobrança excluída');
-          const idx = _finCobrancas.findIndex(x => x.id === c.id);
-          if(idx >= 0) _finCobrancas.splice(idx, 1);
-          tr.remove();
-        })
-        .catch(err=> toast('Erro: '+(err.message||err)));
-    };
     return tr;
-  };
-
-  // Optimistic update: patch local em _finCobrancas + repinta APENAS a linha
-  const optimisticUpdate = (id, patch) => {
-    const idx = _finCobrancas.findIndex(x => x.id === id);
-    if(idx < 0) return;
-    Object.assign(_finCobrancas[idx], patch);
-    // Se virou pago sem data_pagamento, adapter põe hoje — reflete no local
-    if(patch.status === 'pago' && !_finCobrancas[idx].data_pagamento){
-      _finCobrancas[idx].data_pagamento = HOJE_ISO;
-    }
-    const trOld = tbody.querySelector(`[data-cob-id="${id}"]`);
-    if(trOld){
-      const trNew = buildRow(_finCobrancas[idx]);
-      trOld.replaceWith(trNew);
-    }
   };
 
   sorted.forEach(c => tbody.appendChild(buildRow(c)));
   wrap.appendChild(table);
   body.appendChild(wrap);
 }
+
+/* v549 — handlers da aba Cobranças via delegation.
+
+   O que saiu daqui: o par `buildRow` + `optimisticUpdate`, que repintava
+   manualmente só a linha alterada (`trOld.replaceWith(trNew)`) para evitar o
+   flash da tabela inteira. Com o repaint passando por _finPaintBody, o
+   morphdom faz esse diff sozinho e melhor — e sem a flag o comportamento
+   fica igual ao das outras cinco abas, que já repintam por completo.
+
+   O patch local em `_finCobrancas` foi PRESERVADO: é ele que faz a mudança
+   aparecer na hora, sem esperar o refetch. Só o repaint cirúrgico saiu. */
+function _finCobPatchLocal(id, patch){
+  const idx = (_finCobrancas||[]).findIndex(x => String(x.id) === String(id));
+  if(idx < 0) return;
+  Object.assign(_finCobrancas[idx], patch);
+  // Se virou pago sem data_pagamento, o adapter põe hoje — reflete no local
+  if(patch.status === 'pago' && !_finCobrancas[idx].data_pagamento){
+    _finCobrancas[idx].data_pagamento = HOJE_ISO;
+  }
+  _finRepintarAbaAtual();
+}
+function _finCobPorId(el){
+  return (_finCobrancas||[]).find(x => String(x.id) === el.dataset.id) || null;
+}
+
+_dlgRegister('finCobVendaNova', () => {
+  _vendaPresencialSheet(()=>{ _finReload('cobrancas'); if(_loadPedidos) _loadPedidos(true); });
+});
+_dlgRegister('finCobAvulsaNova', () => {
+  _finCobrancaAvulsaSheet(()=>{ _finReload('cobrancas'); });
+});
+_dlgRegister('finCobEdit', (el) => {
+  const c = _finCobPorId(el); if(!c) return;
+  _finCobrancaSheet(c, (patch)=> _finCobPatchLocal(c.id, patch));
+});
+_dlgRegister('finCobDesconto', (el) => {
+  const c = _finCobPorId(el); if(!c) return;
+  _finCobrancaDescontoSheet(c, (novoValor)=> _finCobPatchLocal(c.id, { valor: novoValor }));
+});
+_dlgRegister('finCobExcluir', (el) => {
+  const c = _finCobPorId(el); if(!c) return;
+  const p = c.profiles || {};
+  const nome = p.nome_completo || p.apelido || 'aluno';
+  const removerLocal = ()=>{
+    const idx = (_finCobrancas||[]).findIndex(x => String(x.id) === String(c.id));
+    if(idx >= 0) _finCobrancas.splice(idx, 1);
+    _finRepintarAbaAtual();
+  };
+  // v522: cobrança vinda de venda (pedido_id) — excluir só a cobrança deixaria
+  // o pedido e o estoque órfãos. A RPC cancelar_venda_estornar (0053) desfaz
+  // tudo: restaura estoque, cancela o pedido e apaga a mensalidade.
+  if(c.pedido_id){
+    if(!confirm(`Cancelar venda de ${nome} — ${moneyBR(c.valor)}?\n\nO estoque do produto será RESTAURADO e a cobrança removida. Não dá pra desfazer.`)) return;
+    sbProf.cancelarVendaEstornar(c.pedido_id)
+      .then(()=>{
+        toast('Venda cancelada, estoque restaurado ✔');
+        removerLocal();
+        if(_loadPedidos) _loadPedidos(true);
+      })
+      .catch(err=> toast('Erro ao cancelar venda: '+(err.message||err)));
+    return;
+  }
+  if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
+  sbProf.excluirCobranca(c.id)
+    .then(()=>{ toast('Cobrança excluída'); removerLocal(); })
+    .catch(err=> toast('Erro: '+(err.message||err)));
+});
 
 // v504: sheet compacta pra aplicar desconto (editar valor de 1 cobrança específica)
 // v509: aceita onDone(novoValor) pra optimistic update no chamador
