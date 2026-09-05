@@ -5908,13 +5908,15 @@ function profPainel(){
     // clique no CTA de próximas 7 dias abre Financeiro
     const cta = finCard.querySelector('.fin-cta');
     if(cta){
-      cta.onclick = ()=>{ _finTab='cobrancas'; _finCobFiltro='avencer'; goProf('financeiro'); };
+      // v551: `_finCobFiltro` saiu (era gravada e nunca lida). Sem filtro por
+      // aluno, a aba abre com todas as cobranças do mês.
+      cta.onclick = ()=>{ _finTab='cobrancas'; _finCobAluno=null; goProf('financeiro'); };
       cta.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); cta.click(); } };
     }
     // Link "Ver todos" da lista de inadimplentes
     const verInad = finCard.querySelector('.fin-ver-inad');
     if(verInad){
-      verInad.onclick = ()=>{ _finTab='cobrancas'; _finCobFiltro='vencidas'; goProf('financeiro'); };
+      verInad.onclick = ()=>{ _finTab='cobrancas'; _finCobAluno=null; goProf('financeiro'); };
       verInad.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); verInad.click(); } };
     }
   };
@@ -9979,7 +9981,10 @@ const _finTsK = {};
 // (troca de aba, refetch, saída do Financeiro). Ver _finPaintOk.
 let _finPaintSeq = 0;
 let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
-let _finCobFiltro = 'vencidas';   // 'vencidas'|'avencer'|'pagas'|'isentas'
+/* v551: `_finCobFiltro` removida — era setada em dois CTAs do Painel e nunca
+   lida desde que a v500 trocou as sub-tabs de status por uma tabela unificada.
+   No lugar entra o filtro que de fato existe na tela: por aluno. */
+let _finCobAluno = null;   // user_id em foco na aba Cobranças, ou null
 let _finDespFiltro = 'a_pagar';
 let _finContrFiltro = 'ativo';
 
@@ -10116,7 +10121,7 @@ function profFinanceiro(){
   };
   w.appendChild(prep);
 
-  const tabs = el(`<div class="filter-seg" style="margin:6px 12px 10px;overflow-x:auto" role="tablist">
+  const tabs = el(`<div class="filter-seg" id="fin-tabs" style="margin:6px 12px 10px;overflow-x:auto" role="tablist">
     <button data-t="dashboard" ${_finTab==='dashboard'?'class="active"':''}>Dashboard</button>
     <button data-t="cobrancas" ${_finTab==='cobrancas'?'class="active"':''}>Cobranças</button>
     <button data-t="despesas"  ${_finTab==='despesas' ?'class="active"':''}>Despesas</button>
@@ -10132,7 +10137,8 @@ function profFinanceiro(){
   tabs.querySelectorAll('[data-t]').forEach(b=>{
     b.onclick=()=>{
       _finTab=b.dataset.t;
-      tabs.querySelectorAll('[data-t]').forEach(x=>x.classList.toggle('active', x.dataset.t===_finTab));
+      _finCobAluno = null;         // v551: trocar de aba limpa o filtro por aluno
+      _finSyncTabsAtiva();
       _finPaintBody(body);
     };
   });
@@ -10179,6 +10185,17 @@ function _finPaintOk(body, seq){
 function _finRepintarAbaAtual(){
   const body = document.getElementById('fin-body');
   if(body) _finPaintBody(body);
+}
+
+/* v551 — marca a tab ativa a partir de `_finTab`. Necessário quando a aba
+   muda por fora do clique na própria tab (ex.: o inadimplente do Dashboard
+   que leva pra Cobranças), já que a barra de tabs não é repintada. */
+function _finSyncTabsAtiva(){
+  const tabs = document.getElementById('fin-tabs');
+  if(!tabs) return;
+  tabs.querySelectorAll('[data-t]').forEach(x=>{
+    x.classList.toggle('active', x.dataset.t === _finTab);
+  });
 }
 
 // Pinta o conteúdo da aba ativa DENTRO de `target`. Extraído do _finPaintBody
@@ -10453,6 +10470,15 @@ _dlgRegister('finAbrirWhatsapp', (el) => {
   const url = el.dataset.wa;
   if(url) window.open(url, '_blank', 'noopener');
 });
+/* v551: do inadimplente no Dashboard direto pras cobranças dele. Só troca a
+   aba e liga o filtro — a mesma tela, sem rota nova. */
+_dlgRegister('finVerCobrancasDoAluno', (el) => {
+  _finCobAluno = el.dataset.id || null;
+  _finTab = 'cobrancas';
+  _finRepintarAbaAtual();
+  _finSyncTabsAtiva();
+  try{ window.scrollTo(0, 0); }catch(_){}
+});
 _dlgRegister('finDashExportCSV', () => {
   const ano = _finDashAnoAtual(); const d = _finDashCache[ano];
   if(d) _finExportCSV(d.resumo, ano);
@@ -10461,20 +10487,29 @@ _dlgRegister('finDashExportPDF', () => {
   const ano = _finDashAnoAtual(); const d = _finDashCache[ano];
   if(d) _finExportPDF(d.resumo, ano);
 });
+/* v551 — número no CSV em formato brasileiro: vírgula decimal.
+   `toFixed(2)` devolve "190.00", e o Excel em pt-BR lê isso como texto (ou
+   como 19000, dependendo da configuração) — some com as somas da planilha.
+   O separador de campo já era `;`, que é o que o Excel pt-BR espera, e o BOM
+   já estava lá pra acentuação. Faltava só o decimal. */
+function _csvNum(v){ return Number(v||0).toFixed(2).replace('.', ','); }
+
 function _finExportCSV(resumo, ano){
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  // Campo de texto entre aspas: nome de categoria pode conter `;`
+  const txt = (s)=> '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
   const linhas = ['Mês;Receita;Despesa;Saldo'];
   resumo.meses.forEach((m,i)=>{
-    linhas.push([MESES[i]+'/'+ano, m.receita.toFixed(2), m.despesa.toFixed(2), m.saldo.toFixed(2)].join(';'));
+    linhas.push([MESES[i]+'/'+ano, _csvNum(m.receita), _csvNum(m.despesa), _csvNum(m.saldo)].join(';'));
   });
   linhas.push('');
   linhas.push('Receita por tipo');
   Object.entries(resumo.receitasPorCategoria).sort((a,b)=>b[1]-a[1])
-    .forEach(([k,v])=> linhas.push(k+';'+v.toFixed(2)));
+    .forEach(([k,v])=> linhas.push(txt(k)+';'+_csvNum(v)));
   linhas.push('');
   linhas.push('Despesa por tipo');
   Object.entries(resumo.despesasPorCategoria).sort((a,b)=>b[1]-a[1])
-    .forEach(([k,v])=> linhas.push(k+';'+v.toFixed(2)));
+    .forEach(([k,v])=> linhas.push(txt(k)+';'+_csvNum(v)));
   const blob = new Blob(['﻿'+linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -10618,10 +10653,12 @@ function _finDashInadTabela(inad){
     // v550: botão do WhatsApp via delegation. O link já vinha pronto num
     // data-wa; agora o próprio atributo dispara o handler.
     const wa = x.telefone ? _waLink({telefone:x.telefone, apelido:x.nome}) : null;
-    list.appendChild(el(`<div class="st-row">
+    // v551: a linha leva pra Cobranças filtrada neste aluno — o Dashboard diz
+    // QUANTO ele deve, a aba Cobranças diz QUAIS parcelas e de quando.
+    list.appendChild(el(`<div class="st-row" data-click="finVerCobrancasDoAluno" data-id="${safeAttr(x.id)}" style="cursor:pointer" title="Ver as cobranças de ${safeAttr(x.nome)}">
       <div class="st-mid">
         <div class="nm">${safeTxt(x.nome)}</div>
-        <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${x.meses} m${x.meses>1?'eses':'ês'} vencido${x.meses>1?'s':''}</span></div>
+        <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${x.meses} m${x.meses>1?'eses':'ês'} vencido${x.meses>1?'s':''} · ver cobranças ›</span></div>
       </div>
       <div class="st-right" style="display:flex;align-items:center;gap:8px">
         <div style="font-size:14.5px;font-weight:800;color:var(--red)">${moneyBR(x.total)}</div>
@@ -10635,13 +10672,20 @@ function _finDashInadTabela(inad){
 
 /* ---- Sub-aba: Cobranças ---- */
 function _finRenderCobrancas(body){
-  const cobs = _finCobrancas || [];
+  const todas = _finCobrancas || [];
+  // v551: filtro por aluno, ligado ao clicar num inadimplente no Dashboard.
+  // Os KPIs do topo seguem mostrando o mês INTEIRO — o filtro é da lista, e
+  // trocar o significado dos totais no meio da navegação confundiria mais do
+  // que ajudaria. O chip abaixo deixa explícito o que está filtrado.
+  const cobs = _finCobAluno
+    ? todas.filter(c => String(c.user_id) === String(_finCobAluno))
+    : todas;
   const today = HOJE_ISO;
   const isVenc = c => c.status==='pendente' && c.venc && c.venc < today;
-  const vencidas = cobs.filter(isVenc);
-  const aVencer  = cobs.filter(c => c.status==='pendente' && !isVenc(c));
-  const pagas    = cobs.filter(c => c.status==='pago');
-  const isentas  = cobs.filter(c => c.status==='isento');
+  const vencidas = todas.filter(isVenc);
+  const aVencer  = todas.filter(c => c.status==='pendente' && !isVenc(c));
+  const pagas    = todas.filter(c => c.status==='pago');
+  const isentas  = todas.filter(c => c.status==='isento');
   const soma = arr => arr.reduce((s,c)=>s+(Number(c.valor)||0),0);
 
   body.appendChild(el(`<div class="fin-head">
@@ -10651,6 +10695,26 @@ function _finRenderCobrancas(body){
       <div class="c"><div class="v red">${moneyBR(soma(vencidas))}</div><div class="l">Vencido</div></div>
       <div class="c"><div class="v">${isentas.length}</div><div class="l">Isentos</div></div>
     </div></div>`));
+
+  // Chip do filtro por aluno: quem, quantas parcelas, quanto vencido, e a saída.
+  if(_finCobAluno){
+    const p = (cobs[0] && cobs[0].profiles) || {};
+    const nome = p.nome_completo || p.apelido || 'aluno';
+    const vencAluno = cobs.filter(isVenc);
+    const resumo = vencAluno.length
+      ? `${vencAluno.length} vencida${vencAluno.length>1?'s':''} · ${moneyBR(soma(vencAluno))}`
+      : 'nenhuma vencida neste mês';
+    body.appendChild(el(`<div style="display:flex;align-items:center;gap:10px;margin:6px 12px 8px;padding:10px 12px;border-radius:10px;background:var(--card-alt,rgba(0,0,0,0.03));border-left:4px solid var(--red)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:800;font-size:13px">${safeTxt(nome)}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:1px">${safeTxt(resumo)} · mês de ${safeTxt(_finMesNome())}</div>
+      </div>
+      <button class="btn-cad ghost" data-click="finCobLimparAluno" style="padding:6px 12px;font-size:12px;white-space:nowrap">Ver todos</button>
+    </div>`));
+    if(!cobs.length){
+      body.appendChild(el(`<div class="empty-line">Nenhuma cobrança deste aluno em ${safeTxt(_finMesNome())}. Use ‹ › para procurar em outro mês.</div>`));
+    }
+  }
 
   // v500: sub-tabs de status removidas — tabela unificada com coluna Status.
   // Dono viu tudo numa tela só, sem clicar. Ordenação: vencidas > a vencer >
@@ -10788,6 +10852,10 @@ function _finCobPorId(el){
   return (_finCobrancas||[]).find(x => String(x.id) === el.dataset.id) || null;
 }
 
+_dlgRegister('finCobLimparAluno', () => {
+  _finCobAluno = null;
+  _finRepintarAbaAtual();
+});
 _dlgRegister('finCobVendaNova', () => {
   _vendaPresencialSheet(()=>{ _finReload('cobrancas'); if(_loadPedidos) _loadPedidos(true); });
 });
