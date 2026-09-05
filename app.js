@@ -10215,6 +10215,7 @@ const _FIN_MORPH = {
   categorias: { pronto: () => true, pintar: (t) => _finRenderCategorias(t) },
   planos:     { pronto: () => true, pintar: (t) => _finRenderPlanos(t) },
   contratos:  { pronto: () => true, pintar: (t) => _finRenderContratos(t) },
+  despesas:   { pronto: () => true, pintar: (t) => _finRenderDespesas(t) },
   matriculas: {
     pronto: () => !!(_finMatriculas && typeof _profData !== 'undefined' && _profData && _profData.alunos),
     pintar: (t) => _finMatriculasPintar(t, _profData.alunos, _finMatriculas),
@@ -10780,12 +10781,9 @@ function _finRenderDespesas(body){
   // v501: sub-tabs de status removidas — tabela unificada com coluna Status.
   // Mesmo padrão da v500 em Cobranças. Ordenação: vencidas > a pagar > pagas
   // > canceladas; dentro por data_lancamento asc.
-  const btnNova = el('<button class="btn-cad" style="margin:8px 12px 4px">＋ Nova despesa</button>');
-  btnNova.onclick = ()=> _finDespesaSheet(null, ()=>{ _finReload(['despesas','rec']); });
-  const btnRec = el('<button class="btn-cad ghost" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>');
-  btnRec.onclick = ()=> _finDespesaRecorrenteSheet(null, ()=>{ _finReload(['despesas','rec']); });
-  body.appendChild(btnNova);
-  body.appendChild(btnRec);
+  // v548: migrado pra event delegation (data-click) — ver _FIN_MORPH.
+  body.appendChild(el('<button class="btn-cad" data-click="finDespesaNova" style="margin:8px 12px 4px">＋ Nova despesa</button>'));
+  body.appendChild(el('<button class="btn-cad ghost" data-click="finDespesaRecNova" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>'));
 
   // Cards das recorrentes ativas (mantido do original)
   const recs = (_finRec||[]).filter(r=> r.ativo!==false);
@@ -10794,15 +10792,13 @@ function _finRenderDespesas(body){
     const recList = el('<div class="list" style="margin-bottom:8px"></div>');
     recs.forEach(r=>{
       const cat = r.categorias_financeiro && r.categorias_financeiro.nome;
-      const row = el(`<div class="st-row" style="cursor:pointer">
+      recList.appendChild(el(`<div class="st-row" data-click="finDespesaRecEdit" data-id="${safeAttr(r.id)}" style="cursor:pointer">
         <div class="st-mid"><div class="nm">${safeTxt(r.descricao)}</div>
           <div class="meta"><span style="font-size:11.5px;color:var(--muted);font-weight:600">${safeTxt(cat||'—')} · ${r.parcelas_total}× ${moneyBR(r.valor_parcela)} · dia ${r.dia_venc}</span></div></div>
         <div class="st-right">
           <div style="font-size:14.5px;font-weight:800">${moneyBR((r.valor_parcela||0) * (r.parcelas_total||0))}</div>
         </div>
-      </div>`);
-      row.onclick = ()=> _finDespesaRecorrenteSheet(r, ()=>{ _finReload(['despesas','rec']); });
-      recList.appendChild(row);
+      </div>`));
     });
     body.appendChild(recList);
   }
@@ -10848,10 +10844,12 @@ function _finRenderDespesas(body){
     const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
     const cor = d.status==='pago' ? 'var(--good)' : (isVencDesp(d) ? 'var(--red)' : 'var(--ink)');
     const forma = d.forma_pagamento ? (FORMA_LBL[d.forma_pagamento]||d.forma_pagamento) : '';
+    // v548: o botão de quick pay não precisa mais de stopPropagation — o
+    // router resolve pelo `closest`, que acha o botão antes da linha.
     const quickPay = d.status==='a_pagar'
-      ? `<button class="btn-cad ghost" data-quickpay="1" style="padding:4px 10px;font-size:13px" title="Marcar paga">✓</button>`
+      ? `<button class="btn-cad ghost" data-click="finDespesaQuickPay" data-id="${safeAttr(d.id)}" style="padding:4px 10px;font-size:13px" title="Marcar paga">✓</button>`
       : '';
-    const tr = el(`<tr style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
+    tbody.appendChild(el(`<tr data-click="finDespesaEdit" data-id="${safeAttr(d.id)}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
       <td style="padding:10px 12px;font-weight:700">${safeTxt(d.descricao)}${rec?` <span style="font-size:10.5px;color:var(--muted);font-weight:500">(recorrente)</span>`:''}</td>
       <td style="padding:10px 8px">${safeTxt(cat||'—')}</td>
       <td style="padding:10px 8px">${dmy(d.data_lancamento)}</td>
@@ -10860,15 +10858,35 @@ function _finRenderDespesas(body){
       <td style="padding:10px 8px">${d.data_pagamento ? dmy(d.data_pagamento) : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${safeTxt(forma) || '—'}</td>
       <td style="padding:10px 8px;text-align:center">${quickPay}</td>
-    </tr>`);
-    const qp = tr.querySelector('[data-quickpay]');
-    if(qp) qp.onclick = (e)=>{ e.stopPropagation(); _finDespesaQuickPaySheet(d, ()=>{ _finReload('despesas'); }); };
-    tr.onclick = ()=> _finDespesaSheet(d, ()=>{ _finReload(['despesas','rec']); });
-    tbody.appendChild(tr);
+    </tr>`));
   });
   wrap.appendChild(table);
   body.appendChild(wrap);
 }
+
+/* v548: handlers da aba Despesas via delegation. Lookup fresh em _finDespesas
+   / _finRec pelo data-id — sem closure capturando o item do forEach. */
+_dlgRegister('finDespesaNova', () => {
+  _finDespesaSheet(null, ()=>{ _finReload(['despesas','rec']); });
+});
+_dlgRegister('finDespesaRecNova', () => {
+  _finDespesaRecorrenteSheet(null, ()=>{ _finReload(['despesas','rec']); });
+});
+_dlgRegister('finDespesaEdit', (el) => {
+  const d = (_finDespesas||[]).find(x => String(x.id) === el.dataset.id);
+  if(!d) return;
+  _finDespesaSheet(d, ()=>{ _finReload(['despesas','rec']); });
+});
+_dlgRegister('finDespesaQuickPay', (el) => {
+  const d = (_finDespesas||[]).find(x => String(x.id) === el.dataset.id);
+  if(!d) return;
+  _finDespesaQuickPaySheet(d, ()=>{ _finReload('despesas'); });
+});
+_dlgRegister('finDespesaRecEdit', (el) => {
+  const r = (_finRec||[]).find(x => String(x.id) === el.dataset.id);
+  if(!r) return;
+  _finDespesaRecorrenteSheet(r, ()=>{ _finReload(['despesas','rec']); });
+});
 
 /* ---- Sub-aba: Planos ---- */
 // v537 (Fase 5 refactor morphdom): Planos migrada pra event delegation.
