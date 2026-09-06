@@ -84,7 +84,17 @@ const TESTMODE = (()=>{ try{ return new URLSearchParams(location.search).has('te
 // v527 (Fase 0.4 refactor morphdom): feature flag pra ativar morphdom no render()
 // quando estiver implementado. Hoje ainda não faz nada — só disponibiliza a flag
 // pro rollout gradual. Ativa com ?morphdom=1. Inerte em prod até Fase 3.
-const MORPHDOM = (()=>{ try{ return new URLSearchParams(location.search).has('morphdom'); }catch(e){ return false; } })();
+/* v555 — morphdom LIGADO por padrao. Ate a v554 era opt-in (?morphdom=1) e
+   ficou dormindo em producao. Desligar continua possivel SEM deploy:
+   `?morphdom=0` (ou `=off`) volta ao innerHTML=''+append. E' a valvula pra
+   quando um aluno reportar algo estranho — da' pra confirmar na hora se o
+   culpado e' o diff, em vez de publicar um revert as cegas.
+   Quem decide tela a tela continua sendo _TELAS_MORPH/_FIN_MORPH: tela fora da
+   allowlist segue no caminho antigo mesmo com a flag ligada. */
+const MORPHDOM = (()=>{ try{
+  const v = new URLSearchParams(location.search).get('morphdom');
+  return v !== '0' && v !== 'off';
+}catch(e){ return true; } })();
 const VITRINE = DEMO || TESTMODE;   // único ponto que decide se o seed fake entra
 
 /* ============================================================
@@ -16726,7 +16736,7 @@ function selfTest(){
   }catch(e){ ok('handler T6: router event delegation', false); }
 
   // T7 (Fase 3): morphdom lib carregada e disponível como window.morphdom.
-  // Flag MORPHDOM só ativa render em modo morphdom com ?morphdom=1 na URL.
+  // v555: MORPHDOM liga por padrão; ?morphdom=0 desliga (válvula sem deploy).
   try{ ok('morphdom lib carregada (Fase 3)', typeof morphdom === 'function'); }
   catch(e){ ok('morphdom lib carregada (Fase 3)', false); }
 

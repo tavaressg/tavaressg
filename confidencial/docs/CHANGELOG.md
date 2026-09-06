@@ -9,6 +9,29 @@
 
 ## Concluídas ✓
 
+### v555 — morphdom LIGADO por padrão (2026-09-06)
+
+Fim do opt-in. De v543 a v554 o diff existia mas ficava dormindo em produção:
+só rodava com `?morphdom=1`, que ninguém digita. A partir daqui o aluno e o
+professor abrem o app já com ele.
+
+**Válvula sem deploy:** `?morphdom=0` (ou `=off`) volta ao
+`innerHTML=''`+append. Se alguém reportar algo estranho, dá pra confirmar na
+hora se o culpado é o diff — em vez de publicar um revert às cegas e só depois
+descobrir que não era isso.
+
+**Ligar a flag não liga tudo.** Quem decide tela a tela continua sendo
+`_TELAS_MORPH` / `_FIN_MORPH` / `_ALUNO_MORPH` / `_PROF_MORPH`: tela fora da
+allowlist segue no caminho antigo mesmo com a flag ligada. Hoje são 15 de 15
+sub-telas, 10 de 13 telas e 7 de 7 abas do Financeiro — cada uma aprovada pelo
+guard, que desde a v554 roda no CI a cada push.
+
+**Risco assumido:** quatro telas foram para produção sem teste manual, porque o
+modo demo não tem os dados para exercitá-las — Pedidos (nenhum pedido no seed),
+Financeiro (sem backend), Vídeos de onboarding (CRUD na nuvem) e Compartilhar
+(gera o PNG do story). Mais o long-press e a vitrine rolante da Loja, que só o
+toque real exercita. Decisão do dono, com a válvula como rede.
+
 ### v554 — morphdom no resto do app: 15 de 15 sub-telas, 10 de 13 telas (2026-09-05)
 
 Fecha a migração começada na v543. Todas as sub-telas do aluno e do professor
