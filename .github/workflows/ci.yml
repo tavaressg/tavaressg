@@ -23,3 +23,12 @@ jobs:
           python3 -m http.server 5179 &
           npm install --no-fund --no-audit puppeteer-core@23
           node .github/ci/selftest.mjs
+
+      # Guards de allowlist do morphdom + contratos em jsdom. Leem o app.js de
+      # verdade: uma tela habilitada em _TELAS_MORPH/_FIN_MORPH sem estar
+      # delegation-pura e sincrona derruba o job. Ate aqui rodavam so' na maquina
+      # do dev — dependiam de alguem lembrar de `npm test` antes de publicar.
+      - name: Guards do morphdom (npm test)
+        run: |
+          npm install --no-fund --no-audit jsdom@25
+          npm test
