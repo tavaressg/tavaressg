@@ -1028,6 +1028,23 @@ const _FB = [55,31,99,62,48,90,9]; const FEEDBACK_URL = 'https://wa.me/'+_FB.joi
 // Normaliza telefone BR pra sempre gravar 12/13 dígitos com DDI 55.
 // Espelho do _normalize_tel_br em SQL (migration 0021). Mesmo shape para casar dados.
 // null / string vazia / lixo → null (não força; ficha aparece vazia e professor corrige).
+// v569: parse valor monetário digitado em campo livre. Aceita BR ("1.500,00", "150,50")
+// e formato numérico simples ("150.50", "150"). Vírgula sempre é decimal; ponto é
+// milhar, exceto quando aparece uma única vez seguido de 1-2 dígitos ao fim — aí é
+// decimal (heurística tolerante ao "150.50" que o professor digita sem pensar). Devolve
+// Number ou null. Casos cobertos no submit do wizard e em qualquer input de valor.
+function _parseValorBR(s){
+  s = String(s==null?'':s).replace(/[R$\s]/g,'').trim();
+  if(!s) return null;
+  if(s.includes(',')) s = s.replace(/\./g,'').replace(',','.');
+  else if(s.includes('.')){
+    const partes = s.split('.');
+    const decimalPlausivel = partes.length===2 && partes[1].length<=2;
+    if(!decimalPlausivel) s = partes.join('');
+  }
+  const n = Number(s);
+  return isNaN(n) ? null : n;
+}
 function _normTelBR(v){
   if(v==null) return null;
   const d = String(v).replace(/\D/g,'');
@@ -5662,15 +5679,15 @@ function renderTrocarSenha(){
 let _profData = null;
 let _profTs   = 0;
 
-// Status de atividade do aluno: regra automática (90d sem treinar = inativo) com
-// override manual do professor (0023). Distinto de "Ativos (14d)" — aquele é sobre
-// presença recente; este é sobre abandono/desistência de fato.
-const STATUS_INATIVO_DIAS = 90;
+// Status de atividade do aluno: decisão do professor (v567). Aluno nasce Ativo;
+// só vira Inativo quando o professor marcar manualmente (evasão/pausa confirmada).
+// A regra automática dos 90d foi removida — era ruído (aluno recém-cadastrado sem
+// check-in virava Inativo por causa da sentinela `diasSem=999`) e disfarçava
+// abandono real dos 30-89d. Distinto de "Ativos (14d)" — aquele é engajamento
+// recente; este é matrícula viva.
 function _statusAluno(a){
-  if(a.statusManual==='ativo')   return { valor:'ativo',   origem:'manual', desde:a.statusManualEm };
   if(a.statusManual==='inativo') return { valor:'inativo', origem:'manual', desde:a.statusManualEm };
-  const inativo = (a.diasSem||0) >= STATUS_INATIVO_DIAS;
-  return { valor: inativo?'inativo':'ativo', origem:'auto', desde:null };
+  return { valor:'ativo', origem: a.statusManual==='ativo'?'manual':'auto', desde: a.statusManual==='ativo'?a.statusManualEm:null };
 }
 function _statusAlunoTxt(a){
   const s=_statusAluno(a);
@@ -5680,7 +5697,7 @@ function _statusAlunoTxt(a){
     const dtTxt = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}` : '';
     return `${lbl} (manual${dtTxt?' · '+dtTxt:''})`;
   }
-  return s.valor==='inativo' ? `${lbl} (${STATUS_INATIVO_DIAS}d+)` : lbl;
+  return lbl;
 }
 // "Desde quando o aluno é a faixa atual". Regra:
 //  1) Última data de evento tipo `faixa` ou `inicio` na faixa atual (canônico).
@@ -7990,7 +8007,7 @@ function renderCadastroAluno(){
   // (ficha do aluno + botão "Graduar"). Menos atrito no cadastro em lote.
   const selFaixa='branca', selGraus=0;
   let step=0;
-  const STEPS=['Dados do aluno','Endereço','Responsável'];
+  const STEPS=['Dados do aluno','Endereço','Responsável','Plano'];
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
     <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
@@ -8016,6 +8033,11 @@ function renderCadastroAluno(){
       <input class="inp" id="ca-cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
       <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(opcional — o aluno pode definir depois)</span></label>
       <input class="inp" id="ca-apelido" placeholder="Ex: Tavares">
+      <label class="flbl" style="margin-top:12px">Status inicial</label>
+      <select class="inp" id="ca-status">
+        <option value="ativo" selected>✅ Ativo — matrícula viva</option>
+        <option value="inativo">⛔ Inativo — evasão / pausa confirmada</option>
+      </select>
     </div>
 
     <div class="cad-step" data-step="1" hidden>
@@ -8044,6 +8066,14 @@ function renderCadastroAluno(){
       </div>
       <label class="flbl" style="margin-top:12px">CPF do responsável <span class="ca-opt">(opcional)</span></label>
       <input class="inp" id="ca-rcpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
+    </div>
+
+    <div class="cad-step" data-step="3" hidden>
+      <div class="cad-sec">Plano <span class="ca-opt">(opcional — pode vincular pela ficha depois)</span></div>
+      <label class="flbl">Plano</label>
+      <div id="ca-plano-box"><div class="empty-line" style="padding:8px 12px;font-size:12px;color:var(--muted)">Carregando planos…</div></div>
+      <label class="flbl" style="margin-top:12px">Valor negociado <span class="ca-opt">(opcional — herda o valor do plano se em branco)</span></label>
+      <input class="inp" id="ca-plano-valor" inputmode="decimal" placeholder="R$ 0,00">
     </div>
 
     <div class="cad-nav">
@@ -8096,9 +8126,31 @@ function renderCadastroAluno(){
       if(!val('ca-nome')){ toast('Informe o nome completo'); return false; }
       const email=val('ca-email').toLowerCase();
       if(!email || !email.includes('@')){ toast('Informe um e-mail válido (será o login do aluno)'); return false; }
+      // v566: barra e-mail duplicado antes de gastar chamada na Edge Function.
+      // O servidor recusaria com "user already exists", mensagem crua. Aqui o
+      // professor vê o nome do aluno existente e pode abrir a ficha.
+      const dup = _profAlunosArr().find(a => (((a.cad&&a.cad.email)||a.email||'').toLowerCase()) === email);
+      if(dup){ toast('Já existe aluno com esse e-mail: '+(_nomeInst(dup)||dup.nm)); return false; }
     }
     return true;
   };
+  // v566: planos pra o passo 4. Fire-and-forget — se demorar, o passo 4 mostra
+  // "Carregando…" e o aluno é cadastrado sem plano se o professor não esperar.
+  // Se não houver plano cadastrado, mostra CTA e o passo vira só um aviso.
+  const _pintaPlanos = ()=>{
+    const box = document.getElementById('ca-plano-box'); if(!box) return;
+    const planos = (typeof _finPlanos !== 'undefined' && _finPlanos) || [];
+    if(!planos.length){
+      box.innerHTML = '<div class="empty-line" style="padding:8px 12px;font-size:12px;color:var(--muted)">Nenhum plano cadastrado ainda. Cadastre o aluno e vincule pela ficha depois — ou crie um plano no Financeiro → Planos.</div>';
+      return;
+    }
+    const opts = ['<option value="">— Sem plano (vincular depois) —</option>']
+      .concat(planos.filter(p=>p.ativo!==false).map(p=>`<option value="${safeAttr(p.id)}">${safeTxt(p.nome)} · R$ ${Number(p.valor||0).toFixed(2).replace('.',',')}</option>`)).join('');
+    box.innerHTML = `<select class="inp" id="ca-plano-id">${opts}</select>`;
+  };
+  if(typeof sbProf!=='undefined' && sbProf.getPlanos && (typeof _finPlanos==='undefined' || !_finPlanos)){
+    sbProf.getPlanos().then(r=>{ _finPlanos = r; if(document.getElementById('ca-plano-box')) _pintaPlanos(); }).catch(()=>{ if(document.getElementById('ca-plano-box')) _pintaPlanos(); });
+  } else { setTimeout(_pintaPlanos, 0); }
   backBtn.onclick=()=>{ if(step===0) close(); else showStep(step-1); };
   nextBtn.onclick=async()=>{
     if(!validateStep()) return;
@@ -8125,10 +8177,22 @@ function renderCadastroAluno(){
       telefone, cep, logradouro, numero, bairro, cidade, uf,
       resp_nome, resp_telefone, resp_parentesco, data_inicio, observacoes, senha,
       cpf, resp_cpf };
+    // v566: plano opcional escolhido no passo 3. v569: parsing tolerante a BR e "."/","
+    const planoIdSel = val('ca-plano-id');
+    const planoValorNum = _parseValorBR(val('ca-plano-valor'));
+    // v568: status inicial escolhido no passo 0 (default ativo). Sempre grava
+    // manual — o app não decide sozinho mais. `setStatusAluno` roda depois do
+    // criarAluno porque a Edge `create-student` não recebe o campo (evita deploy).
+    const statusInicial = val('ca-status') || 'ativo';
     if(!DEMO && typeof sbProf!=='undefined'){
       try{ const r=await sbProf.criarAluno(dados);
         const novoId=(r&&(r.user_id||r.id))||null;
         if(nascData && novoId && sbProf.atualizarAluno){ try{ await sbProf.atualizarAluno(novoId, {nascimento_data:nascData}); }catch(_){}}
+        if(novoId && sbProf.setStatusAluno){ try{ await sbProf.setStatusAluno(novoId, statusInicial); }catch(_){}}
+        if(planoIdSel && novoId && sbProf.salvarAlunoPlano){
+          try{ await sbProf.salvarAlunoPlano({ user_id:novoId, plano_id:planoIdSel, valor_negociado: planoValorNum }); }
+          catch(e){ toast('Aluno criado, mas falhou ao vincular plano: '+(e.message||e)); }
+        }
         _profData=null; _profTs=0; _loadProfData();
         back(); _senhaProvisoriaSheet(email, (r&&r.senha_provisoria)||senha); return; }
       catch(e){ toast('Erro ao cadastrar: '+(e.message||e)); return; }
@@ -9718,17 +9782,27 @@ function _relRisco(w, secTitle, note){
   const buckets = { critico:[], em_risco:[], atencao:[], engajado:[] };
   alunos.forEach(a=> buckets[_riscoNivel(a)].push(a));
 
-  // 4 tiles (contagem por nível)
+  // 4 tiles (contagem por nível) — ordem invertida (Engajados→Crítico) pra deixar
+  // o acionável perto do dedo: quem tem 7-14 dias sem vir é o mais recuperável.
   const grid = el('<div class="stat-grid block" style="margin-top:12px"></div>');
-  RISCO_NIVEIS.forEach(([id,lbl,rng])=>{
+  RISCO_NIVEIS.slice().reverse().forEach(([id,lbl,rng])=>{
     grid.appendChild(el(`<div class="stat-card risco-tile risco-${id}"><div class="sv">${buckets[id].length}</div>
       <div class="sl">${lbl}</div><div class="risco-rng">${rng}</div></div>`));
   });
   w.appendChild(grid);
 
-  // Listas por bucket (só as acionáveis: crítico + em risco + atenção)
-  ['critico','em_risco','atencao'].forEach(id=>{
-    const arr = buckets[id].sort((a,b)=>(b.diasSem||0)-(a.diasSem||0));
+  // Listas por bucket (só as acionáveis: atenção → em risco → crítico).
+  // Crítico: 999 é sentinela de "nunca treinou" (supabase.js:848) — vai pro fim,
+  // senão poluia o topo e escondia quem tem 30-90d reais, que é o recuperável.
+  ['atencao','em_risco','critico'].forEach(id=>{
+    const arr = buckets[id].sort((a,b)=>{
+      const da=a.diasSem||0, db=b.diasSem||0;
+      if(id==='critico'){
+        const sa=da>=999, sb=db>=999;
+        if(sa!==sb) return sa?1:-1;
+      }
+      return db-da;
+    });
     const [_id,lbl] = RISCO_NIVEIS.find(x=>x[0]===id);
     w.appendChild(secTitle(`${lbl} (${arr.length})`));
     if(!arr.length){ w.appendChild(note(id==='critico'?'Ninguém no Crítico. 🎉':'Vazio nesta faixa.')); return; }
@@ -15322,11 +15396,10 @@ function _statusManualSheet(a, refresh, paint){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Status de atividade</div>
-    <div class="sheet-desc">Por padrão o app decide sozinho: ${STATUS_INATIVO_DIAS}+ dias sem treinar vira "Inativo". Force manualmente só se precisar ignorar essa regra pra este aluno (ex: afastado por lesão mas continua matriculado).</div>
+    <div class="sheet-desc">Todo aluno cadastrado é Ativo. Marque Inativo manualmente quando confirmar evasão, pausa ou desistência — o app não muda sozinho.</div>
     <div style="display:flex;flex-direction:column;gap:10px;padding:0 4px 8px">
-      <button class="btn-cad ${atual===''?'primary':''}" type="button" data-a=""><div style="font-weight:800;font-size:14px">🔄 Automático</div><div style="font-size:12px;font-weight:600;margin-top:3px;opacity:.85">Segue a regra: ${STATUS_INATIVO_DIAS}+ dias sem treinar</div></button>
-      <button class="btn-cad ${atual==='ativo'?'primary':''}" type="button" data-a="ativo"><div style="font-weight:800;font-size:14px">✅ Forçar Ativo</div></button>
-      <button class="btn-cad ${atual==='inativo'?'primary':''}" type="button" data-a="inativo"><div style="font-weight:800;font-size:14px">⛔ Forçar Inativo</div></button>
+      <button class="btn-cad ${atual===''||atual==='ativo'?'primary':''}" type="button" data-a="ativo"><div style="font-weight:800;font-size:14px">✅ Ativo</div><div style="font-size:12px;font-weight:600;margin-top:3px;opacity:.85">Matrícula viva</div></button>
+      <button class="btn-cad ${atual==='inativo'?'primary':''}" type="button" data-a="inativo"><div style="font-weight:800;font-size:14px">⛔ Inativo</div><div style="font-size:12px;font-weight:600;margin-top:3px;opacity:.85">Evasão / pausa confirmada</div></button>
       <button class="sheet-cancel" id="sm-close">Cancelar</button>
     </div>
   </div></div>`);

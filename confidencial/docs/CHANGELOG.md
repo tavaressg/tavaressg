@@ -9,6 +9,92 @@
 
 ## Concluídas ✓
 
+### v570 — Valor negociado do plano parseia BR e "150.50" sem quebrar (2026-09-17)
+
+O strip anterior no submit do wizard (`.replace(/[R$\s.]/g,'').replace(',','.')`)
+matava o ponto como decimal — `150.50` (padrão internacional que o professor digita sem
+pensar) virava `15050` e salvava R$ 15.050,00. Nova helper `_parseValorBR` decide:
+vírgula sempre é decimal (BR canônico); ponto é milhar exceto quando aparece uma única
+vez seguido de 1–2 dígitos ao fim, aí é decimal.
+
+Cobertos: `"150,50"` · `"R$ 150,50"` · `"1.500,00"` · `"150.50"` · `"1500"` · `"1.500"`
+(3 dígitos após ponto = milhar). Guard `tests/parse-valor-br.spec.mjs` roda a função
+REAL extraída do `app.js` — 13/13 asserts, cai no `npm test` pra qualquer regressão
+futura no cálculo do heurístico.
+
+### v569 — Cadastro pede o status inicial + backfill dos 11 sem override (2026-09-17)
+
+Aluno cadastrado agora **nasce com status manual escolhido pelo professor**. O passo 0
+do wizard ganhou o select "Status inicial" (Ativo default, Inativo pra importar quem já
+pausou). Depois do `criarAluno`, o app chama `sbProf.setStatusAluno(novoId, valor)` —
+não passa pela Edge `create-student` pra evitar deploy. Se a chamada falhar (best-effort
+igual `nascimento_data`), o aluno fica sem override e cai no fallback Ativo do
+`_statusAluno` — comportamento seguro.
+
+**Backfill em produção:** os 11 alunos que estavam com `status_manual=null` (Giga, Dudu,
+Bernardo H., Raquel, Vick, Gabriel-Teste, Samuel, BigBig, Gabriel R.Q., Leonardo,
+G. Virgílio) receberam `status_manual='ativo'` + `status_manual_em=now()`. Depois desse
+UPDATE, a coluna `status_manual` está 100% preenchida no banco (162 → 173 com
+override), e nenhum novo aluno entra sem escolha explícita.
+
+### v568 — Status Ativo/Inativo vira decisão manual do professor (2026-09-17)
+
+A regra automática dos 90 dias sem treinar saiu. Ela tinha dois problemas: (a) aluno
+recém-cadastrado sem check-in tem `diasSem=999` (sentinela do `supabase.js:848` pra
+"nunca treinou") e caía direto em `999 >= 90` → **Inativo automático**, contradizendo a
+intuição; (b) o professor não podia distinguir "sumiu de vez" de "afastado por lesão
+mas ainda paga a mensalidade" — ambos viravam Inativo pela mesma regra.
+
+Agora: **aluno nasce Ativo** (default de `_statusAluno` quando `statusManual==null`). Só
+vira Inativo quando o professor marcar manualmente. O sheet 🔄 do status perdeu o botão
+"Automático" (não tem mais regra automática pra seguir) e ficou com dois botões: **✅
+Ativo** (matrícula viva) e **⛔ Inativo** (evasão/pausa confirmada). Constante
+`STATUS_INATIVO_DIAS` removida — não é mais usada.
+
+**Efeito imediato no KPI de Inativos:** cai pra zero (só sobem os que o professor marcar
+Inativo manualmente daqui pra frente). Os 114 alunos importados que estavam contando
+como Inativos por serem "nunca-treinou" saem da conta. Retenção segue trabalhando com
+`diasSem` (tiles Crítico/Em risco/Atenção/Engajados) — aquilo é engajamento recente e
+não mudou.
+
+### v567 — Wizard de cadastro ganha etapa de plano opcional + trava duplicata por e-mail (2026-09-17)
+
+Dois furos do cadastro de aluno, resolvidos em uma passada.
+
+**Plano no wizard (era pendência do CONTEXTO §5.2).** O aluno nascia sem plano e caía em
+"Financeiro → Matrículas" pra vincular depois — passo manual que ficava esquecido no
+lote. Nova 4ª etapa **opcional** ("Plano") lista os planos ativos da academia (reusa o
+cache `_finPlanos` do Financeiro, com fallback pra `sbProf.getPlanos()` se não estiver
+carregado ainda) e permite valor negociado. Se o professor não escolher, sai default
+"— Sem plano —" e o fluxo antigo continua valendo. Depois do `criarAluno`, chama
+`sbProf.salvarAlunoPlano({ user_id, plano_id, valor_negociado })` só se plano
+selecionado; falha no vínculo mostra toast mas **não desfaz o cadastro** (o aluno já
+existe; o professor vincula pela ficha).
+
+**Duplicata por e-mail.** Antes o professor errava, a Edge Function `create-student`
+devolvia "user already exists" cru, e ele ficava sem saber quem era o dono do e-mail
+existente. Agora o `validateStep` do passo 0 checa `_profAlunosArr()` antes de gastar
+chamada de rede — se casa, o toast nomeia o aluno existente. Case-insensitive.
+
+Nenhuma mudança de schema, nenhum handler novo — só HTML, closure local e reuso do que
+já existia no Financeiro.
+
+### v566 — Retenção invertida (Engajados→Crítico) + "nunca treinou" pro fim do Crítico (2026-09-17)
+
+Pedido do dono: os 4 tiles do topo e as 3 listas acionáveis da aba Retenção passam a
+sair na ordem **Engajados · Atenção · Em risco · Crítico**. Motivo: quem está a poucos
+dias sem vir é o mais recuperável, então fica perto do dedo em vez de embaixo do rolo.
+
+E, dentro do **Crítico**, quem tem `diasSem >= 999` (a sentinela de "nunca treinou" que
+o `supabase.js` v848 carimba quando não há `last`) vai pro fim da lista. Antes, o `sort`
+por `diasSem` decrescente jogava esses 999 pro topo — 41 alunos "999d" cobriam quem
+tinha 45/60/90 dias reais, que é justamente o público acionável. Agora os reais sobem,
+os "nunca vieram" descem.
+
+`RISCO_NIVEIS` ficou intacto (é fonte também dos chips do filtro "Alunos (Excel)"); a
+inversão é local em `_relRisco`, com `.slice().reverse()` nos tiles e nova ordem
+literal `['atencao','em_risco','critico']` nas listas.
+
 ### v565 — Realtime busca o que perdeu durante uma queda (2026-09-17)
 
 O Realtime **não reenvia** eventos ocorridos enquanto a conexão estava caída, e a
@@ -191,7 +277,7 @@ Realtime: a recarga da lista trazia de volta o número errado.
 `technique_progress`). Graduações (684) e progresso (896) ainda não cortavam, mas
 estavam a poucas semanas disso.
 
-**Conferido em produção:** Elvecio e Emerson passaram de 33 e 21 dias sem treinar
+**Conferido em produção:** dois alunos com check-in no dia passaram de 33 e 21 dias sem treinar
 para 0, com última presença 16/09; Relatórios trazem 1.425 check-ins até 16/09.
 
 **Custo:** uma ida a mais ao servidor por página de 1.000. A janela de 120 dias é
