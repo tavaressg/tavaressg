@@ -9,6 +9,30 @@
 
 ## Concluídas ✓
 
+### v572 — Cobranças ganha seleção múltipla, 3 ações em massa e filtros (2026-09-17)
+
+Aba **Cobranças** do Financeiro passou a suportar operação em lote — o professor
+seleciona várias linhas (checkbox por linha + master no `<thead>`) e uma barra sticky
+no rodapé oferece **✅ Marcar pagas** (sheet com data + forma, roda `editarCobranca`
+em `Promise.all`), **✏️ Editar forma** (só a forma em bulk — data e obs continuam por
+linha) e **🗑️ Excluir** (com confirmação nomeando quantidade e total; cobranças
+vindas de venda ainda passam por `cancelarVendaEstornar` pra restaurar estoque).
+
+**Filtros no topo** no molde dos filtros avançados de Alunos — busca por nome do aluno
+(input) + selects de Status (Vencidas/A vencer/Pagas/Isentas/Canceladas), Categoria
+(Mensalidade/Venda loja/Contrato/Avulsa) e Vencimento (Hoje/Próximos 7d/Em atraso).
+Botão "✕ Limpar filtros" só aparece com algum filtro ativo. Combinam por AND.
+
+**Coluna Turma removida** — o professor consulta pela ficha do aluno; a coluna era um
+join extra (`_turmasArr()` + `turmasByUser`) que a nova barra de filtros já cobre pela
+busca de aluno. Tabela passou de 9 colunas pra 9 (checkbox + 8 conteúdo), min-width de
+1080px pra 980px.
+
+Estado top-level (`_finCobSel: Set`, `_finCobF: Object`) — sobrevive ao morphdom. Cada
+mudança em filtro/checkbox chama `_finRepintarAbaAtual` (mesma rota do restante do
+Financeiro, dentro da allowlist `_FIN_MORPH['cobrancas']`). Handlers 100% delegação
+(`data-click`/`data-change`/`data-input`) — nada de `.onclick=` em elemento repintado.
+
 ### v571 — Sort ascendente dentro dos buckets de Retenção (2026-09-17)
 
 Faltou completar a v566. Os tiles do topo já saíam Engajados→Crítico (menos dias

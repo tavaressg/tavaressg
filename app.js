@@ -10679,6 +10679,11 @@ let _finMesRef = null;   // v490 Sprint 3: 'YYYY-MM' — null = mês corrente
    lida desde que a v500 trocou as sub-tabs de status por uma tabela unificada.
    No lugar entra o filtro que de fato existe na tela: por aluno. */
 let _finCobAluno = null;   // user_id em foco na aba Cobranças, ou null
+// v572: seleção múltipla + filtros da aba Cobranças. Top-level pra sobreviver ao
+// morphdom (regra do CLAUDE.md: estado do modelo, painter resolve container por id).
+// Set porque toggle é O(1) e o repaint filtra apenas o que ainda existe no _finCobrancas.
+const _finCobSel = new Set();
+const _finCobF = { busca:'', status:'', categoria:'', venc:'' };
 let _finDespFiltro = 'a_pagar';
 let _finContrFiltro = 'ativo';
 
@@ -11430,15 +11435,73 @@ function _finRenderCobrancas(body){
   body.appendChild(el('<button class="btn-cad" data-click="finCobVendaNova" style="margin:8px 12px 4px">＋ Nova venda</button>'));
   body.appendChild(el('<button class="btn-cad ghost" data-click="finCobAvulsaNova" style="margin:0 12px 8px">＋ Cobrança avulsa</button>'));
 
+  // v572: filtros no molde dos filtros avançados de Alunos (advF/advBar). Cada
+  // campo escreve em _finCobF e re-render pela chave `cobrancas` — o Set de
+  // seleção `_finCobSel` sobrevive porque é top-level; se a linha sumir do
+  // filtro, o Set ainda tem o id mas o buildRow só monta os visíveis, então
+  // ids ocultos não entram nas ações em massa.
+  const _o = (v, atual) => `value="${safeAttr(v)}"${String(atual||'')===String(v)?' selected':''}`;
+  body.appendChild(el(`<div style="margin:0 12px 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <input class="inp" data-input="finCobFBusca" placeholder="🔍 Buscar aluno…" value="${safeAttr(_finCobF.busca)}" style="flex:1;min-width:180px;max-width:280px;font-size:13px">
+    <select class="inp" data-change="finCobFStatus" style="flex:0 0 auto;font-size:13px;min-width:120px">
+      <option ${_o('',_finCobF.status)}>Status: Todos</option>
+      <option ${_o('vencida',_finCobF.status)}>Vencidas</option>
+      <option ${_o('a_vencer',_finCobF.status)}>A vencer</option>
+      <option ${_o('pago',_finCobF.status)}>Pagas</option>
+      <option ${_o('isento',_finCobF.status)}>Isentas</option>
+      <option ${_o('cancelado',_finCobF.status)}>Canceladas</option>
+    </select>
+    <select class="inp" data-change="finCobFCategoria" style="flex:0 0 auto;font-size:13px;min-width:120px">
+      <option ${_o('',_finCobF.categoria)}>Categoria: Todas</option>
+      <option ${_o('mensalidade',_finCobF.categoria)}>Mensalidade</option>
+      <option ${_o('venda',_finCobF.categoria)}>Venda loja</option>
+      <option ${_o('contrato',_finCobF.categoria)}>Contrato</option>
+      <option ${_o('avulsa',_finCobF.categoria)}>Avulsa</option>
+    </select>
+    <select class="inp" data-change="finCobFVenc" style="flex:0 0 auto;font-size:13px;min-width:120px">
+      <option ${_o('',_finCobF.venc)}>Vencimento: Todos</option>
+      <option ${_o('hoje',_finCobF.venc)}>Hoje</option>
+      <option ${_o('7d',_finCobF.venc)}>Próximos 7 dias</option>
+      <option ${_o('atraso',_finCobF.venc)}>Em atraso</option>
+    </select>
+    ${(_finCobF.busca||_finCobF.status||_finCobF.categoria||_finCobF.venc) ? '<button class="btn-cad ghost" data-click="finCobFLimpar" style="padding:6px 12px;font-size:12px">✕ Limpar filtros</button>' : ''}
+  </div>`));
+
   if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
 
   const FORMA_LBL = { dinheiro:'💵 Dinheiro', pix:'📱 PIX', cartao:'💳 Cartão', outro:'➕ Outro' };
   const statusRank = (c) => c.status==='pendente' ? (isVenc(c) ? 0 : 1) : (c.status==='pago' ? 2 : 3);
-  const sorted = cobs.slice().sort((a,b) => {
+  // v572: filtros do topo. Cada campo é opcional; combinam por AND. Busca de aluno
+  // roda em (nome_completo, apelido). Categoria deriva do mesmo lógica do buildRow.
+  const bBusca = (_finCobF.busca||'').trim().toLowerCase();
+  const catDe = (c) => c.pedido_id?'venda' : c.contrato_id?'contrato' : c.avulsa?'avulsa' : 'mensalidade';
+  const in7d = (iso) => { if(!iso) return false; const d=(new Date(iso)-new Date(today))/86400000; return d>=0 && d<=7; };
+  const filtradas = cobs.filter(c=>{
+    if(_finCobF.status){
+      if(_finCobF.status==='vencida'   && !(isVenc(c))) return false;
+      if(_finCobF.status==='a_vencer'  && !(c.status==='pendente' && !isVenc(c))) return false;
+      if(_finCobF.status==='pago'      && c.status!=='pago') return false;
+      if(_finCobF.status==='isento'    && c.status!=='isento') return false;
+      if(_finCobF.status==='cancelado' && c.status!=='cancelado') return false;
+    }
+    if(_finCobF.categoria && catDe(c)!==_finCobF.categoria) return false;
+    if(_finCobF.venc==='hoje'    && c.venc!==today) return false;
+    if(_finCobF.venc==='7d'      && !in7d(c.venc)) return false;
+    if(_finCobF.venc==='atraso'  && !isVenc(c)) return false;
+    if(bBusca){
+      const p = c.profiles||{}; const bag=((p.nome_completo||'')+' '+(p.apelido||'')).toLowerCase();
+      if(!bag.includes(bBusca)) return false;
+    }
+    return true;
+  });
+  const sorted = filtradas.slice().sort((a,b) => {
     const ra = statusRank(a), rb = statusRank(b);
     if(ra !== rb) return ra - rb;
     return (a.venc||'').localeCompare(b.venc||'');
   });
+  // Sanitiza a seleção: se filtro escondeu itens, mantém no Set mas só conta os visíveis
+  const idsVisiveis = new Set(sorted.map(c=>String(c.id)));
+  const selVisiveis = [...(_finCobSel)].filter(id=>idsVisiveis.has(String(id)));
   const statusBadge = (c) => {
     if(c.status==='pago') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Paga</span>';
     if(c.status==='isento') return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Isenta</span>';
@@ -11448,39 +11511,24 @@ function _finRenderCobrancas(body){
   };
   const dmyLong = (iso) => iso ? (iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)) : '—';
 
-  // v504/v516: enriquece linhas com nome + turmas + plano (client-side join).
-  // v516: usa _turmasArr() (DB.turmas via _loadTurmas — mesma fonte de Alunos/
-  // Turmas), fallback pro ID se turma não existe mais no cache. _finTurmasMap
-  // sozinho ficava null em race — cache separado causava turma vazia.
-  if(typeof _loadTurmas==='function') _loadTurmas();
-  const _tArr = (typeof _turmasArr==='function' ? _turmasArr() : []);
-  const _tMap = {};
-  _tArr.forEach(t=>{ _tMap[t.id] = t.nome; });
+  // v504/v516: enriquece linhas com plano (client-side join). v572: coluna Turma
+  // removida (o professor consulta pela ficha; economiza um join de _turmasArr()).
   const matrByUser = {};
   (_finMatriculas||[]).forEach(m => { matrByUser[m.user_id] = m; });
-  const turmasByUser = {};
-  ((_profData && _profData.alunos)||[]).forEach(a => {
-    if(a.turmas && a.turmas.length){
-      turmasByUser[a.id] = a.turmas.map(id => _tMap[id] || id).filter(Boolean).join(', ');
-    }
-  });
 
   // v509: reverte inline editing (a v508 fez bagunça). Tabela readonly com
   // botões dedicados na coluna Ação — cada um abre sheet específica.
-  // Refetch pesado tirado: onDadosMudaram só invalida cache, e cada ação faz
-  // OPTIMISTIC UPDATE local + repinta APENAS a linha alterada. Sem redraw
-  // global. Se a ação falhar, reverte e mostra toast.
+  // v572: coluna checkbox no início (thead + tbody) pra seleção múltipla. O
+  // master do thead reflete: todos visíveis selecionados / nenhum / indeterminate.
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  // v522: coluna "Plano" virou "Categoria" — mostra origem real (mensalidade
-  // do plano, venda loja, avulsa, contrato). Antes era o nome do plano
-  // fixo, dava a entender que TODAS as cobranças eram mensalidade, mesmo
-  // as vendas a prazo (só um emoji ao canto delatava). "Origem" (emoji)
-  // absorvida na nova Categoria. "Tipo" renomeada pra "Forma pgto".
-  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1080px">
+  const todosSel = sorted.length>0 && selVisiveis.length===sorted.length;
+  const nenhumSel = selVisiveis.length===0;
+  const masterAttr = todosSel ? 'checked' : (nenhumSel ? '' : 'data-indeterminate="1"');
+  const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:980px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700;width:36px"><input type="checkbox" data-change="finCobCheckAll" ${masterAttr} aria-label="Selecionar todas"></th>
         <th style="padding:10px 12px;font-weight:700">Aluno</th>
-        <th style="padding:10px 8px;font-weight:700">Turma</th>
         <th style="padding:10px 8px;font-weight:700">Categoria</th>
         <th style="padding:10px 8px;font-weight:700">Vencimento</th>
         <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
@@ -11493,28 +11541,22 @@ function _finRenderCobrancas(body){
     <tbody></tbody>
   </table>`);
   const tbody = table.querySelector('tbody');
-
-  // Helper: repinta APENAS uma linha específica (sem re-render global).
-  // Usado depois de optimistic update — evita o refetch pesado das 8 queries.
   const buildRow = (c) => {
     const p = c.profiles || {};
     const nomeCompleto = p.nome_completo || p.apelido || 'aluno';
     const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
-    const turma = turmasByUser[c.user_id] || '—';
     const matr = matrByUser[c.user_id];
-    // v522/v523/v524: Categoria só destaca origens NÃO-mensalidade (VENDA
-    // LOJA, CONTRATO, AVULSA). Mensalidade recorrente mostra só o nome do
-    // plano — o professor já sabe que é mensalidade, prefixo era ruído.
     const _up = (s) => String(s||'').toUpperCase();
     let categoria;
     if(c.pedido_id) categoria = 'VENDA LOJA';
     else if(c.contrato_id) categoria = 'CONTRATO'+((matr && matr.planos)?' · '+_up(matr.planos.nome):'');
     else if(c.avulsa) categoria = 'AVULSA';
     else categoria = (matr && matr.planos) ? _up(matr.planos.nome) : 'MENSALIDADE';
-    const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)" data-cob-id="${c.id}">
+    const sel = _finCobSel.has(String(c.id));
+    const tr = el(`<tr style="border-top:1px solid var(--border,#e5e5ea)${sel?';background:rgba(255,59,48,0.05)':''}" data-cob-id="${c.id}">
+      <td style="padding:10px 12px"><input type="checkbox" data-change="finCobCheckOne" data-id="${safeAttr(c.id)}" ${sel?'checked':''} aria-label="Selecionar ${safeAttr(nomeCompleto)}"></td>
       <td style="padding:10px 12px;font-weight:700">${safeTxt(nomeCompleto)}</td>
-      <td style="padding:10px 8px;font-size:12px;color:var(--muted)">${safeTxt(turma)}</td>
       <td style="padding:10px 8px;font-size:11.5px;font-weight:700;letter-spacing:0.03em;white-space:nowrap">${safeTxt(categoria)}</td>
       <td style="padding:10px 8px;white-space:nowrap">${dmyLong(c.venc)}</td>
       <td style="padding:10px 8px;text-align:right;font-weight:800;white-space:nowrap;color:${cor}">${moneyBR(c.valor)}</td>
@@ -11529,10 +11571,26 @@ function _finRenderCobrancas(body){
     </tr>`);
     return tr;
   };
-
   sorted.forEach(c => tbody.appendChild(buildRow(c)));
   wrap.appendChild(table);
   body.appendChild(wrap);
+
+  // v572: master checkbox precisa de indeterminate por JS (não é atributo HTML).
+  const master = table.querySelector('thead input[type=checkbox]');
+  if(master && master.dataset.indeterminate) master.indeterminate = true;
+
+  // v572: barra flutuante de ações em massa. Sticky no rodapé do body — repinta
+  // junto com a tabela (morphdom preserva bem). Some quando não há seleção.
+  if(selVisiveis.length){
+    const somaSel = filtradas.filter(c=>_finCobSel.has(String(c.id))).reduce((s,c)=>s+(Number(c.valor)||0),0);
+    body.appendChild(el(`<div style="position:sticky;bottom:0;margin:12px;padding:12px 14px;background:var(--ink);color:#fff;border-radius:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,0.18);z-index:5">
+      <div style="flex:1;min-width:180px;font-weight:800;font-size:13.5px">${selVisiveis.length} selecionada${selVisiveis.length>1?'s':''} · ${moneyBR(somaSel)}</div>
+      <button class="btn-cad" data-click="finCobBulkPagar" style="background:var(--good);color:#fff;padding:8px 14px;font-size:12.5px;font-weight:700">✅ Marcar pagas</button>
+      <button class="btn-cad" data-click="finCobBulkForma" style="background:#fff;color:var(--ink);padding:8px 14px;font-size:12.5px;font-weight:700">✏️ Editar forma</button>
+      <button class="btn-cad" data-click="finCobBulkExcluir" style="background:var(--red);color:#fff;padding:8px 14px;font-size:12.5px;font-weight:700">🗑️ Excluir</button>
+      <button class="btn-cad ghost" data-click="finCobBulkLimpar" style="color:#fff;border-color:rgba(255,255,255,0.3);padding:8px 12px;font-size:12px">Limpar</button>
+    </div>`));
+  }
 }
 
 /* v549 — handlers da aba Cobranças via delegation.
@@ -11577,6 +11635,137 @@ _dlgRegister('finCobDesconto', (el) => {
   const c = _finCobPorId(el); if(!c) return;
   _finCobrancaDescontoSheet(c, (novoValor)=> _finCobPatchLocal(c.id, { valor: novoValor }));
 });
+// v572: filtros (data-input/data-change) + seleção múltipla + 3 ações em massa.
+// Handlers de mudança escrevem em _finCobF/_finCobSel e chamam _finRepintarAbaAtual.
+// Bulk actions rodam Promise.all sobre as APIs unitárias existentes — sem RPC nova.
+_dlgRegister('finCobFBusca',      (el) => { _finCobF.busca = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobFStatus',     (el) => { _finCobF.status = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobFCategoria',  (el) => { _finCobF.categoria = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobFVenc',       (el) => { _finCobF.venc = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobFLimpar',     () => { _finCobF.busca=''; _finCobF.status=''; _finCobF.categoria=''; _finCobF.venc=''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobCheckOne', (el) => {
+  const id = String(el.dataset.id);
+  if(el.checked) _finCobSel.add(id); else _finCobSel.delete(id);
+  _finRepintarAbaAtual();
+});
+_dlgRegister('finCobCheckAll', (el) => {
+  // Aplica só nas visíveis (respeita filtros ativos). Marca = adiciona todas; desmarca = tira só as visíveis.
+  const linhas = document.querySelectorAll('tr[data-cob-id]');
+  if(el.checked) linhas.forEach(tr => _finCobSel.add(String(tr.dataset.cobId)));
+  else           linhas.forEach(tr => _finCobSel.delete(String(tr.dataset.cobId)));
+  _finRepintarAbaAtual();
+});
+_dlgRegister('finCobBulkLimpar', () => { _finCobSel.clear(); _finRepintarAbaAtual(); });
+
+async function _finCobSelArr(){
+  return [...(_finCobSel)].map(id => (_finCobrancas||[]).find(x=>String(x.id)===String(id))).filter(Boolean);
+}
+
+_dlgRegister('finCobBulkPagar', async () => {
+  const alvos = await _finCobSelArr();
+  if(!alvos.length) return;
+  _finCobBulkPagarSheet(alvos, async (data_pagamento, forma_pagamento) => {
+    const soma = alvos.reduce((s,c)=>s+(Number(c.valor)||0),0);
+    let ok=0, fail=0;
+    await Promise.all(alvos.map(c => sbProf.editarCobranca(c.id, { status:'pago', data_pagamento, forma_pagamento })
+      .then(()=>{ ok++; _finCobPatchLocal(c.id, { status:'pago', data_pagamento, forma_pagamento }); })
+      .catch(()=>{ fail++; })));
+    toast(`${ok} paga${ok>1?'s':''} · ${moneyBR(soma)}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+    _finCobSel.clear(); _finRepintarAbaAtual();
+  });
+});
+
+_dlgRegister('finCobBulkForma', async () => {
+  const alvos = await _finCobSelArr();
+  if(!alvos.length) return;
+  _finCobBulkFormaSheet(alvos, async (forma_pagamento) => {
+    let ok=0, fail=0;
+    await Promise.all(alvos.map(c => sbProf.editarCobranca(c.id, { forma_pagamento })
+      .then(()=>{ ok++; _finCobPatchLocal(c.id, { forma_pagamento }); })
+      .catch(()=>{ fail++; })));
+    toast(`${ok} atualizada${ok>1?'s':''}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+    _finCobSel.clear(); _finRepintarAbaAtual();
+  });
+});
+
+_dlgRegister('finCobBulkExcluir', async () => {
+  const alvos = await _finCobSelArr();
+  if(!alvos.length) return;
+  const soma = alvos.reduce((s,c)=>s+(Number(c.valor)||0),0);
+  const temVenda = alvos.some(c => c.pedido_id);
+  const aviso = temVenda ? '\n\n⚠️ Algumas são vendas da loja — o estoque será restaurado.' : '';
+  if(!(await _confirmar({ titulo:`Excluir ${alvos.length} cobrança${alvos.length>1?'s':''}?`,
+      desc:`Total: ${moneyBR(soma)}.${aviso}\n\nNão dá pra desfazer.`,
+      sim:`Excluir ${alvos.length}`, nao:'Manter' }))) return;
+  let ok=0, fail=0;
+  await Promise.all(alvos.map(c => {
+    const p = c.pedido_id ? sbProf.cancelarVendaEstornar(c.pedido_id) : sbProf.excluirCobranca(c.id);
+    return p.then(()=>{
+      ok++;
+      const idx = (_finCobrancas||[]).findIndex(x => String(x.id) === String(c.id));
+      if(idx >= 0) _finCobrancas.splice(idx, 1);
+    }).catch(()=>{ fail++; });
+  }));
+  toast(`${ok} excluída${ok>1?'s':''}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+  _finCobSel.clear(); _finRepintarAbaAtual();
+  if(temVenda && typeof _loadPedidos==='function') _loadPedidos(true);
+});
+
+// Sheets pra as duas ações que precisam de input do professor.
+function _finCobBulkPagarSheet(alvos, onDone){
+  const soma = alvos.reduce((s,c)=>s+(Number(c.valor)||0),0);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Marcar como pagas">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">✅ Marcar ${alvos.length} como pagas</div>
+    <div class="sheet-desc">Total: <b>${moneyBR(soma)}</b>. Aplica a mesma data e forma em todas.</div>
+    <label class="flbl" style="margin-top:12px">Pago em</label>
+    <input class="inp" id="bp-data" type="date" value="${HOJE_ISO}" data-autofocus>
+    <label class="flbl" style="margin-top:12px">Forma de pagamento</label>
+    <select class="inp" id="bp-forma">
+      <option value="pix">📱 PIX</option>
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="cartao">💳 Cartão</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <button class="btn-save" id="bp-save" style="margin-top:14px">Aplicar em ${alvos.length}</button>
+    <button class="sheet-cancel" id="bp-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#bp-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#bp-save').onclick = ()=>{
+    const data = sheet.querySelector('#bp-data').value;
+    const forma = sheet.querySelector('#bp-forma').value;
+    if(!data){ toast('Escolha a data'); return; }
+    close(); onDone(data, forma);
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+function _finCobBulkFormaSheet(alvos, onDone){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Editar forma de pagamento">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">✏️ Forma de pagamento (${alvos.length})</div>
+    <div class="sheet-desc">Atualiza a forma nas cobranças selecionadas — não muda status nem data.</div>
+    <label class="flbl" style="margin-top:12px">Forma</label>
+    <select class="inp" id="bf-forma" data-autofocus>
+      <option value="pix">📱 PIX</option>
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="cartao">💳 Cartão</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <button class="btn-save" id="bf-save" style="margin-top:14px">Aplicar em ${alvos.length}</button>
+    <button class="sheet-cancel" id="bf-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#bf-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#bf-save').onclick = ()=>{
+    const forma = sheet.querySelector('#bf-forma').value;
+    close(); onDone(forma);
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+
 _dlgRegister('finCobExcluir', async (el) => {
   const c = _finCobPorId(el); if(!c) return;
   const p = c.profiles || {};
