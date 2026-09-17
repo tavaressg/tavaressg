@@ -13126,12 +13126,15 @@ function _finContratoSheet(c, onDone){
         transition:border-color .15s, background .15s">
         <span id="ct-pdf-ico" style="font-size:20px;line-height:1">${c.arquivo_url ? '📄' : '⬆'}</span>
         <span style="flex:1;min-width:0">
-          <span id="ct-pdf-titulo" style="display:block;font-weight:700;font-size:13px;color:var(--ink)">${c.arquivo_url ? 'Contrato anexado' : 'Anexar PDF assinado'}</span>
-          <span id="ct-pdf-info" style="display:block;font-size:11.5px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.arquivo_url ? 'Toque para substituir' : 'PDF até 10 MB · fluxo manual gov.br'}</span>
+          <span id="ct-pdf-titulo" style="display:block;font-weight:700;font-size:13px;color:var(--ink)">${c.arquivo_url ? 'Contrato anexado ✓' : 'Anexar PDF assinado'}</span>
+          <span id="ct-pdf-info" style="display:block;font-size:11.5px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.arquivo_url ? 'Clique aqui pra trocar o arquivo' : 'PDF até 10 MB · fluxo manual gov.br'}</span>
         </span>
       </label>
       <input type="file" id="ct-pdf-file" accept="application/pdf" style="display:none">
-      ${c.arquivo_url ? '<button class="btn-cad ghost" id="ct-ver-pdf" style="width:100%;margin-top:8px">Ver PDF assinado</button>' : ''}
+      ${c.arquivo_url ? `<div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn-cad ghost" id="ct-ver-pdf" style="flex:1">👁 Ver PDF</button>
+        <label for="ct-pdf-file" class="btn-cad ghost" style="flex:1;text-align:center;cursor:pointer;line-height:1.6">🔄 Trocar PDF</label>
+      </div>` : ''}
     ` : ''}
     ${!editar?`
       <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>

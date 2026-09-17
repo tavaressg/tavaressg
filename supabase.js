@@ -1562,12 +1562,23 @@
       if (!file) throw new Error('sem arquivo');
       const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
       const path = `${contratoId}/${Date.now()}.${ext}`;
+      // v576: guarda o arquivo anterior pra apagar depois do sucesso — evita
+      // vazar espaço quando o professor sobe o PDF errado e substitui.
+      let anterior = null;
+      try {
+        const { data: prev } = await SB.from('contratos').select('arquivo_url').eq('id', contratoId).single();
+        anterior = prev && prev.arquivo_url;
+      } catch(_){}
       const { error: eUp } = await SB.storage.from('contratos').upload(path, file, {
         cacheControl: '3600', upsert: false, contentType: file.type || 'application/pdf',
       });
       if (eUp) throw eUp;
       const { error: eSv } = await SB.from('contratos').update({ arquivo_url: path }).eq('id', contratoId);
       if (eSv) throw eSv;
+      // Best-effort: remove o antigo. Se falhar (RLS, storage ausente), só loga.
+      if (anterior && anterior !== path) {
+        try { await SB.storage.from('contratos').remove([anterior]); } catch(_){}
+      }
       return path;
     }),
     // Signed URL curta (5 min, padrão 0007) — bucket é privado.

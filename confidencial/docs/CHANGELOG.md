@@ -9,6 +9,18 @@
 
 ## Concluídas ✓
 
+### v576 — Trocar PDF do contrato sem cancelar + apagar o antigo (2026-09-17)
+
+O sheet do contrato já tinha "Toque para substituir" clicável, mas o texto sugeria só
+uma instrução — o professor achava que precisava cancelar o contrato pra trocar o PDF
+errado. Agora **botão dedicado "🔄 Trocar PDF"** ao lado de "👁 Ver PDF", ambos com a
+mesma largura, e o rótulo do drop-zone passa a "Contrato anexado ✓ · Clique aqui pra
+trocar o arquivo" (imperativo, sem ambiguidade).
+
+**supabase.js v97:** `uploadContrato` agora lê o `arquivo_url` atual antes de subir o
+novo e apaga o antigo do storage best-effort (`SB.storage.from('contratos').remove([anterior])`).
+Antes, cada troca deixava um PDF órfão. Não bloqueia o upload se a remoção falhar.
+
 ### v575 — Toolbar de Cobranças com hierarquia visual (2026-09-17)
 
 Antes: "Nova venda" ocupava 350px em vermelho gigante, "Cobrança avulsa" espremida ao
