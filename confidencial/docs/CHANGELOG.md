@@ -9,6 +9,14 @@
 
 ## Concluídas ✓
 
+### v574 — Barra de ações em massa vira `position:fixed` (aparecia oculta) (2026-09-17)
+
+Bug real da v572. A barra ficava com `position:sticky; bottom:0` no rodapé do `.fin-body`,
+mas o scroll do app é da janela (não do `.fin-body`), então o sticky ficava preso no fim
+do body — abaixo da última linha da tabela, fora da viewport. Testado com 8 selecionadas,
+não aparecia nada. Troca pra `position:fixed; bottom:20px; left:50%` centralizada, com
+z-index 2000 — sempre visível quando há seleção, comportamento padrão de bulk action bar.
+
 ### v573 — Cobranças: botões + filtros numa linha só, com separador (2026-09-17)
 
 Ajuste visual do que a v572 entregou. Os selects de filtro ficavam com largura 100% em

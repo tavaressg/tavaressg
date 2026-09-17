@@ -11580,11 +11580,13 @@ function _finRenderCobrancas(body){
   const master = table.querySelector('thead input[type=checkbox]');
   if(master && master.dataset.indeterminate) master.indeterminate = true;
 
-  // v572: barra flutuante de ações em massa. Sticky no rodapé do body — repinta
-  // junto com a tabela (morphdom preserva bem). Some quando não há seleção.
+  // v572/v574: barra de ações em massa. `position:fixed` centralizada — sticky
+  // não funcionava porque a `.fin-body` é maior que a viewport (o scroll é da
+  // janela, não do body), então a barra ficava presa no rodapé do body, fora da
+  // tela. Fixed sempre visível. z-index alto pra ficar sobre tabbar/toast.
   if(selVisiveis.length){
     const somaSel = filtradas.filter(c=>_finCobSel.has(String(c.id))).reduce((s,c)=>s+(Number(c.valor)||0),0);
-    body.appendChild(el(`<div style="position:sticky;bottom:0;margin:12px;padding:12px 14px;background:var(--ink);color:#fff;border-radius:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,0.18);z-index:5">
+    body.appendChild(el(`<div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:calc(100% - 40px);max-width:900px;padding:12px 16px;background:var(--ink);color:#fff;border-radius:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,0.28);z-index:2000">
       <div style="flex:1;min-width:180px;font-weight:800;font-size:13.5px">${selVisiveis.length} selecionada${selVisiveis.length>1?'s':''} · ${moneyBR(somaSel)}</div>
       <button class="btn-cad" data-click="finCobBulkPagar" style="background:var(--good);color:#fff;padding:8px 14px;font-size:12.5px;font-weight:700">✅ Marcar pagas</button>
       <button class="btn-cad" data-click="finCobBulkForma" style="background:#fff;color:var(--ink);padding:8px 14px;font-size:12.5px;font-weight:700">✏️ Editar forma</button>
