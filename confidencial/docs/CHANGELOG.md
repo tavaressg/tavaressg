@@ -9,6 +9,17 @@
 
 ## Concluídas ✓
 
+### v575 — Toolbar de Cobranças com hierarquia visual (2026-09-17)
+
+Antes: "Nova venda" ocupava 350px em vermelho gigante, "Cobrança avulsa" espremida ao
+lado, filtros com altura, fonte e peso diferentes — parecia três decisões de UI
+diferentes coladas. Agora: **caixa única** com fundo branco, borda arredondada e padding
+interno de 10px agrupa toda a régua. **Todos os controles a 36px de altura**, com
+tipografia consistente (13px em todos; peso 700 no primário, 600 no secundário, 500 nos
+filtros/selects). **Separador vertical** de 24px entre "grupo de ação" e "grupo de
+filtros". Setas dos selects encostadas 30px da direita — tamanhos casam sem alinhar
+milimetricamente.
+
 ### v574 — Barra de ações em massa vira `position:fixed` (aparecia oculta) (2026-09-17)
 
 Bug real da v572. A barra ficava com `position:sticky; bottom:0` no rodapé do `.fin-body`,
