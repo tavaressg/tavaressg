@@ -10687,6 +10687,23 @@ const _finCobSel = new Set();
 // (vencidas > a vencer > pagas > isentas), padrão anterior. Ao clicar num th, o
 // professor assume o sort — click de novo alterna asc/desc.
 const _finCobF = { busca:'', status:'', categoria:'', venc:'', sortKey:null, sortDir:'asc' };
+// v578: sort clicável estendido a Despesas/Planos/Contratos/Matrículas. Cada aba
+// tem seu próprio { sortKey, sortDir }; helper `_finSthTag` monta o `<th>` e
+// o handler único `finSort` (data-tab + data-sort) alterna asc/desc.
+const _finSortByTab = {
+  despesas:   { sortKey:null, sortDir:'asc' },
+  planos:     { sortKey:null, sortDir:'asc' },
+  contratos:  { sortKey:null, sortDir:'asc' },
+  matriculas: { sortKey:null, sortDir:'asc' },
+};
+function _finSortState(tab){ return tab==='cobrancas' ? _finCobF : _finSortByTab[tab]; }
+function _finSthTag(tab, key, label, extra){
+  const s = _finSortState(tab); if(!s) return `<th style="padding:10px 8px;font-weight:700">${label}</th>`;
+  const ativo = s.sortKey===key;
+  const seta = ativo ? (s.sortDir==='desc' ? ' ▼' : ' ▲') : '';
+  const cor = ativo ? 'var(--red)' : 'var(--muted)';
+  return `<th style="padding:10px 8px;font-weight:700;cursor:pointer;color:${cor};user-select:none${extra?';'+extra:''}" data-click="finSort" data-tab="${tab}" data-sort="${key}">${label}${seta}</th>`;
+}
 let _finDespFiltro = 'a_pagar';
 let _finContrFiltro = 'ativo';
 
@@ -11559,24 +11576,18 @@ function _finRenderCobrancas(body){
   const todosSel = sorted.length>0 && selVisiveis.length===sorted.length;
   const nenhumSel = selVisiveis.length===0;
   const masterAttr = todosSel ? 'checked' : (nenhumSel ? '' : 'data-indeterminate="1"');
-  // v577: cabeçalhos clicáveis com seta ▲/▼. Aluno = padrão de Alunos (data-click).
-  const sTh = (k, label, extra) => {
-    const ativo = _finCobF.sortKey===k;
-    const seta = ativo ? (_finCobF.sortDir==='desc' ? ' ▼' : ' ▲') : '';
-    const cor = ativo ? 'var(--red)' : 'var(--muted)';
-    return `<th style="padding:10px 8px;font-weight:700;cursor:pointer;color:${cor};user-select:none${extra?';'+extra:''}" data-click="finCobSort" data-sort="${k}">${label}${seta}</th>`;
-  };
+  // v577/v578: cabeçalhos clicáveis via helper compartilhado (_finSthTag).
   const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:980px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700;width:36px"><input type="checkbox" data-change="finCobCheckAll" ${masterAttr} aria-label="Selecionar todas"></th>
-        ${sTh('aluno','Aluno','padding:10px 12px')}
-        ${sTh('categoria','Categoria')}
-        ${sTh('venc','Vencimento')}
-        ${sTh('valor','Valor','text-align:right')}
-        ${sTh('status','Status','text-align:center')}
-        ${sTh('pago','Pago em')}
-        ${sTh('forma','Forma pgto','white-space:nowrap')}
+        ${_finSthTag('cobrancas','aluno','Aluno','padding:10px 12px')}
+        ${_finSthTag('cobrancas','categoria','Categoria')}
+        ${_finSthTag('cobrancas','venc','Vencimento')}
+        ${_finSthTag('cobrancas','valor','Valor','text-align:right')}
+        ${_finSthTag('cobrancas','status','Status','text-align:center')}
+        ${_finSthTag('cobrancas','pago','Pago em')}
+        ${_finSthTag('cobrancas','forma','Forma pgto','white-space:nowrap')}
         <th style="padding:10px 8px;font-weight:700;text-align:center;color:var(--muted)">Ações</th>
       </tr>
     </thead>
@@ -11687,10 +11698,13 @@ _dlgRegister('finCobFStatus',     (el) => { _finCobF.status = el.value||''; _fin
 _dlgRegister('finCobFCategoria',  (el) => { _finCobF.categoria = el.value||''; _finRepintarAbaAtual(); });
 _dlgRegister('finCobFVenc',       (el) => { _finCobF.venc = el.value||''; _finRepintarAbaAtual(); });
 _dlgRegister('finCobFLimpar',     () => { _finCobF.busca=''; _finCobF.status=''; _finCobF.categoria=''; _finCobF.venc=''; _finRepintarAbaAtual(); });
-_dlgRegister('finCobSort', (el) => {
+// v578: handler único de sort das 5 abas do Financeiro (Cobranças, Despesas,
+// Planos, Contratos, Matrículas). data-tab + data-sort escrevem no state certo.
+_dlgRegister('finSort', (el) => {
+  const s = _finSortState(el.dataset.tab); if(!s) return;
   const k = el.dataset.sort;
-  if(_finCobF.sortKey === k) _finCobF.sortDir = _finCobF.sortDir==='asc' ? 'desc' : 'asc';
-  else { _finCobF.sortKey = k; _finCobF.sortDir = 'asc'; }
+  if(s.sortKey === k) s.sortDir = s.sortDir==='asc' ? 'desc' : 'asc';
+  else { s.sortKey = k; s.sortDir = 'asc'; }
   _finRepintarAbaAtual();
 });
 _dlgRegister('finCobCheckOne', (el) => {
@@ -11920,11 +11934,23 @@ function _finRenderDespesas(body){
   const FORMA_LBL = { dinheiro:'💵', pix:'📱', cartao:'💳', outro:'➕' };
   const isVencDesp = (d) => d.status==='a_pagar' && d.data_lancamento && d.data_lancamento < HOJE_ISO;
   const statusRank = (d) => d.status==='a_pagar' ? (isVencDesp(d) ? 0 : 1) : (d.status==='pago' ? 2 : 3);
-  const sorted = desps.slice().sort((a,b) => {
-    const ra = statusRank(a), rb = statusRank(b);
-    if(ra !== rb) return ra - rb;
-    return (a.data_lancamento||'').localeCompare(b.data_lancamento||'');
-  });
+  // v578: sort clicável. sortKey=null mantém o ordenamento inteligente antigo.
+  const _dS = _finSortByTab.despesas;
+  const _dNulLast = (v) => v==null || v==='' ? 1 : 0;
+  const _dDir = _dS.sortDir==='desc' ? -1 : 1;
+  const _dCmp = {
+    descricao: (a,b) => (a.descricao||'').localeCompare(b.descricao||'')*_dDir,
+    categoria: (a,b) => ((a.categorias_financeiro&&a.categorias_financeiro.nome)||'').localeCompare((b.categorias_financeiro&&b.categorias_financeiro.nome)||'')*_dDir,
+    vence:     (a,b) => (a.data_lancamento||'').localeCompare(b.data_lancamento||'')*_dDir,
+    valor:     (a,b) => ((Number(a.valor)||0)-(Number(b.valor)||0))*_dDir,
+    status:    (a,b) => (statusRank(a)-statusRank(b))*_dDir,
+    pago:      (a,b) => (_dNulLast(a.data_pagamento)-_dNulLast(b.data_pagamento)) || (a.data_pagamento||'').localeCompare(b.data_pagamento||'')*_dDir,
+    forma:     (a,b) => (_dNulLast(a.forma_pagamento)-_dNulLast(b.forma_pagamento)) || (a.forma_pagamento||'').localeCompare(b.forma_pagamento||'')*_dDir,
+  };
+  const sorted = desps.slice().sort(_dS.sortKey && _dCmp[_dS.sortKey]
+    ? _dCmp[_dS.sortKey]
+    : (a,b) => { const r = statusRank(a)-statusRank(b); return r!==0 ? r : (a.data_lancamento||'').localeCompare(b.data_lancamento||''); }
+  );
   const statusBadge = (d) => {
     if(d.status==='pago') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Paga</span>';
     if(d.status==='cancelado') return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Cancelada</span>';
@@ -11938,14 +11964,14 @@ function _finRenderDespesas(body){
   const table = el(`<table class="fin-desp-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:840px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
-        <th style="padding:10px 12px;font-weight:700">Descrição</th>
-        <th style="padding:10px 8px;font-weight:700">Categoria</th>
-        <th style="padding:10px 8px;font-weight:700">Vence</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
-        <th style="padding:10px 8px;font-weight:700">Pago em</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Forma</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
+        ${_finSthTag('despesas','descricao','Descrição','padding:10px 12px')}
+        ${_finSthTag('despesas','categoria','Categoria')}
+        ${_finSthTag('despesas','vence','Vence')}
+        ${_finSthTag('despesas','valor','Valor','text-align:right')}
+        ${_finSthTag('despesas','status','Status','text-align:center')}
+        ${_finSthTag('despesas','pago','Pago em')}
+        ${_finSthTag('despesas','forma','Forma','text-align:center')}
+        <th style="padding:10px 8px;font-weight:700;text-align:center;color:var(--muted)">Ações</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -12011,12 +12037,23 @@ function _finRenderPlanos(body){
   // v502: badges de status coloridos (padrão Cobranças/Despesas) + ordenação
   // ativos primeiro. Coluna Público removida (v499, YAGNI). Info derivada de
   // #alunos por plano se realmente necessária.
-  const sorted = planos.slice().sort((a,b) => {
-    const rankA = a.ativo === false ? 1 : 0;
-    const rankB = b.ativo === false ? 1 : 0;
-    if(rankA !== rankB) return rankA - rankB;
-    return (a.nome||'').localeCompare(b.nome||'');
-  });
+  // v578: sort clicável. sortKey=null mantém ativos primeiro, nome asc.
+  const _pS = _finSortByTab.planos;
+  const _pDir = _pS.sortDir==='desc' ? -1 : 1;
+  const _pCmp = {
+    nome:      (a,b) => (a.nome||'').localeCompare(b.nome||'')*_pDir,
+    frequencia:(a,b) => (a.frequencia||'').localeCompare(b.frequencia||'')*_pDir,
+    valor:     (a,b) => ((Number(a.valor)||0)-(Number(b.valor)||0))*_pDir,
+    parcelas:  (a,b) => ((a.parcelas==null?999:a.parcelas)-(b.parcelas==null?999:b.parcelas))*_pDir,
+    dia:       (a,b) => ((a.dia_vencimento||0)-(b.dia_vencimento||0))*_pDir,
+    forma:     (a,b) => (a.forma_padrao||'').localeCompare(b.forma_padrao||'')*_pDir,
+    contrato:  (a,b) => ((a.tem_contrato?1:0)-(b.tem_contrato?1:0))*_pDir,
+    status:    (a,b) => ((a.ativo===false?1:0)-(b.ativo===false?1:0))*_pDir,
+  };
+  const sorted = planos.slice().sort(_pS.sortKey && _pCmp[_pS.sortKey]
+    ? _pCmp[_pS.sortKey]
+    : (a,b) => { const r = (a.ativo===false?1:0)-(b.ativo===false?1:0); return r!==0 ? r : (a.nome||'').localeCompare(b.nome||''); }
+  );
   const statusBadge = (p) => p.ativo === false
     ? '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Inativo</span>'
     : '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Ativo</span>';
@@ -12024,14 +12061,14 @@ function _finRenderPlanos(body){
   const table = el(`<table class="fin-planos-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
-        <th style="padding:10px 12px;font-weight:700">Nome</th>
-        <th style="padding:10px 8px;font-weight:700">Freq.</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
-        <th style="padding:10px 8px;font-weight:700">Cobrança</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Dia</th>
-        <th style="padding:10px 8px;font-weight:700">Forma padrão</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Contrato</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+        ${_finSthTag('planos','nome','Nome','padding:10px 12px')}
+        ${_finSthTag('planos','frequencia','Freq.')}
+        ${_finSthTag('planos','valor','Valor','text-align:right')}
+        ${_finSthTag('planos','parcelas','Cobrança')}
+        ${_finSthTag('planos','dia','Dia','text-align:center')}
+        ${_finSthTag('planos','forma','Forma padrão')}
+        ${_finSthTag('planos','contrato','Contrato','text-align:center')}
+        ${_finSthTag('planos','status','Status','text-align:center')}
       </tr>
     </thead>
     <tbody></tbody>
@@ -12096,11 +12133,24 @@ function _finRenderContratos(body){
     if(c.status==='expirado') return 3;
     return 4;   // cancelado
   };
-  const sorted = cts.slice().sort((a,b) => {
-    const ra = statusRank(a), rb = statusRank(b);
-    if(ra !== rb) return ra - rb;
-    return (a.fim||'').localeCompare(b.fim||'');
-  });
+  // v578: sort clicável. sortKey=null mantém urgência primeiro.
+  const _cS = _finSortByTab.contratos;
+  const _cDir = _cS.sortDir==='desc' ? -1 : 1;
+  const _cNome = (c) => { const p=c.profiles||{}; return (p.nome_completo||p.apelido||'').toLowerCase(); };
+  const _cCmp = {
+    numero:   (a,b) => ((a.numero||0)-(b.numero||0))*_cDir,
+    aluno:    (a,b) => _cNome(a).localeCompare(_cNome(b))*_cDir,
+    plano:    (a,b) => ((a.planos&&a.planos.nome)||'').localeCompare(((b.planos&&b.planos.nome)||''))*_cDir,
+    inicio:   (a,b) => (a.inicio||'').localeCompare(b.inicio||'')*_cDir,
+    fim:      (a,b) => (a.fim||'').localeCompare(b.fim||'')*_cDir,
+    pdf:      (a,b) => ((a.arquivo_url?1:0)-(b.arquivo_url?1:0))*_cDir,
+    menor:    (a,b) => ((a.eh_menor?1:0)-(b.eh_menor?1:0))*_cDir,
+    status:   (a,b) => (statusRank(a)-statusRank(b))*_cDir,
+  };
+  const sorted = cts.slice().sort(_cS.sortKey && _cCmp[_cS.sortKey]
+    ? _cCmp[_cS.sortKey]
+    : (a,b) => { const r = statusRank(a)-statusRank(b); return r!==0 ? r : (a.fim||'').localeCompare(b.fim||''); }
+  );
   const statusBadge = (c) => {
     if(isVencendo(c)){
       const days = Math.max(0, Math.round((new Date(c.fim)-new Date(today))/86400000));
@@ -12117,14 +12167,14 @@ function _finRenderContratos(body){
   const table = el(`<table class="fin-contr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:720px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
-        <th style="padding:10px 12px;font-weight:700">Nº</th>
-        <th style="padding:10px 8px;font-weight:700">Aluno</th>
-        <th style="padding:10px 8px;font-weight:700">Plano</th>
-        <th style="padding:10px 8px;font-weight:700">Início</th>
-        <th style="padding:10px 8px;font-weight:700">Fim</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">PDF</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Menor</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
+        ${_finSthTag('contratos','numero','Nº','padding:10px 12px')}
+        ${_finSthTag('contratos','aluno','Aluno')}
+        ${_finSthTag('contratos','plano','Plano')}
+        ${_finSthTag('contratos','inicio','Início')}
+        ${_finSthTag('contratos','fim','Fim')}
+        ${_finSthTag('contratos','pdf','PDF','text-align:center')}
+        ${_finSthTag('contratos','menor','Menor','text-align:center')}
+        ${_finSthTag('contratos','status','Status','text-align:center')}
       </tr>
     </thead>
     <tbody></tbody>
@@ -12308,13 +12358,34 @@ function _finMatriculasPintar(body, alunos, matriculas){
       </div>
     </div>`));
 
-    // Tabela unificada — sem plano primeiro
-    const sorted = rows.slice().sort((a,b) => {
-      const rA = a.m && a.m.planos ? 1 : 0;
-      const rB = b.m && b.m.planos ? 1 : 0;
-      if(rA !== rB) return rA - rB;
-      return (_nomeInst(a.a)||'').localeCompare(_nomeInst(b.a)||'');
-    });
+    // v578: sort clicável. sortKey=null mantém "sem plano" primeiro.
+    const _mS = _finSortByTab.matriculas;
+    const _mDir = _mS.sortDir==='desc' ? -1 : 1;
+    const _valEfetivo = (m) => {
+      if(!m) return 0;
+      if(m.isento) return 0;
+      const pl = m.planos || {};
+      return Number(m.valor_negociado != null ? m.valor_negociado : pl.valor) || 0;
+    };
+    const _venc = (m) => (m && m.dia_vencimento) || (m && m.planos && m.planos.dia_vencimento) || 0;
+    const _mCmp = {
+      aluno:  (a,b) => (_nomeInst(a.a)||'').localeCompare(_nomeInst(b.a)||'')*_mDir,
+      plano:  (a,b) => ((a.m&&a.m.planos&&a.m.planos.nome)||'').localeCompare(((b.m&&b.m.planos&&b.m.planos.nome)||''))*_mDir,
+      valor:  (a,b) => (_valEfetivo(a.m)-_valEfetivo(b.m))*_mDir,
+      venc:   (a,b) => (_venc(a.m)-_venc(b.m))*_mDir,
+      desde:  (a,b) => ((a.m&&a.m.inicio)||'').localeCompare(((b.m&&b.m.inicio)||''))*_mDir,
+      fim:    (a,b) => ((a.m&&a.m.fim)||'').localeCompare(((b.m&&b.m.fim)||''))*_mDir,
+      matricula: (a,b) => ((a.m&&a.m.planos?1:0)-(b.m&&b.m.planos?1:0))*_mDir,
+    };
+    const sorted = rows.slice().sort(_mS.sortKey && _mCmp[_mS.sortKey]
+      ? _mCmp[_mS.sortKey]
+      : (a,b) => {
+        const rA = a.m && a.m.planos ? 1 : 0;
+        const rB = b.m && b.m.planos ? 1 : 0;
+        if(rA !== rB) return rA - rB;
+        return (_nomeInst(a.a)||'').localeCompare(_nomeInst(b.a)||'');
+      }
+    );
 
     const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
     // v514: colunas Turma, Vencimento, Status aluno. Ordem: Aluno · Turma ·
@@ -12322,16 +12393,16 @@ function _finMatriculasPintar(body, alunos, matriculas){
     const table = el(`<table class="fin-matr-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:1160px">
       <thead>
         <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
-          <th style="padding:10px 12px;font-weight:700">Aluno</th>
-          <th style="padding:10px 8px;font-weight:700">Turma</th>
-          <th style="padding:10px 8px;font-weight:700">Plano</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:right;white-space:nowrap">Valor efetivo</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap">Vencimento</th>
-          <th style="padding:10px 8px;font-weight:700">Desde</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap">Término</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center">Ajustes</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:110px">Matrícula</th>
-          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:100px">Status aluno</th>
+          ${_finSthTag('matriculas','aluno','Aluno','padding:10px 12px')}
+          <th style="padding:10px 8px;font-weight:700;color:var(--muted)">Turma</th>
+          ${_finSthTag('matriculas','plano','Plano')}
+          ${_finSthTag('matriculas','valor','Valor efetivo','text-align:right;white-space:nowrap')}
+          ${_finSthTag('matriculas','venc','Vencimento','text-align:center;white-space:nowrap')}
+          ${_finSthTag('matriculas','desde','Desde')}
+          ${_finSthTag('matriculas','fim','Término','text-align:center;white-space:nowrap')}
+          <th style="padding:10px 8px;font-weight:700;text-align:center;color:var(--muted)">Ajustes</th>
+          ${_finSthTag('matriculas','matricula','Matrícula','text-align:center;white-space:nowrap;min-width:110px')}
+          <th style="padding:10px 8px;font-weight:700;text-align:center;white-space:nowrap;min-width:100px;color:var(--muted)">Status aluno</th>
         </tr>
       </thead>
       <tbody></tbody>

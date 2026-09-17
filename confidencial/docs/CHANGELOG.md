@@ -9,6 +9,25 @@
 
 ## Concluídas ✓
 
+### v578 — Sort clicável replicado nas 4 abas restantes do Financeiro (2026-09-17)
+
+Padrão da v577 estendido pra **Despesas** (Descrição/Categoria/Vence/Valor/Status/Pago
+em/Forma), **Planos** (Nome/Freq./Valor/Cobrança/Dia/Forma padrão/Contrato/Status),
+**Contratos** (Nº/Aluno/Plano/Início/Fim/PDF/Menor/Status) e **Matrículas**
+(Aluno/Plano/Valor efetivo/Vencimento/Desde/Término/Matrícula). Colunas que não valem
+sort (Ajustes com botões, Status aluno com badge derivado, Turma como texto multi-valor)
+ficaram como `<th>` neutros em cinza.
+
+**Refatoração compartilhada:** helper `_finSthTag(tab, key, label, extra)` monta o
+cabeçalho com seta ▲/▼; handler único `_dlgRegister('finSort')` lê `data-tab` +
+`data-sort` e escreve no state top-level correspondente (`_finCobF` pra cobranças,
+`_finSortByTab[tab]` pras outras). Um handler pras cinco abas — regra ponytail.
+
+O ordenamento inteligente padrão de cada aba continua ativo enquanto ninguém clicou:
+Cobranças (Vencidas > A vencer > Pagas > Isentas), Despesas (Vencidas > A pagar > Pagas),
+Planos (Ativos > alfabético), Contratos (Vencendo em <30d > Ativo > Aguardando > Expirado),
+Matrículas (Sem plano > alfabético).
+
 ### v577 — Cobranças: click no cabeçalho ordena, mesmo padrão de Alunos (2026-09-17)
 
 Aluno já tinha (v382 e antes), Cobranças não. Agora os 7 cabeçalhos são
