@@ -9,6 +9,16 @@
 
 ## Concluídas ✓
 
+### v573 — Cobranças: botões + filtros numa linha só, com separador (2026-09-17)
+
+Ajuste visual do que a v572 entregou. Os selects de filtro ficavam com largura 100% em
+telas médias porque não tinham `width` explícito (o `.inp` do app é `width:100%`), então
+mesmo dentro do flex apareciam empilhados. Agora todos os controles vivem numa única
+barra flexível: `[+ Nova venda] [+ Cobrança avulsa] | [🔍 Buscar] [Status] [Categoria]
+[Vencimento] [✕ Limpar]`. O separador é um `border-left` de 1px sobre um spacer, e em
+larguras estreitas o wrap quebra por grupos sem prejuízo — botões de ação juntos, filtros
+juntos. `Style="width:auto"` local nos selects vence o `.inp { width:100% }` global.
+
 ### v572 — Cobranças ganha seleção múltipla, 3 ações em massa e filtros (2026-09-17)
 
 Aba **Cobranças** do Financeiro passou a suportar operação em lote — o professor

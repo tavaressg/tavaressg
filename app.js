@@ -11432,18 +11432,19 @@ function _finRenderCobrancas(body){
   // Dono viu tudo numa tela só, sem clicar. Ordenação: vencidas > a vencer >
   // pagas > isentas, e dentro do grupo por venc (mais antigo primeiro).
   // v549: migrado pra event delegation (data-click) — ver _FIN_MORPH.
-  body.appendChild(el('<button class="btn-cad" data-click="finCobVendaNova" style="margin:8px 12px 4px">＋ Nova venda</button>'));
-  body.appendChild(el('<button class="btn-cad ghost" data-click="finCobAvulsaNova" style="margin:0 12px 8px">＋ Cobrança avulsa</button>'));
-
-  // v572: filtros no molde dos filtros avançados de Alunos (advF/advBar). Cada
-  // campo escreve em _finCobF e re-render pela chave `cobrancas` — o Set de
-  // seleção `_finCobSel` sobrevive porque é top-level; se a linha sumir do
-  // filtro, o Set ainda tem o id mas o buildRow só monta os visíveis, então
-  // ids ocultos não entram nas ações em massa.
+  // v572/v573: tudo numa linha só — botões de criação, separador visual, filtros.
+  // No wrap (telas estreitas), quebra em blocos. Cada filtro com `width:auto` pra
+  // caber inline (antes `min-width:120px` com display:block-implícito de select
+  // ocupava a linha inteira). O separador é um `border-left` de 1px sobre o
+  // spacer, invisível quando os grupos quebram em linhas diferentes.
   const _o = (v, atual) => `value="${safeAttr(v)}"${String(atual||'')===String(v)?' selected':''}`;
-  body.appendChild(el(`<div style="margin:0 12px 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-    <input class="inp" data-input="finCobFBusca" placeholder="🔍 Buscar aluno…" value="${safeAttr(_finCobF.busca)}" style="flex:1;min-width:180px;max-width:280px;font-size:13px">
-    <select class="inp" data-change="finCobFStatus" style="flex:0 0 auto;font-size:13px;min-width:120px">
+  const temFiltro = _finCobF.busca||_finCobF.status||_finCobF.categoria||_finCobF.venc;
+  body.appendChild(el(`<div style="margin:8px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <button class="btn-cad" data-click="finCobVendaNova" style="padding:8px 14px">＋ Nova venda</button>
+    <button class="btn-cad ghost" data-click="finCobAvulsaNova" style="padding:8px 14px">＋ Cobrança avulsa</button>
+    <div style="width:1px;height:28px;background:var(--border,#e5e5ea);margin:0 4px"></div>
+    <input class="inp" data-input="finCobFBusca" placeholder="🔍 Buscar aluno…" value="${safeAttr(_finCobF.busca)}" style="flex:1 1 160px;min-width:140px;max-width:240px;font-size:13px;padding:8px 10px">
+    <select class="inp" data-change="finCobFStatus" style="width:auto;font-size:13px;padding:8px 10px">
       <option ${_o('',_finCobF.status)}>Status: Todos</option>
       <option ${_o('vencida',_finCobF.status)}>Vencidas</option>
       <option ${_o('a_vencer',_finCobF.status)}>A vencer</option>
@@ -11451,20 +11452,20 @@ function _finRenderCobrancas(body){
       <option ${_o('isento',_finCobF.status)}>Isentas</option>
       <option ${_o('cancelado',_finCobF.status)}>Canceladas</option>
     </select>
-    <select class="inp" data-change="finCobFCategoria" style="flex:0 0 auto;font-size:13px;min-width:120px">
+    <select class="inp" data-change="finCobFCategoria" style="width:auto;font-size:13px;padding:8px 10px">
       <option ${_o('',_finCobF.categoria)}>Categoria: Todas</option>
       <option ${_o('mensalidade',_finCobF.categoria)}>Mensalidade</option>
       <option ${_o('venda',_finCobF.categoria)}>Venda loja</option>
       <option ${_o('contrato',_finCobF.categoria)}>Contrato</option>
       <option ${_o('avulsa',_finCobF.categoria)}>Avulsa</option>
     </select>
-    <select class="inp" data-change="finCobFVenc" style="flex:0 0 auto;font-size:13px;min-width:120px">
+    <select class="inp" data-change="finCobFVenc" style="width:auto;font-size:13px;padding:8px 10px">
       <option ${_o('',_finCobF.venc)}>Vencimento: Todos</option>
       <option ${_o('hoje',_finCobF.venc)}>Hoje</option>
       <option ${_o('7d',_finCobF.venc)}>Próximos 7 dias</option>
       <option ${_o('atraso',_finCobF.venc)}>Em atraso</option>
     </select>
-    ${(_finCobF.busca||_finCobF.status||_finCobF.categoria||_finCobF.venc) ? '<button class="btn-cad ghost" data-click="finCobFLimpar" style="padding:6px 12px;font-size:12px">✕ Limpar filtros</button>' : ''}
+    ${temFiltro ? '<button class="btn-cad ghost" data-click="finCobFLimpar" style="padding:6px 12px;font-size:12px">✕ Limpar</button>' : ''}
   </div>`));
 
   if(!cobs.length){ body.appendChild(el('<div class="empty-line">Nenhuma cobrança neste mês.</div>')); return; }
