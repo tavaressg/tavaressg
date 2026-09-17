@@ -349,8 +349,10 @@ document.addEventListener('keydown', e=>{
       setTimeout(()=>{
         const sheet = overlay.querySelector('.sheet');
         if (!sheet) return;
-        const focusable = _focusableInSheet(sheet);
-        if (focusable.length){ try{ focusable[0].focus({preventScroll:true}); }catch(e){} }
+        // v561: `data-autofocus` escolhe o alvo. Sem isso, confirmação de exclusão focava
+        // o 1º botão — o destrutivo — e Enter sem querer apagava.
+        const alvo = sheet.querySelector('[data-autofocus]') || _focusableInSheet(sheet)[0];
+        if (alvo){ try{ alvo.focus({preventScroll:true}); }catch(e){} }
       }, 280);
     }));
   });
@@ -4384,7 +4386,7 @@ _dlgRegister('perfilTema',     () => toggleTheme());
 _dlgRegister('perfilInstalar', () => abrirInstalarPWA());
 _dlgRegister('perfilConfig',   () => abrirConfiguracoes());
 _dlgRegister('perfilSair',     async () => {
-  if(!confirm('Sair da sua conta? Você precisará fazer login novamente pra continuar treinando.')) return;
+  if(!(await _confirmar({ titulo:'Sair da sua conta?', desc:'Você vai precisar fazer login de novo pra continuar treinando.', sim:'Sair' }))) return;
   try{
     if(DB.sbUser && _cloudReady && typeof sbSync!=='undefined'){ try{ await sbSync.pushState(buildDump()); }catch(_){} }
     if(typeof sbAuth!=='undefined') await sbAuth.signOut();
@@ -5800,6 +5802,76 @@ function _refetchAoVoltar(){
 document.addEventListener('visibilitychange', _refetchAoVoltar);
 window.addEventListener('focus', _refetchAoVoltar);
 
+/* v556 — Realtime (migration 0054). O evento do servidor NÃO traz o estado: ele
+   dispara o refetch MAIS ESTREITO que já existe. `onDadosMudaram()` fica de fora
+   de propósito — é marreta (invalida o Financeiro inteiro por causa de um
+   check-in) e nem toca em `_pedidosTs`, que é justo o cache do "Já paguei".
+
+   Regra: payload que já vem pronto é usado direto; payload que obrigaria a
+   RECALCULAR vira pergunta ao servidor. Recontar "aulas no grau/faixa" em JS é
+   proibido (fonte única na RPC `aulas_por_aluno`) — era assim que o aluno via um
+   número na Jornada e o professor outro na lista.
+
+   `checkins` do professor é a única leitura de payload: `_profData` é projeção
+   descartável (não o dump do ADR 0004) e o `getAlunos` autoritativo corrige
+   qualquer divergência no próximo gate de 30s. Custo: zero requisição — é o que
+   torna a fila do QR viável (30 alunos escaneando não podem virar 30 getAlunos,
+   que puxa os `checkins` de 120d da academia inteira). */
+function _rtEvento(tabela, row){
+  if(!DB.sbUser) return;
+  // v565: voltou depois de uma queda — os eventos do intervalo se perderam. Uma busca
+  // estreita do que o canal cobre: caches zerados (o render pede o que a tela mostra)
+  // + os dados do próprio usuário. Reconexão é rara; o custo é uma rodada.
+  if(tabela === 'reconectou'){
+    _profTs = 0; _pedidosTs = 0; _meusPedidosTs = 0;
+    renderBg();
+    _rtPullAll();
+    return;
+  }
+  const meu = row.user_id === DB.sbUser.id;
+
+  if(tabela === 'checkins'){
+    // Aluno: presença que o PROFESSOR marcou na chamada. `via==='app'` é o eco do
+    // próprio QR — o pushCheckin já refletiu localmente, refetch seria desperdício.
+    if(meu && row.via !== 'app'){ _rtPullAll(); return; }
+    // Professor: chamada ao vivo, sem rede.
+    const a = ((_profData && _profData.alunos) || []).find(x => x.id === row.user_id);
+    if(!a || row.data !== HOJE_ISO) return;
+    a.pres = row.hora || '✓';
+    // Mesmo patch do check-in local (presencaScan): sem isso o aluno presente seguia
+    // contando em "Ausentes 7+d" e fora de "Ativos (14d)" até o próximo getAlunos.
+    a.diasSem = 0; a.ultimaPres = row.data;
+    const t = (DB.turmas || []).find(x => x.id === row.turma_id);
+    if(t && t.nome && !(a.presTurma || []).includes(t.nome)) a.presTurma = [...(a.presTurma || []), t.nome];
+    renderBg();
+    return;
+  }
+
+  // Faixa nova mexe em contas que o servidor é dono (zera aulas no grau, move as
+  // âncoras de grau/faixa) → pergunta tudo de novo. Algumas vezes por ano.
+  if(tabela === 'graduations'){ if(meu) _rtPullAll(); return; }
+
+  if(tabela === 'pedidos'){
+    if(DB.eu && DB.eu.isProfessor) _loadPedidos(true);
+    else if(meu) _loadMeusPedidos(true);
+  }
+}
+function _rtPullAll(){
+  if(typeof sbSync === 'undefined') return;
+  _pullSemEco().then(()=>{ try{ renderBg(); }catch(_){} }).catch(()=>{});   // morph-ok: repinta pelo renderBg, nao appenda nada
+}
+/* v560 — pullAll de FUNDO (Realtime e foco) sem devolver o eco pra nuvem. `eu` e
+   `graduacoes` estão no dump: o render seguinte empurrava de volta o que acabou de
+   baixar, e com a conta aberta em 2+ aparelhos todos gravavam no mesmo segundo →
+   `state_conflict` → "Dados atualizados a partir de outro aparelho" + render()
+   completo. O Realtime deixou isso quase certo (antes cada aparelho puxava no seu
+   foco). Mesmo truque da baseline do boot, mas SÓ se não havia edição local
+   pendente — senão ela deixaria de subir. */
+function _pullSemEco(){
+  const limpo = JSON.stringify(buildDump()) === _lastPushed;
+  return sbSync.pullAll(DB.sbUser.id).then(r=>{ if(limpo) _lastPushed = JSON.stringify(buildDump()); return r; });
+}
+
 function _loadProfData(){
   if(Date.now() - _profTs < 30000) return;
   _profTs = Date.now();
@@ -5936,8 +6008,9 @@ function profBatchCheckin(turma, sessao, dataISO){
         row.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
       } else {
         // v305: clique errado — apaga o check-in dessa aula.
-        const undo = ()=>{
-          if(!confirm(`Remover a presença de ${_nomeInst(a)} nessa aula?`)) return;
+        const undo = async ()=>{
+          if(!(await _confirmar({ titulo:`Remover a presença de ${_nomeInst(a)}?`,
+            desc:`${turma.nome||'Aula'}${sessao.hora?' às '+sessao.hora:''}. A presença sai da contagem de aulas do aluno.`, sim:'Remover presença', nao:'Manter' }))) return;
           const done = ()=>{ jaPresIds.delete(key); paintList(); toast('Presença removida'); };
           if(!DEMO && typeof sbProf!=='undefined' && sbProf.removerPresencaBatch && turma.id){
             sbProf.removerPresencaBatch(a.id, turma.id, dataFinal, sessao.hora||null)
@@ -6770,7 +6843,8 @@ function profAcessoAlunos(){
   }
 
   goBtn.onclick = async ()=>{
-    if(!confirm(`Definir a senha "${_senhaPadrao()}" para ${pendentes.length} aluno(s) que nunca acessaram?\n\nQuem já acessou NÃO é afetado.`)) return;
+    if(!(await _confirmar({ titulo:'Definir a senha padrão?', perigo:false, sim:'Definir senha',
+      desc:`A senha "${_senhaPadrao()}" vai valer para ${pendentes.length} aluno(s) que nunca acessaram.\n\nQuem já acessou não é afetado.` }))) return;
     goBtn.disabled = true; goBtn.textContent = 'Aplicando…';
     try{
       // Era `SENHA_PADRAO` — constante que NUNCA existiu: o clique morria em
@@ -7681,20 +7755,34 @@ function _corAluno(nm){
 }
 
 // Cadastro de aluno (Fase 4): offline adiciona ao mock; com backend chama sbProf.criarAluno.
+/* v561 — confirmação no estilo do app. Substitui o confirm() nativo, que saía com
+   "tavaressg.github.io diz", no visual do sistema e sem dizer O QUE seria apagado.
+   Promise<boolean>: o chamador vira `if(!(await _confirmar({...}))) return;`.
+   Esc e Tab vêm do handler global (Esc clica o .sheet-cancel da sheet do topo).
+   Foco começa no botão de voltar (`data-autofocus`, respeitado pelo auto-focus global):
+   Enter sem querer não apaga nada. */
+function _confirmar({ titulo, desc='', sim='Confirmar', nao='Cancelar', perigo=true }){
+  return new Promise(resolve=>{
+    const s=el(`<div class="sheet-overlay confirm-top"><div class="sheet" role="alertdialog" aria-modal="true" aria-label="${safeAttr(titulo)}" style="max-width:340px">
+      <div class="sheet-grip"></div>
+      <div class="sheet-title">${safeTxt(titulo)}</div>
+      ${desc?`<div class="sheet-desc" style="white-space:pre-line">${safeTxt(desc)}</div>`:''}
+      <button class="btn-save${perigo?' danger':''}" data-cf="sim">${safeTxt(sim)}</button>
+      <button class="sheet-cancel" data-cf="nao" data-autofocus>${safeTxt(nao)}</button>
+    </div></div>`);
+    let feito=false;
+    const fim=(ok)=>{ if(feito) return; feito=true; s.classList.remove('open'); setTimeout(()=>s.remove(),200); resolve(ok); };
+    s.onclick=(e)=>{ if(e.target===s) fim(false); };
+    s.querySelector('[data-cf="nao"]').onclick=()=>fim(false);
+    s.querySelector('[data-cf="sim"]').onclick=()=>fim(true);
+    document.body.appendChild(s);
+    requestAnimationFrame(()=>s.classList.add('open'));   // foco: data-autofocus + observer global (280ms)
+  });
+}
 /* Confirmação ao fechar cadastro/ficha com dados preenchidos (evita perda por clique fora acidental). */
 function _confirmDescartar(onDescartar){
-  const s=el(`<div class="sheet-overlay confirm-top"><div class="sheet" role="dialog" style="max-width:340px">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Descartar preenchimento?</div>
-    <div class="sheet-desc">Você começou a preencher esta ficha. Se sair agora, os dados digitados são perdidos.</div>
-    <button class="btn-save danger" id="cd-sim">Descartar</button>
-    <button class="sheet-cancel" id="cd-nao">Continuar editando</button>
-  </div></div>`);
-  const close=()=>{ s.classList.remove('open'); setTimeout(()=>s.remove(),200); };
-  s.onclick=(e)=>{ if(e.target===s) close(); };
-  s.querySelector('#cd-nao').onclick=close;
-  s.querySelector('#cd-sim').onclick=()=>{ close(); onDescartar(); };
-  document.body.appendChild(s); requestAnimationFrame(()=>s.classList.add('open'));
+  _confirmar({ titulo:'Descartar preenchimento?', desc:'Você começou a preencher esta ficha. Se sair agora, os dados digitados são perdidos.', sim:'Descartar', nao:'Continuar editando' })
+    .then(ok=>{ if(ok) onDescartar(); });
 }
 
 /* Chips de turma (multi-seleção) — matrícula do aluno. Reusa _turmasArr()/_loadTurmas().
@@ -8673,9 +8761,9 @@ function _erpPresencas(freq, aluno, refresh, paint){
       ${c.id?'<button class="erp-pres-del" type="button" aria-label="Remover presença" title="Remover presença">×</button>':''}
     </div>`);
     const del = row.querySelector('.erp-pres-del');
-    if(del) del.onclick = (e)=>{
+    if(del) del.onclick = async (e)=>{
       e.stopPropagation();
-      if(!confirm(`Remover a presença de ${d}/${m}?`)) return;
+      if(!(await _confirmar({ titulo:`Remover a presença de ${d}/${m}?`, desc:'A presença sai da contagem de aulas do aluno.', sim:'Remover presença', nao:'Manter' }))) return;
       const done = ()=>{ const i=(freq||[]).indexOf(c); if(i>=0) freq.splice(i,1); if(paint) paint(); toast('Presença removida'); };
       if(!DEMO && typeof sbProf!=='undefined' && sbProf.removerCheckinId){
         sbProf.removerCheckinId(c.id).then(done).catch(err=> toast('Erro: '+(err.message||err)));
@@ -8721,6 +8809,15 @@ function _erpActions(a, tab, refresh, paint, hora){
   return box;
 }
 
+/* Ordem da timeline = a do servidor (sync_faixa_derivada: data, created_at). Só pela
+   data, dois eventos no mesmo dia empatavam na ordem de chegada: o 2º grau aparecia
+   acima do 3º e o aviso de divergência podia eleger o evento errado como "último".
+   Evento recém-salvo ainda não tem created_at na tela → conta como o mais novo. */
+function _gradCmp(x, y){
+  return x.data.localeCompare(y.data)
+    || (x.created_at ? (y.created_at ? x.created_at.localeCompare(y.created_at) : -1) : (y.created_at ? 1 : 0));
+}
+
 /* --- ERP: Timeline de graduação editável (protótipo — CRUD in-memory) --- */
 function _erpTimelineGrad(a, paint){
   const box=el('<div class="erp-card"></div>');
@@ -8732,7 +8829,7 @@ function _erpTimelineGrad(a, paint){
   // faixa fixa) deixa os dois discordando — e o aluno via "Branca" na Jornada
   // enquanto a lista mostrava Laranja. Aqui o professor VÊ a divergência e resolve.
   const _ultEvento = [...grads].filter(g=>g.tipo==='faixa'||g.tipo==='grau'||g.tipo==='inicio')
-    .sort((x,y)=>x.data.localeCompare(y.data)).pop();
+    .sort(_gradCmp).pop();
   const _divergente = (a.faixa||'branca') !== ((_ultEvento&&_ultEvento.faixa)||'branca')
                    || (a.graus||0) !== ((_ultEvento&&_ultEvento.tipo==='grau'?_ultEvento.graus:0)||0);
   if(_divergente){
@@ -8749,7 +8846,7 @@ function _erpTimelineGrad(a, paint){
   const stats = _erpGradStats(grads);
   const list = el('<div class="erp-tl"></div>');
   // v352: dedupe visual da timeline via `_gradsDedup` (mesma regra do KPI acima).
-  const arr = _gradsDedup(grads).sort((x,y)=>y.data.localeCompare(x.data));
+  const arr = _gradsDedup(grads).sort((x,y)=>_gradCmp(y,x));
   if(!arr.length){
     list.appendChild(el('<div class="erp-tl-empty">Sem graduações registradas. Clique em "+ Novo evento" pra começar.</div>'));
   } else {
@@ -8785,20 +8882,29 @@ function _erpTimelineGrad(a, paint){
   // CRUD ligado ao backend (0011 — graduations append-only).
   box.querySelector('#tl-add').onclick=()=>_erpGradForm(a, null, paint);
   list.querySelectorAll('button.erp-mini').forEach(b=>{
-    b.onclick=()=>{
+    b.onclick=async ()=>{
       const i=+b.dataset.i, act=b.dataset.act;
       const item = arr[i];
       if(act==='edit') _erpGradForm(a, item, paint);
       else if(act==='del'){
-        if(!confirm('Excluir esse evento da linha do tempo?')) return;
+        const bx = BELTS[item.faixa]||{nome:item.faixa};
+        const nomeEv = item.tipo==='faixa' ? `Faixa ${bx.nome}` : (item.tipo==='inicio' ? `Início · Faixa ${bx.nome}` : `${item.graus||0}º grau · ${bx.nome}`);
+        const [ey,em,ed] = item.data.split('-');
+        if(!(await _confirmar({ titulo:`Excluir ${nomeEv}?`, sim:'Excluir evento', nao:'Manter',
+          desc:`Evento de ${ed}/${em}/${ey}. Se for o mais recente, a faixa do aluno volta pro evento anterior.\n\nNão dá pra desfazer.` }))) return;
         const doDel = ()=>{
           a.graduacoes = (a.graduacoes||[]).filter(g=> g!==item);
           toast('Evento removido ✔'); paint();
         };
-        if(item.id && typeof sbProf!=='undefined' && sbProf.removerGraduacao){
-          sbProf.removerGraduacao(item.id).then(doDel)
-            .catch(e=> toast('Erro ao remover: '+(e.message||e)));
-        } else doDel();
+        // Só-na-tela é exclusivo da vitrine. Com servidor, evento sem id NUNCA some
+        // localmente: mostrava "removido ✔" com o banco intacto.
+        if(VITRINE || typeof sbProf==='undefined' || !sbProf.removerGraduacao) doDel();
+        else if(!item.id) toast('Não deu pra excluir agora — recarregue a ficha e tente de novo');
+        else sbProf.removerGraduacao(item.id).then(prof=>{
+            if(prof){ a.faixa = prof.faixa; a.graus = prof.graus; }
+            doDel(); renderBg();   // o selo de faixa do cabeçalho fica fora do paint da aba (renderBg: .then de fetch, regra v427)
+          })
+          .catch(e=> toast('Erro ao remover: '+(e.message||e)));
       }
     };
   });
@@ -8904,19 +9010,21 @@ function _erpGradForm(a, existing, paint){
     const persist = ()=>{
       if(typeof sbProf==='undefined' || !a.id) return Promise.resolve(null);
       if(dispara && sbProf.graduarAluno){
-        return sbProf.graduarAluno(a.id, novo.faixa, novo.graus, novo.tipo, por, novo.data).then(()=> null);
+        return sbProf.graduarAluno(a.id, novo.faixa, novo.graus, novo.tipo, por, novo.data).then(r=> r || null);
       }
       if(sbProf.salvarGraduacao){
         return sbProf.salvarGraduacao({ id: existing && existing.id, user_id: a.id, ...novo, por });
       }
       return Promise.resolve(null);
     };
-    persist().then(newId=>{
+    persist().then(salvo=>{
+      const newId = salvo && salvo.id;
       if(existing){
         const idx = (a.graduacoes||[]).indexOf(existing);
-        if(idx>=0) a.graduacoes[idx] = { ...novo, id: newId || existing.id };
+        if(idx>=0) a.graduacoes[idx] = { ...novo, id: newId || existing.id, created_at: existing.created_at };
       } else {
-        a.graduacoes = (a.graduacoes||[]).concat([{ ...novo, id: newId }]);
+        // created_at do servidor: é o desempate de `_gradCmp` entre eventos do mesmo dia.
+        a.graduacoes = (a.graduacoes||[]).concat([{ ...novo, id: newId, created_at: salvo && salvo.created_at }]);
       }
       // Atualiza faixa/grau atual local quando é o último evento faixa/grau
       if(dispara){ a.faixa = novo.faixa; a.graus = novo.graus; }
@@ -8948,8 +9056,9 @@ function _erpGradStats(grads){
 
 // "há 8 meses", "há 2 anos", "ontem"
 function _tempoRelativo(iso){
-  const d = new Date(iso), agora = new Date();
-  const diff = Math.floor((agora - d)/86400000);
+  // diasEntre monta a data no fuso LOCAL. `new Date('AAAA-MM-DD')` é meia-noite UTC
+  // (21h da véspera no Brasil) e fazia todo evento virar "ontem" a partir das 21h.
+  const diff = diasEntre(iso);
   if(diff<0) return 'no futuro';
   if(diff===0) return 'hoje';
   if(diff===1) return 'ontem';
@@ -9860,7 +9969,7 @@ _dlgRegister('onbMover',  async (elm) => {
 _dlgRegister('onbExcluir', async (elm) => {
   const i = +elm.dataset.i;
   if (!_onbVideos || !_onbVideos[i]) return;
-  if (!confirm('Excluir este vídeo?')) return;
+  if (!(await _confirmar({ titulo:'Excluir este vídeo?', desc:_onbVideos[i].title || '', sim:'Excluir vídeo', nao:'Manter' }))) return;
   const removido = _onbVideos.splice(i, 1)[0];
   _setOnboardVideos(_onbVideos);
   _onbPintarLista();
@@ -10595,10 +10704,10 @@ _dlgRegister('finTab', (elm) => {
   _finSyncTabsAtiva();
   _finRepintarAbaAtual();
 });
-_dlgRegister('finPreparar', (elm) => {
+_dlgRegister('finPreparar', async (elm) => {
   const proxMes = _finProxMes();   // v518: recalcula na hora do clique
   const proxNome = _finMesNome(proxMes);
-  if (!confirm('Gerar cobranças de '+proxNome+' agora? Idempotente — se já existirem, ignora.')) return;
+  if (!(await _confirmar({ titulo:`Gerar cobranças de ${proxNome}?`, desc:'Se já existirem, nada é duplicado.', sim:'Gerar cobranças', perigo:false }))) return;
   const orig = elm.innerHTML;
   elm.disabled = true; elm.textContent = 'Gerando…';
   sbProf.gerarCobrancasDoMes(proxMes)
@@ -11392,7 +11501,7 @@ _dlgRegister('finCobDesconto', (el) => {
   const c = _finCobPorId(el); if(!c) return;
   _finCobrancaDescontoSheet(c, (novoValor)=> _finCobPatchLocal(c.id, { valor: novoValor }));
 });
-_dlgRegister('finCobExcluir', (el) => {
+_dlgRegister('finCobExcluir', async (el) => {
   const c = _finCobPorId(el); if(!c) return;
   const p = c.profiles || {};
   const nome = p.nome_completo || p.apelido || 'aluno';
@@ -11405,7 +11514,8 @@ _dlgRegister('finCobExcluir', (el) => {
   // o pedido e o estoque órfãos. A RPC cancelar_venda_estornar (0053) desfaz
   // tudo: restaura estoque, cancela o pedido e apaga a mensalidade.
   if(c.pedido_id){
-    if(!confirm(`Cancelar venda de ${nome} — ${moneyBR(c.valor)}?\n\nO estoque do produto será RESTAURADO e a cobrança removida. Não dá pra desfazer.`)) return;
+    if(!(await _confirmar({ titulo:`Cancelar venda de ${nome}?`, sim:'Cancelar venda', nao:'Manter venda',
+      desc:`${moneyBR(c.valor)}. O estoque do produto volta e a cobrança é removida.\n\nNão dá pra desfazer.` }))) return;
     sbProf.cancelarVendaEstornar(c.pedido_id)
       .then(()=>{
         toast('Venda cancelada, estoque restaurado ✔');
@@ -11415,7 +11525,7 @@ _dlgRegister('finCobExcluir', (el) => {
       .catch(err=> toast('Erro ao cancelar venda: '+(err.message||err)));
     return;
   }
-  if(!confirm(`Excluir cobrança de ${nome} — ${moneyBR(c.valor)}?\n\nNão dá pra desfazer.`)) return;
+  if(!(await _confirmar({ titulo:`Excluir cobrança de ${nome}?`, desc:`${moneyBR(c.valor)}.\n\nNão dá pra desfazer.`, sim:'Excluir cobrança', nao:'Manter' }))) return;
   sbProf.excluirCobranca(c.id)
     .then(()=>{ toast('Cobrança excluída'); removerLocal(); })
     .catch(err=> toast('Erro: '+(err.message||err)));
@@ -12142,8 +12252,8 @@ function _finCobrancaSheet(c, onDone){
   // v514: reverter pra pendente — antes ficava só "Fechar" quando paga/isenta.
   const btnReverter = sheet.querySelector('#fc-reverter');
   if(btnReverter){
-    btnReverter.onclick = ()=>{
-      if(!confirm('Voltar esta cobrança pra pendente? Data e forma de pagamento serão limpas.')) return;
+    btnReverter.onclick = async ()=>{
+      if(!(await _confirmar({ titulo:'Voltar a cobrança pra pendente?', desc:'A data e a forma de pagamento serão apagadas.', sim:'Voltar pra pendente', nao:'Manter paga' }))) return;
       btnReverter.disabled=true; btnReverter.textContent='Salvando…';
       sbProf.editarCobranca(c.id, { status:'pendente', data_pagamento:null, forma_pagamento:null })
         .then(()=>{
@@ -12345,9 +12455,8 @@ function _finPlanoSheet(p, onDone){
           + `🔒 ${impacto.total_travados} aluno(s) travados:\n`
           + `   · ${impacto.travados_contrato} contrato ativo\n`
           + `   · ${impacto.travados_anual} plano anual (dentro dos 12 meses)\n`
-          + `   · ${impacto.travados_manual} trava manual\n\n`
-          + `Confirmar reajuste?`;
-        if(!confirm(msg)) return;
+          + `   · ${impacto.travados_manual} trava manual`;
+        if(!(await _confirmar({ titulo:'Confirmar reajuste?', desc:msg, sim:'Reajustar', nao:'Voltar', perigo:false }))) return;
       } catch(e){ btn.disabled=false; btn.textContent=orig; toast('Erro impacto: '+(e.message||e)); return; }
     }
     btn.disabled=true; btn.textContent='Salvando…';
@@ -12865,8 +12974,8 @@ function _finContratoSheet(c, onDone){
   }
   const btnAceite = sheet.querySelector('#ct-aceite');
   if(btnAceite){
-    btnAceite.onclick = ()=>{
-      if(!confirm('Confirma que o aluno entregou o contrato assinado?')) return;
+    btnAceite.onclick = async ()=>{
+      if(!(await _confirmar({ titulo:'O aluno entregou o contrato assinado?', desc:'O aceite fica registrado com a data de hoje.', sim:'Registrar aceite', nao:'Voltar', perigo:false }))) return;
       btnAceite.disabled=true; btnAceite.textContent='Marcando…';
       sbProf.marcarAceiteContrato(c.id, { data_aceite: HOJE_ISO })
         .then(()=>{ toast('Aceite registrado ✔'); close(); if(onDone) onDone(); })
@@ -12875,9 +12984,9 @@ function _finContratoSheet(c, onDone){
   }
   const btnCanc = sheet.querySelector('#ct-cancelar');
   if(btnCanc){
-    btnCanc.onclick = ()=>{
+    btnCanc.onclick = async ()=>{
       const motivo = prompt('Motivo do cancelamento (opcional):') || '';
-      if(!confirm('Cancelar o contrato?')) return;
+      if(!(await _confirmar({ titulo:'Cancelar o contrato?', desc: motivo ? `Motivo: ${motivo}` : '', sim:'Cancelar contrato', nao:'Manter contrato' }))) return;
       btnCanc.disabled=true;
       sbProf.cancelarContrato(c.id, motivo)
         .then(()=>{ toast('Contrato cancelado'); close(); if(onDone) onDone(); })
@@ -15710,8 +15819,8 @@ function _qrTokenSheet(){
     if(!inp.value) return;
     window.open(linkImprimir(inp.value), '_blank', 'noopener');
   };
-  sheet.querySelector('#qr-new').onclick=()=>{
-    if(token && !confirm('Renovar o QR invalida todos os cartazes já impressos. Continuar?')) return;
+  sheet.querySelector('#qr-new').onclick=async ()=>{
+    if(token && !(await _confirmar({ titulo:'Renovar o QR da academia?', desc:'Todos os cartazes já impressos param de funcionar.', sim:'Renovar QR', nao:'Manter o atual' }))) return;
     const novo = criar();
     const btn = sheet.querySelector('#qr-new');
     btn.disabled = true; btn.textContent = 'Salvando…';
@@ -16857,6 +16966,9 @@ async function _cloudLogin(user){
     // o splash já tinha saído há várias idas ao servidor.
     render();
     _hidratando = false;   // pintou com dado real — daqui pra frente renderBg() pode trabalhar
+    // v556 — Realtime depois do primeiro paint de propósito: o boot não depende
+    // dele e falha de canal não pode segurar a tela.
+    if(typeof sbRealtime !== 'undefined') sbRealtime.ligar(_rtEvento);
     let overlay = { hasProfile: true };
     try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}   // overlay objetivo (perfil/graduação/checkin)
     if (!overlay.hasProfile){
@@ -16916,7 +17028,7 @@ if (DEMO || TESTMODE) {
     sbAuth.onAuthStateChange((event, s)=>{
       // v433: o cartão de visita sai JUNTO com a sessão — aparelho compartilhado não
       // pode mostrar o apelido/faixa do dono anterior no boot seguinte.
-      if(event==='SIGNED_OUT'){ _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
+      if(event==='SIGNED_OUT'){ if(typeof sbRealtime !== 'undefined') sbRealtime.desligar(); _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
       if(event==='SIGNED_IN' && s && !DB.sbUser){ _cloudLogin(s.user); }
       // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
       if(event==='PASSWORD_RECOVERY'){ DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render(); }
@@ -16949,7 +17061,7 @@ if (DEMO || TESTMODE) {
       if(agora - _lastPullFocus < 300000) return;
       _lastPullFocus = agora;
       const antes = _hashSyncState();
-      sbSync.pullAll(DB.sbUser.id).then(()=>{
+      _pullSemEco().then(()=>{
         if(_hashSyncState() === antes) return;   // nada mudou → não mexe na tela
         try{ renderBg(); }catch(_){}
       }).catch(()=>{});

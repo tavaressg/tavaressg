@@ -9,6 +9,273 @@
 
 ## Concluídas ✓
 
+### v565 — Realtime busca o que perdeu durante uma queda (2026-09-17)
+
+O Realtime **não reenvia** eventos ocorridos enquanto a conexão estava caída, e a
+realtime-js 2.110 nem tenta reconectar com a página escondida ("Not reconnecting as page
+is hidden!"); reconecta quando ela volta a ficar visível. Sem tratamento, o celular do
+professor sem sinal durante a aula perdia os check-ins do intervalo até o refetch por
+foco, com piso de 5 minutos.
+
+`sbRealtime.ligar` passa a chamar `cb('reconectou')` quando o canal volta a assinar
+**depois** de `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED`. A primeira assinatura, no boot, não
+conta. `_rtEvento` zera `_profTs`, `_pedidosTs` e `_meusPedidosTs` (o render pede só o que
+a tela mostra), repinta, e faz um `_rtPullAll` dos dados do próprio usuário.
+
+**Verificado no navegador:** WebSocket derrubado com o painel visível → reconectou em ~1s →
+atualização disparada uma única vez pelo caminho da reconexão, sem erro no console.
+`tests/realtime.spec.mjs` cobre os caches zerados, o repaint e a busca única.
+
+---
+
+### supabase.js v95 — presença apagada pelo professor sai do diário do aluno (2026-09-17)
+
+Achado no teste da chamada ao vivo. Quando o professor marca presença, o `pullAll` cria
+no diário do aluno um treino "Presença por Yama · Enriqueça o diário" (`_fonte:
+'servidor'`, v455). A conversão **só adicionava**: se o professor apagasse a presença,
+o treino ficava para sempre no diário salvo na nuvem. Um clique errado na chamada virava
+uma presença fantasma permanente.
+
+Agora o `pullAll` remove o treino de origem servidor cuja presença (data + turma + hora
+da aula) não existe mais. **Decisão do dono:** remove **mesmo que o aluno tenha
+enriquecido o treino** com técnica, humor ou nota, porque a chamada do professor é a
+regra máxima. Duas travas de **correção**, não de permissão: busca de check-ins com erro
+não remove nada; e com o limite de 200 atingido, só remove depois da data mais antiga
+trazida, porque antes dela "não achei" não significa "apagada". Treinos registrados pelo
+próprio aluno (sem `_fonte:'servidor'`) nunca são tocados.
+
+**Conferido em produção:** 23 → 22 treinos; saiu só o fantasma de 17/09; os 5 treinos do
+aluno ficaram intactos; nenhum treino do servidor ficou sem presença.
+
+**Limites conhecidos:** a remoção vale no próximo `pullAll` (boot ou foco), não ao vivo,
+porque o Realtime ignora DELETE. E, até publicar, um aparelho com a versão antiga na
+mesma conta pode regravar o diário com o fantasma; ele volta a sair no `pullAll` seguinte.
+
+---
+
+### v564 — ordem certa também entre graduações recém-salvas (2026-09-16)
+
+A v560 fez o desempate por `created_at`, mas evento salvo na sessão ficava na tela
+**sem** `created_at` e contava como "o mais novo". Com **dois** salvos no mesmo dia, os
+dois eram "o mais novo", empatavam de novo, e o 2º grau voltava a aparecer acima do 3º.
+O teste da v560 só cobria um evento novo contra eventos do banco, então não pegou.
+
+`graduarAluno` e `salvarGraduacao` passam a devolver `{ id, created_at }` do
+**servidor**, e a timeline guarda os dois. O relógio do aparelho foi descartado: se
+estiver atrasado, o evento novo cairia abaixo de um antigo do mesmo dia. O retorno
+mudou de formato, mas só a timeline o consumia (`app.js:5780` ignora).
+
+---
+
+### v563 — excluir graduação devolve a faixa certa à ficha (2026-09-16)
+
+Terceiro achado do mesmo teste. Salvar graduação atualiza `a.faixa/graus` localmente,
+mas excluir só tirava o evento da lista: a ficha seguia com a faixa do evento apagado. O
+selo do cabeçalho ficava errado e aparecia um **falso** "Perfil e histórico divergem",
+cujo botão "Registrar evento p/ a faixa do cadastro" **gravaria de volta** o evento
+recém-apagado, a partir de um dado que só existia na tela.
+
+`sbProf.removerGraduacao` agora relê `profiles.faixa/graus`, que o trigger
+`graduations_sync` já recalculou na mesma transação, e a timeline aplica esse valor.
+Escolhido contra recalcular em JS: reler custa 1 linha e 2 colunas, enquanto recalcular
+duplicaria a regra do trigger no cliente (duas implementações que divergem caladas se a
+regra mudar). Repinta com `renderBg`, não `render` (regra v427).
+
+Dívida vista e **não** corrigida: o salvar da graduação chama `render()` dentro do
+`.then()` do fetch, o que contraria a mesma regra v427.
+
+---
+
+### v561/v562 — confirmações no estilo do app, dizendo o que vai ser apagado (2026-09-16)
+
+Os 14 `confirm()` nativos viraram `_confirmar({ titulo, desc, sim, nao, perigo })`, uma
+sheet no visual do app que devolve `Promise<boolean>`. O nativo saía com
+"tavaressg.github.io diz", no estilo do sistema, e **não dizia o que seria apagado**: no
+teste em produção, a janela "Excluir esse evento da linha do tempo?" estava aberta sobre
+eventos reais, sem indicar qual. Agora o título nomeia o alvo ("Excluir 1º grau ·
+Azul?", "Cancelar venda de Fulano?") e a descrição diz a consequência. O botão de voltar
+tem texto próprio ("Manter venda", "Manter contrato") pra não ficar "Cancelar" ao lado
+de "Cancelar venda". `_confirmDescartar` passou a usar a mesma janela.
+
+**Foco inseguro corrigido de passagem.** O auto-focus global das sheets (observer de
+280ms) focava sempre o **1º botão**, que numa confirmação é o destrutivo: Enter sem
+querer confirmava. Isso já valia pro `_confirmDescartar`. O observer agora respeita
+`data-autofocus`, e a confirmação marca o botão de voltar. Sheets sem o atributo seguem
+iguais (verificado).
+
+**Verificado no navegador:** confirmar → `true`; voltar, clique fora e Esc → `false`;
+duplo clique resolve uma vez; HTML em título/descrição vira texto; nenhuma janela sobra;
+foco final no botão de voltar depois dos dois observers globais. Nota de teste: em aba ou
+painel escondido o `requestAnimationFrame` não roda, a sheet não ganha `.open` e o Esc
+global não a encontra. É artefato do ambiente; com `.open` presente o Esc funciona.
+
+**Fora do escopo, ainda nativos:** 4 `alert()` e 2 `prompt()`. Um deles é o "Motivo do
+cancelamento", que ainda abre antes da confirmação nova de cancelar contrato.
+
+---
+
+### v560 — ordem de graduações no mesmo dia + fim do eco multi-aparelho (2026-09-16)
+
+Dois achados do teste de graduação em produção.
+
+**Ordem.** A linha do tempo e o aviso "Perfil e histórico divergem" ordenavam só pela
+data. Duas graduações no mesmo dia empatavam na ordem de chegada: o 2º grau aparecia
+acima do 3º, e o aviso podia eleger o evento errado como "último". `_gradCmp` desempata
+por `created_at`, igual ao `sync_faixa_derivada` do servidor. Evento recém-salvo, sem
+`created_at` na tela, conta como o mais novo; editar preserva o `created_at` original.
+
+**Eco multi-aparelho.** `eu` e `graduacoes` estão no dump. O `pullAll` de fundo
+(Realtime e foco) mudava o estado, o render seguinte empurrava de volta pra nuvem o que
+acabou de baixar, e com a conta aberta em 2+ aparelhos todos gravavam no mesmo segundo
+→ `state_conflict` → "Dados atualizados a partir de outro aparelho" + `render()`
+completo. **O Realtime da v556 tornou isso quase certo**, porque antes cada aparelho
+puxava no seu próprio foco. `_pullSemEco` aplica o mesmo truque da baseline do boot, mas
+só quando não há edição local pendente; se houver, ela sobe normalmente.
+
+Contrapartida aceita: o `user_state` na nuvem pode ficar com graduações defasadas até a
+próxima edição real do aluno. É inofensivo, porque todo boot sobrepõe com o `pullAll`.
+
+`tests/realtime.spec.mjs` cobre os dois, e foi conferido que cada asserção quebra sem a
+correção. A primeira versão do teste de ordem passava sem o fix, porque a entrada estava
+por acaso na ordem certa; agora usa a ordem em que o banco devolve.
+
+---
+
+### v559 — graduação de hoje aparecia como "ontem" depois das 21h (2026-09-16)
+
+`_tempoRelativo` fazia `new Date('AAAA-MM-DD')`, que o JavaScript lê como meia-noite
+**UTC**: 21h da véspera no Brasil. Às 21h11 do mesmo dia já passavam 24h, e a linha do
+tempo mostrava **"ontem"**. O banco estava certo (data gravada como 16/09). Passou a
+usar `diasEntre`, que já montava a data no fuso local. É a mesma família do C1.
+Conferido com o código real em `TZ=America/Sao_Paulo` às 21h11: 16/09 → "hoje".
+
+---
+
+### v558 — excluir graduação recém-criada não apagava nada (2026-09-16)
+
+Achado no teste do Realtime em produção, e **anterior a ele**. `graduar_aluno`
+devolve `void`, então a timeline do professor guardava o evento novo com
+**id null**. Excluir logo em seguida caía no ramo pensado pra vitrine: tirava só da
+tela, mostrava **"Evento removido ✔"**, e o banco seguia com a graduação. A ficha
+passava a exibir "Perfil e histórico divergem" e oferecia "Registrar evento p/ a
+faixa do cadastro", que **duplicaria** o evento. Editar o evento recém-criado
+tinha o mesmo defeito: com `id` null, o `salvarGraduacao` inseria um segundo evento
+em vez de atualizar.
+
+**Correção (sem migration):**
+- `sbProf.graduarAluno` busca o id do evento que acabou de inserir (usuário, data,
+  tipo, faixa e graus, o mais novo) e o devolve; a timeline usa esse id.
+- `sbProf.removerGraduacao` usa `.select('id')` e lança erro se nada foi apagado.
+  DELETE barrado por RLS ou com id inexistente volta **sem erro e com 0 linhas**.
+- Com servidor, evento sem id **nunca** some só da tela: aparece "recarregue a ficha
+  e tente de novo". O caminho só-na-tela ficou restrito à vitrine (`VITRINE`).
+
+---
+
+### supabase.js v91 — consultas da academia paravam em 1.000 linhas (2026-09-16)
+
+Achado ao testar a v557 em produção. O PostgREST corta em `max_rows = 1000` e
+**não devolve erro**: a consulta volta com 1.000 linhas e o resto some calado. O
+`getAlunos` pede os check-ins de 120 dias da academia, que eram **1.433**, e as
+linhas que voltavam paravam em **09/09**. Nada da semana chegava.
+
+**Efeito em produção, pra todos os alunos:** quem treinou nos últimos dias aparecia
+em "Ausentes 7+d" e fora de "Ativos (14d)"; "Últ. presença", dias sem treinar, `freq`
+do mês, tendência `freq4`/`base4` e status de inatividade estavam calculados sobre
+dados incompletos. Os Relatórios tinham o mesmo corte. Também sobrescrevia o patch do
+Realtime: a recarga da lista trazia de volta o número errado.
+
+**Correção:** `_todasLinhas(montar)` pagina pelo `count` exato com `order('id')`
+(sem ordem estável, o `range` pode repetir ou pular linha). Aplicada em `getAlunos`
+(check-ins 120d, graduações) e `getRelatorios` (check-ins 120d, graduações,
+`technique_progress`). Graduações (684) e progresso (896) ainda não cortavam, mas
+estavam a poucas semanas disso.
+
+**Conferido em produção:** Elvecio e Emerson passaram de 33 e 21 dias sem treinar
+para 0, com última presença 16/09; Relatórios trazem 1.425 check-ins até 16/09.
+
+**Custo:** uma ida a mais ao servidor por página de 1.000. A janela de 120 dias é
+fixa, então o volume de check-ins acompanha a frequência da academia, não o tempo de
+uso. Graduações e progresso não têm janela e crescem pra sempre. O caminho quando
+pesar é agregar no servidor (ver CONTEXTO §7).
+
+---
+
+### v557 — Realtime: presente hoje sai de "Ausentes" (2026-09-16)
+
+Achado no primeiro teste em produção da v556. O aviso chegou e o `_rtEvento`
+marcou o aluno como presente (`pres`), que é o que a lista e o contador
+"Presentes" mostram. Mas `diasSem`/`ultimaPres` ficavam velhos, então o aluno
+presente continuava contando em **"Ausentes 7+d"** e fora de **"Ativos (14d)"**
+até o próximo `getAlunos`. O patch agora zera `diasSem` e move `ultimaPres`,
+igual ao que o check-in local do `presencaScan` já fazia. `freq` (% do mês)
+continua esperando o `getAlunos`, porque exigiria recontar dias.
+
+Nota do teste: a impressão de "não apareceu" veio da lista "Todos", que só desenha
+os 20 primeiros de 134. No filtro **Presentes**, o aluno estava lá com ✓ e a hora.
+O `tests/realtime.spec.mjs` ganhou as asserções, e foi conferido que ele quebra
+sem a correção.
+
+---
+
+### v556 — Realtime Supabase (2026-09-06)
+
+O app era surdo: só descobria novidade quando alguém voltava para ele, e no
+máximo uma vez a cada 5 minutos (`_refetchAoVoltar`, `_refreshOnFocus` — pisos
+que a v511 subiu justamente para conter egress). Agora o servidor avisa.
+
+**O que muda na prática.** Na aula, o nome do aluno aparece na lista do professor
+no segundo em que ele passa o QR — chamada ao vivo, em vez de uma lista parada
+que só atualiza saindo e voltando da tela. Na loja, o "Já paguei" muda o status
+do pedido junto com a notificação, em vez de esperar o professor tocar em algo.
+E a faixa nova aparece para o aluno no momento da graduação, não no próximo cold
+start — que é justo quando ele vai olhar o celular.
+
+**Um canal, três tabelas.** `sbRealtime.ligar(_rtEvento)` abre `SB.channel('yama')`
+com `postgres_changes` em `checkins`, `pedidos` e `graduations` (publicação na
+migration **0054**). Liga depois do primeiro paint do `_cloudLogin`, desliga no
+`SIGNED_OUT`. RLS filtra **por assinante**: professor recebe a academia, aluno só
+ele — mesmo `select`, sem escopo no cliente.
+
+**A regra: o evento não é um caminho de dados.** Ele só diz "mudou". Payload que
+já vem pronto é usado direto; payload que obrigaria a RECALCULAR vira pergunta ao
+servidor — recontar aulas no grau/faixa em JS é proibido desde a 0034 (fonte
+única na RPC), e era assim que o aluno via um número na Jornada e o professor
+outro na lista. Aplicar payload no dump do aluno continua proibido (ADR 0004): é
+o caminho que reabre a sobrescrita entre aparelhos.
+
+| tabela | ação | requisições |
+|---|---|---|
+| `checkins` (outro aluno, tela do professor) | patch em `_profData` pelo payload | **0** |
+| `checkins` (meu, `via !== 'app'`) | `pullAll` | ~10 |
+| `checkins` (meu, `via === 'app'`) | nada — eco do próprio QR | 0 |
+| `graduations` (minha) | `pullAll` | ~10 |
+| `pedidos` | `_loadPedidos` / `_loadMeusPedidos` | 1 |
+
+**A versão ingênua foi descartada durante o desenho.** Pendurar tudo em
+`onDadosMudaram()` parecia o caminho de uma linha, mas: (a) ele é marreta —
+invalida `_profTs`, `_relTs` e todas as chaves de `_finTsK`, então um check-in
+derrubaria o Financeiro inteiro; (b) nem toca em `_pedidosTs`, o cache do "Já
+paguei"; (c) na tela do professor o próximo render dispara `getAlunos`, que são
+8 round-trips, um deles os `checkins` de **120 dias da academia inteira**. Numa
+fila de QR com 30 alunos ao longo de ~10 min, com piso de 60s, dariam ~100
+requisições contra as ~20 que o polling faz hoje na mesma janela — Realtime
+**5× mais caro que aquilo que ele substitui**, justo no caso de maior valor.
+Daí o patch local para `checkins`: `_profData` é projeção de leitura descartável
+e o `getAlunos` autoritativo corrige divergência no gate de 30s seguinte.
+
+**Prod:** `0054` aplicada em 2026-09-06 (`supabase db push`, ledger 0001–0054 batendo). O app só passa a usar o canal depois do deploy do `v556` — até lá a publicação fica no banco sem ninguém escutando, o que é inerte.
+
+**Egress:** cai. O refetch por foco continua no lugar, agora só como rede de
+segurança — perder o canal é silencioso por decisão e devolve o app ao
+comportamento anterior a esta feature.
+
+**Teste:** `tests/realtime.spec.mjs` (novo, no `npm test`) roda o `_rtEvento`
+**real** recortado do `app.js` com stubs, e trava a regra de custo — se alguém
+trocar o patch de `checkins` por um refetch, quebra. selfTest 176/176 OK.
+
+---
+
 ### v555 — morphdom LIGADO por padrão (2026-09-06)
 
 Fim do opt-in. De v543 a v554 o diff existia mas ficava dormindo em produção:

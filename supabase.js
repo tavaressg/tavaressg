@@ -92,6 +92,26 @@
     return { data: { user: data.session ? data.session.user : null } };
   }
 
+  // PostgREST corta em `max_rows` (1000 neste projeto) SEM erro: a consulta volta
+  // com 1000 linhas e o resto some calado. Foi assim que a lista de Alunos passou a
+  // mostrar quem treinou ontem como "ausente" (1.433 check-ins em 120d; os que
+  // voltavam paravam em 09/09 — supabase.js v91). Pagina pelo `count` exato, não pelo tamanho
+  // da página, que pararia cedo se o max_rows fosse reduzido. `order('id')` porque
+  // `range` sem ordem estável pode repetir ou pular linha entre páginas.
+  // ponytail: N idas sequenciais cresce com a academia; agregar no servidor (RPC) quando pesar.
+  async function _todasLinhas(montar) {
+    const primeira = await montar({ count: 'exact' }).order('id').range(0, 999);
+    if (primeira.error || !primeira.data) return primeira;
+    const out = primeira.data.slice(), total = primeira.count || 0;
+    while (out.length < total) {
+      const { data, error } = await montar().order('id').range(out.length, out.length + 999);
+      if (error) return { data: null, error };
+      if (!data || !data.length) break;
+      out.push(...data);
+    }
+    return { data: out, error: null };
+  }
+
   // ---- helpers de erro padronizados (§6: try/catch → toast) ----
   function wrap(fn) {
     return async function () {
@@ -273,6 +293,19 @@
       // checkinHoje.porTurma). Fallback pra treinos legados sem turmaId/horaAula:
       // dedup por DATA (1 aula/dia é o caso comum).
       const _chave = (o) => `${o.data||''}|${o.turmaId||''}|${o.horaAula||''}`;
+      // v565: presença APAGADA pelo professor apaga o treino que ela gerou — mesmo que o
+      // aluno tenha escrito técnica/humor/nota nele. Decisão do dono (2026-09-17): a
+      // chamada do professor é a regra máxima. Antes a conversão só adicionava, e um
+      // clique errado na chamada virava "Presença por Yama" permanente no diário.
+      // Travas de CORREÇÃO (não de permissão): (1) busca de check-ins falhou → não remove
+      // nada; (2) veio o limite de 200 → só remove depois da data mais antiga trazida,
+      // porque antes dela "não achei a presença" ≠ "a presença foi apagada".
+      if (ck && !ck.error && Array.isArray(ck.data) && Array.isArray(d.treinos)) {
+        const vivos = new Set(d._meusCheckins.map(_chave));
+        const desde = ck.data.length >= 200 ? d._meusCheckins[d._meusCheckins.length - 1].data : null;
+        d.treinos = d.treinos.filter(t => !(t._fonte === 'servidor' && t.data
+          && (!desde || t.data > desde) && !vivos.has(_chave(t))));
+      }
       const _byChave = new Map((d.treinos||[]).map(t => [_chave(t), t]));
       // v489 (aluno-side): backfill retroativo. Treino local legado (sem turmaId,
       // seja porque salvou sem check-in, seja porque dump é anterior à v455) numa
@@ -766,8 +799,8 @@
         // o cliente recebe achatado em `presTurma` logo abaixo.
         SB.from('checkins').select('user_id,hora,turma_id,turmas(nome)').eq('academy_id', acad).eq('data', hojeISO),   // M6: índice (academy_id,data)
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
-        SB.from('checkins').select('user_id,data').eq('academy_id', acad).gte('data', d120),                 // M6
-        SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa').eq('academy_id', acad),               // M6 + v391 (credito 0029)
+        _todasLinhas(o => SB.from('checkins').select('user_id,data', o).eq('academy_id', acad).gte('data', d120)),   // M6 · v91 paginado (passou de 1000)
+        _todasLinhas(o => SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa', o).eq('academy_id', acad)),   // M6 + v391 (credito 0029) · v91 paginado (684 e subindo)
         // Matrículas ativas — popula a.turmas em cada aluno (a UI de Turmas usa isso)
         SB.from('enrollments').select('user_id,turma_id').eq('status', 'ativo'),
         // 0034: aulas no grau / na faixa contadas NO SERVIDOR. Mesma RPC que o app do
@@ -978,6 +1011,17 @@
       // data opcional = graduação RETROATIVA (histórico) — exige a 0003 no banco.
       const { error } = await SB.rpc('graduar_aluno', { p_user: id, p_faixa: faixa, p_graus: graus, p_tipo: tipo, p_por: por, p_data: data || HOJE() });
       if (error) throw error;
+      // A RPC devolve void. Sem o id, a timeline guardava o evento novo com id null:
+      // excluir logo em seguida só tirava da tela ("Evento removido ✔" e o banco
+      // intacto) e editar criava um SEGUNDO evento. Achado no teste de 2026-09-16.
+      // v564: devolve também o created_at do SERVIDOR — sem ele, duas graduações salvas no
+      // mesmo dia empatavam na tela (o 2º grau aparecia acima do 3º). Relógio do aparelho
+      // não serve: atrasado, o evento novo cairia abaixo de um antigo do mesmo dia.
+      const { data: ev } = await SB.from('graduations').select('id,created_at')
+        .eq('user_id', id).eq('data', data || HOJE()).eq('tipo', tipo || 'grau')
+        .eq('faixa', faixa).eq('graus', graus || 0)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      return ev || null;   // { id, created_at }
     }),
 
     criarAluno: wrap(async (dados) => {
@@ -1146,14 +1190,23 @@
         data: g.data, por: g.por || null, nota: g.nota || null,
         criado_por: u?.user?.id || null,
       };
-      if (g.id) { const { error } = await SB.from('graduations').update(row).eq('id', g.id); if (error) throw error; return g.id; }
-      const { data, error } = await SB.from('graduations').insert(row).select('id').single();
+      if (g.id) { const { error } = await SB.from('graduations').update(row).eq('id', g.id); if (error) throw error; return { id: g.id }; }
+      const { data, error } = await SB.from('graduations').insert(row).select('id,created_at').single();
       if (error) throw error;
-      return data && data.id;
+      return data || null;   // { id, created_at } — v564, mesma razão do graduarAluno
     }),
     removerGraduacao: wrap(async (id) => {
-      const { error } = await SB.from('graduations').delete().eq('id', id);
+      // `.select` porque DELETE barrado por RLS (ou id inexistente) volta SEM erro e
+      // 0 linhas — o chamador achava que tinha apagado.
+      const { data, error } = await SB.from('graduations').delete().eq('id', id).select('id,user_id');
       if (error) throw error;
+      if (!data || !data.length) throw new Error('evento não encontrado no servidor — recarregue a ficha');
+      // O trigger graduations_sync já recalculou profiles.faixa/graus na mesma transação.
+      // Devolve a faixa AUTORITATIVA: sem isso a ficha seguia com a faixa do evento apagado
+      // (selo errado + falso "Perfil e histórico divergem", cujo botão gravaria o evento
+      // de volta). Reler custa 1 linha; recalcular em JS duplicaria a regra do trigger.
+      const { data: prof } = await SB.from('profiles').select('faixa,graus').eq('id', data[0].user_id).maybeSingle();
+      return prof || null;
     }),
     // 0029: aplica credito de presencas legadas em lote. Recebe rows normalizadas
     // (email, dataAncora ISO, creditoGrau, creditoFaixa). Estrategia: pra cada
@@ -1260,9 +1313,9 @@
         // aulas(hora) = hora AGENDADA da sessão (≠ checkins.hora, que é a hora que o
         // aluno bateu). É o que permite separar 2 horários da mesma turma no mesmo dia
         // (0010). Check-ins legados sem aula_id vêm com aulas=null → caem na média rateada.
-        SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora),turmas(nome)').eq('academy_id', acad).gte('data', d120),
-        SB.from('graduations').select('user_id,faixa,graus,tipo,data').eq('academy_id', acad),
-        SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct'),
+        _todasLinhas(o => SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora),turmas(nome)', o).eq('academy_id', acad).gte('data', d120)),
+        _todasLinhas(o => SB.from('graduations').select('user_id,faixa,graus,tipo,data', o).eq('academy_id', acad)),
+        _todasLinhas(o => SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct', o)),   // v91: 896 e subindo
         SB.from('lesoes').select('user_id,parte,status,data,nota'),
       ]);
       // achata aulas(hora) → aulaHora (o app não conhece o shape do embed)
@@ -2107,9 +2160,59 @@
     }),
   };
 
+  /* ========================================================
+     sbRealtime — avisos ao vivo (postgres_changes · migration 0054)
+     ========================================================
+     NÃO é um caminho de dados. O evento só diz "mudou"; quem decide o que
+     fazer é `_rtEvento` no app.js, e a regra lá é: se o payload já traz o
+     dado pronto, usa o payload; se obrigaria a RECALCULAR algo (aulas no
+     grau/faixa), refaz a pergunta ao servidor. Nunca aplicar payload no dump
+     do aluno (ADR 0004) — é o caminho que reabre a sobrescrita entre
+     aparelhos que a `push_user_state` passou a rejeitar.
+
+     RLS filtra por assinante: o professor recebe a academia inteira, o aluno
+     só as linhas dele. Mesmo `select`, sem escopo no cliente.
+
+     Falha de conexão é silenciosa POR DECISÃO: o refetch por foco (5 min)
+     continua sendo a rede de segurança, então perder o canal degrada o app
+     pro comportamento que ele já tinha antes desta feature.
+  */
+  let _rtCanal = null;
+  const sbRealtime = {
+    ligar(cb) {
+      if (_rtCanal) return;
+      _rtCanal = SB.channel('yama');
+      ['checkins', 'pedidos', 'graduations'].forEach((table) => {
+        _rtCanal.on('postgres_changes', { event: '*', schema: 'public', table }, (p) => {
+          // DELETE só entrega a PK (sem replica identity full) → sem user_id, ignora.
+          if (!p.new || !p.new.user_id) return;
+          try { cb(table, p.new); } catch (_) {}
+        });
+      });
+      // v565: o Realtime NÃO reenvia o que aconteceu durante uma queda (sinal ruim, app em
+      // segundo plano — a lib nem reconecta com a página escondida). Ao voltar a assinar
+      // depois de cair, avisa o app pra buscar uma vez. A 1ª assinatura (boot) não conta.
+      let jaAssinou = false, caiu = false;
+      _rtCanal.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          if (jaAssinou && caiu) { caiu = false; try { cb('reconectou', null); } catch (_) {} }
+          jaAssinou = true;
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          caiu = true;
+        }
+      });
+    },
+    desligar() {
+      if (!_rtCanal) return;
+      try { SB.removeChannel(_rtCanal); } catch (_) {}
+      _rtCanal = null;
+    },
+  };
+
   global.sbAuth = sbAuth;
   global.sbSync = sbSync;
   global.sbProf = sbProf;
   global.sbVideos = sbVideos;
   global.sbPush = sbPush;
+  global.sbRealtime = sbRealtime;
 })(window);
