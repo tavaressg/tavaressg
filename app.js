@@ -9792,8 +9792,10 @@ function _relRisco(w, secTitle, note){
   w.appendChild(grid);
 
   // Listas por bucket (só as acionáveis: atenção → em risco → crítico).
-  // Crítico: 999 é sentinela de "nunca treinou" (supabase.js:848) — vai pro fim,
-  // senão poluia o topo e escondia quem tem 30-90d reais, que é o recuperável.
+  // Sort ASCENDENTE dentro do bucket (menos dias primeiro): mesma lógica dos
+  // tiles — mais fácil recuperar quem tem 7d sem vir do que quem tem 13d.
+  // Crítico: 999 é sentinela de "nunca treinou" (supabase.js:848) — vai pro
+  // fim mesmo assim, senão os "999" poluiam o INÍCIO no ordenamento ascendente.
   ['atencao','em_risco','critico'].forEach(id=>{
     const arr = buckets[id].sort((a,b)=>{
       const da=a.diasSem||0, db=b.diasSem||0;
@@ -9801,7 +9803,7 @@ function _relRisco(w, secTitle, note){
         const sa=da>=999, sb=db>=999;
         if(sa!==sb) return sa?1:-1;
       }
-      return db-da;
+      return da-db;
     });
     const [_id,lbl] = RISCO_NIVEIS.find(x=>x[0]===id);
     w.appendChild(secTitle(`${lbl} (${arr.length})`));

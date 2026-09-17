@@ -9,6 +9,15 @@
 
 ## Concluídas ✓
 
+### v571 — Sort ascendente dentro dos buckets de Retenção (2026-09-17)
+
+Faltou completar a v566. Os tiles do topo já saíam Engajados→Crítico (menos dias
+primeiro), mas dentro do bucket "Atenção" a lista vinha 13, 13, 12, 9, 9, 9, 8, 7, 7
+(decrescente). Mesmo raciocínio de acionabilidade: recupera mais fácil quem tem 7d
+sem vir do que 13d. Agora sai 7, 7, 8, 9, 9, 9, 12, 13, 13. Vale pra Atenção, Em
+risco e Crítico — no Crítico a regra dos "999 no fim" (nunca treinou) segue valendo,
+só que agora empurrada pro fim de um sort ascendente.
+
 ### v570 — Valor negociado do plano parseia BR e "150.50" sem quebrar (2026-09-17)
 
 O strip anterior no submit do wizard (`.replace(/[R$\s.]/g,'').replace(',','.')`)
