@@ -10683,7 +10683,10 @@ let _finCobAluno = null;   // user_id em foco na aba Cobranças, ou null
 // morphdom (regra do CLAUDE.md: estado do modelo, painter resolve container por id).
 // Set porque toggle é O(1) e o repaint filtra apenas o que ainda existe no _finCobrancas.
 const _finCobSel = new Set();
-const _finCobF = { busca:'', status:'', categoria:'', venc:'' };
+// v577: sortKey/sortDir junto com os filtros. sortKey=null = ordenamento inteligente
+// (vencidas > a vencer > pagas > isentas), padrão anterior. Ao clicar num th, o
+// professor assume o sort — click de novo alterna asc/desc.
+const _finCobF = { busca:'', status:'', categoria:'', venc:'', sortKey:null, sortDir:'asc' };
 let _finDespFiltro = 'a_pagar';
 let _finContrFiltro = 'ativo';
 
@@ -11504,11 +11507,34 @@ function _finRenderCobrancas(body){
     }
     return true;
   });
-  const sorted = filtradas.slice().sort((a,b) => {
-    const ra = statusRank(a), rb = statusRank(b);
-    if(ra !== rb) return ra - rb;
-    return (a.venc||'').localeCompare(b.venc||'');
-  });
+  // v577: se o professor clicou num cabeçalho, usa aquele sort; senão, o padrão
+  // esperto (vencidas > a vencer > pagas > isentas, empate por venc). buildRow
+  // não sabe da categoria, então derivamos aqui.
+  const matrByUser = {};
+  (_finMatriculas||[]).forEach(m => { matrByUser[m.user_id] = m; });
+  const _cat = (c) => {
+    if(c.pedido_id) return 'venda';
+    if(c.contrato_id) return 'contrato';
+    if(c.avulsa) return 'avulsa';
+    const m = matrByUser[c.user_id];
+    return (m && m.planos) ? m.planos.nome : 'mensalidade';
+  };
+  const nomeDe = c => { const p=c.profiles||{}; return (p.nome_completo||p.apelido||'').toLowerCase(); };
+  const dir = _finCobF.sortDir==='desc' ? -1 : 1;
+  const nulLast = (v) => v==null || v==='' ? 1 : 0;
+  const cmpBy = {
+    aluno:    (a,b) => nomeDe(a).localeCompare(nomeDe(b))*dir,
+    categoria:(a,b) => _cat(a).localeCompare(_cat(b))*dir,
+    venc:     (a,b) => (a.venc||'').localeCompare(b.venc||'')*dir,
+    valor:    (a,b) => ((Number(a.valor)||0)-(Number(b.valor)||0))*dir,
+    status:   (a,b) => (statusRank(a)-statusRank(b))*dir,
+    pago:     (a,b) => (nulLast(a.data_pagamento)-nulLast(b.data_pagamento)) || ((a.data_pagamento||'').localeCompare(b.data_pagamento||''))*dir,
+    forma:    (a,b) => (nulLast(a.forma_pagamento)-nulLast(b.forma_pagamento)) || (a.forma_pagamento||'').localeCompare(b.forma_pagamento||'')*dir,
+  };
+  const sorted = filtradas.slice().sort(_finCobF.sortKey && cmpBy[_finCobF.sortKey]
+    ? cmpBy[_finCobF.sortKey]
+    : (a,b) => { const r = statusRank(a)-statusRank(b); return r!==0 ? r : (a.venc||'').localeCompare(b.venc||''); }
+  );
   // Sanitiza a seleção: se filtro escondeu itens, mantém no Set mas só conta os visíveis
   const idsVisiveis = new Set(sorted.map(c=>String(c.id)));
   const selVisiveis = [...(_finCobSel)].filter(id=>idsVisiveis.has(String(id)));
@@ -11523,8 +11549,7 @@ function _finRenderCobrancas(body){
 
   // v504/v516: enriquece linhas com plano (client-side join). v572: coluna Turma
   // removida (o professor consulta pela ficha; economiza um join de _turmasArr()).
-  const matrByUser = {};
-  (_finMatriculas||[]).forEach(m => { matrByUser[m.user_id] = m; });
+  // v577: matrByUser já foi construído acima pra o _cat do sort — reusa aqui.
 
   // v509: reverte inline editing (a v508 fez bagunça). Tabela readonly com
   // botões dedicados na coluna Ação — cada um abre sheet específica.
@@ -11534,18 +11559,25 @@ function _finRenderCobrancas(body){
   const todosSel = sorted.length>0 && selVisiveis.length===sorted.length;
   const nenhumSel = selVisiveis.length===0;
   const masterAttr = todosSel ? 'checked' : (nenhumSel ? '' : 'data-indeterminate="1"');
+  // v577: cabeçalhos clicáveis com seta ▲/▼. Aluno = padrão de Alunos (data-click).
+  const sTh = (k, label, extra) => {
+    const ativo = _finCobF.sortKey===k;
+    const seta = ativo ? (_finCobF.sortDir==='desc' ? ' ▼' : ' ▲') : '';
+    const cor = ativo ? 'var(--red)' : 'var(--muted)';
+    return `<th style="padding:10px 8px;font-weight:700;cursor:pointer;color:${cor};user-select:none${extra?';'+extra:''}" data-click="finCobSort" data-sort="${k}">${label}${seta}</th>`;
+  };
   const table = el(`<table class="fin-cobs-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:980px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
         <th style="padding:10px 12px;font-weight:700;width:36px"><input type="checkbox" data-change="finCobCheckAll" ${masterAttr} aria-label="Selecionar todas"></th>
-        <th style="padding:10px 12px;font-weight:700">Aluno</th>
-        <th style="padding:10px 8px;font-weight:700">Categoria</th>
-        <th style="padding:10px 8px;font-weight:700">Vencimento</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:right">Valor</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Status</th>
-        <th style="padding:10px 8px;font-weight:700">Pago em</th>
-        <th style="padding:10px 8px;font-weight:700;white-space:nowrap">Forma pgto</th>
-        <th style="padding:10px 8px;font-weight:700;text-align:center">Ações</th>
+        ${sTh('aluno','Aluno','padding:10px 12px')}
+        ${sTh('categoria','Categoria')}
+        ${sTh('venc','Vencimento')}
+        ${sTh('valor','Valor','text-align:right')}
+        ${sTh('status','Status','text-align:center')}
+        ${sTh('pago','Pago em')}
+        ${sTh('forma','Forma pgto','white-space:nowrap')}
+        <th style="padding:10px 8px;font-weight:700;text-align:center;color:var(--muted)">Ações</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -11655,6 +11687,12 @@ _dlgRegister('finCobFStatus',     (el) => { _finCobF.status = el.value||''; _fin
 _dlgRegister('finCobFCategoria',  (el) => { _finCobF.categoria = el.value||''; _finRepintarAbaAtual(); });
 _dlgRegister('finCobFVenc',       (el) => { _finCobF.venc = el.value||''; _finRepintarAbaAtual(); });
 _dlgRegister('finCobFLimpar',     () => { _finCobF.busca=''; _finCobF.status=''; _finCobF.categoria=''; _finCobF.venc=''; _finRepintarAbaAtual(); });
+_dlgRegister('finCobSort', (el) => {
+  const k = el.dataset.sort;
+  if(_finCobF.sortKey === k) _finCobF.sortDir = _finCobF.sortDir==='asc' ? 'desc' : 'asc';
+  else { _finCobF.sortKey = k; _finCobF.sortDir = 'asc'; }
+  _finRepintarAbaAtual();
+});
 _dlgRegister('finCobCheckOne', (el) => {
   const id = String(el.dataset.id);
   if(el.checked) _finCobSel.add(id); else _finCobSel.delete(id);

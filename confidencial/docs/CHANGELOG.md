@@ -9,6 +9,16 @@
 
 ## Concluídas ✓
 
+### v577 — Cobranças: click no cabeçalho ordena, mesmo padrão de Alunos (2026-09-17)
+
+Aluno já tinha (v382 e antes), Cobranças não. Agora os 7 cabeçalhos são
+`data-click="finCobSort" data-sort="…"`: Aluno · Categoria · Vencimento · Valor ·
+Status · Pago em · Forma pgto. Click alterna asc/desc; click num header diferente
+troca a chave mantendo asc — mesmo padrão de `alunosSort`. Seta ▲/▼ mostra o
+sort ativo em vermelho. Enquanto `_finCobF.sortKey` é null (default), o
+ordenamento inteligente antigo continua valendo (Vencidas > A vencer > Pagas >
+Isentas, empate por venc). Pra "resetar" é só clicar no header ativo até voltar.
+
 ### v576 — Trocar PDF do contrato sem cancelar + apagar o antigo (2026-09-17)
 
 O sheet do contrato já tinha "Toque para substituir" clicável, mas o texto sugeria só
