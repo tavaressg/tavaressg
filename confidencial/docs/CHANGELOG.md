@@ -9,6 +9,26 @@
 
 ## Concluídas ✓
 
+### v580 — Picker de aluno padronizado substitui `<datalist>` em Contrato e Cobrança avulsa (2026-09-18)
+
+O `<datalist>` HTML nativo era o único ponto do app que fugia do padrão iOS-clean —
+sem avatar, sem faixa, sem status Ativo/Inativo, com fallback resiliente da v526
+compensando a fragilidade do parse do input. Já causava dor: aluno inativo aparecendo,
+homônimos indistinguíveis, seleção "quebrando" ao editar o texto depois.
+
+Nova função `_alunoPicker({ onPick, titulo, hint, excluirIds, permitirInativos })` — sheet
+scrollável no padrão do app com avatar (`avatarAluno`), faixa (`beltPillOuVazio`), badge
+"Inativo", busca no topo, chip "Só ativos" ligado por default, contagem. Estado do
+aluno escolhido vive no closure do sheet chamador (`cavAluno`/`ctAluno`) — sempre um
+objeto válido ou null, sem parse de string.
+
+**Bônus no contrato:** ao escolher aluno com nascimento < 18, o checkbox "menor" auto-marca
+(o professor pode desmarcar). Usa `idadeCBJJ(a.nascimento)`.
+
+Substituído em `_finContratoSheet` e `_finCobrancaAvulsaSheet`. O `_resolveAlunoId` do
+contrato virou `const _resolveAlunoId = () => ctAluno && ctAluno.id` (uma linha) — o
+fallback normalizado da v526 saiu junto, não é mais necessário.
+
 ### v579 — Categoria "Kimonos" da Loja vira "Uniforme" (2026-09-17)
 
 Rename da categoria em 4 pontos do `app.js`:

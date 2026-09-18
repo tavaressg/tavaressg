@@ -12653,22 +12653,89 @@ function _finCobrancaSheet(c, onDone){
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
+/* v580: Picker de aluno reusável. Substitui o `<datalist>` nativo (frágil, fora
+   do padrão iOS-clean do resto do app) por sheet com avatar + faixa + status,
+   busca top e chip pra ocultar inativos. Chama onPick(aluno) na escolha e fecha.
+   opts: { titulo, hint, excluirIds, esconderInativos, permitirInativos } */
+function _alunoPicker({ onPick, titulo, hint, excluirIds, permitirInativos }={}){
+  const alunosAll = ((_profData && _profData.alunos) || []).filter(a=>!a._self && !a.role || a.role==='aluno' || !a.role);
+  const excluir = new Set((excluirIds||[]).map(String));
+  let busca = '';
+  let ocultarInativos = !permitirInativos;   // default: some com inativos
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Escolher aluno" style="max-height:88vh;display:flex;flex-direction:column">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">${safeTxt(titulo||'Escolher aluno')}</div>
+    ${hint?`<div class="sheet-desc">${safeTxt(hint)}</div>`:''}
+    <input class="inp" id="ap-busca" placeholder="🔍 Nome do aluno…" autocomplete="off" data-autofocus style="margin-top:8px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      <button class="et-chip ${ocultarInativos?'on':''}" id="ap-so-ativos" type="button" style="font-size:11.5px;padding:4px 10px">Só ativos</button>
+      <span id="ap-conta" style="font-size:11.5px;color:var(--muted);align-self:center;margin-left:auto"></span>
+    </div>
+    <div id="ap-lista" class="list" style="margin-top:8px;overflow-y:auto;flex:1;min-height:180px;max-height:56vh"></div>
+    <button class="sheet-cancel" id="ap-close" style="margin-top:8px">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ap-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  const inp = sheet.querySelector('#ap-busca');
+  const lista = sheet.querySelector('#ap-lista');
+  const conta = sheet.querySelector('#ap-conta');
+  const btnAt = sheet.querySelector('#ap-so-ativos');
+  const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  const pintar = () => {
+    const q = norm(busca);
+    const filtrados = alunosAll.filter(a=>{
+      if(excluir.has(String(a.id||a.nm))) return false;
+      if(ocultarInativos && typeof _statusAluno==='function' && _statusAluno(a).valor==='inativo') return false;
+      if(!q) return true;
+      const bag = norm((a.cad&&a.cad.nomeCompleto)||'') + ' ' + norm(a.nm) + ' ' + norm(a.apelido);
+      return bag.includes(q);
+    });
+    conta.textContent = `${filtrados.length} aluno${filtrados.length===1?'':'s'}`;
+    if(!filtrados.length){
+      lista.innerHTML = '<div class="empty-line" style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Nenhum aluno com esse nome.</div>';
+      return;
+    }
+    lista.innerHTML = '';
+    filtrados.forEach(a => {
+      const nomeC = (a.cad && a.cad.nomeCompleto) || _nomeInst(a);
+      const st = (typeof _statusAluno==='function') ? _statusAluno(a) : { valor:'ativo' };
+      const inativo = st.valor==='inativo';
+      const row = el(`<div class="risco-row" role="button" tabindex="0" style="cursor:pointer;${inativo?'opacity:.6':''}">
+        ${avatarAluno(a)}
+        <div class="risco-mid">
+          <div class="nm">${safeTxt(nomeC)}</div>
+          <div class="meta">${beltPillOuVazio(a)}${inativo?' <span style="font-size:10.5px;color:var(--muted);background:rgba(0,0,0,0.06);padding:2px 8px;border-radius:10px;font-weight:700;margin-left:6px">Inativo</span>':''}</div>
+        </div>
+      </div>`);
+      row.onclick = ()=>{ close(); onPick(a); };
+      row.onkeydown = ev => { if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); close(); onPick(a); } };
+      lista.appendChild(row);
+    });
+  };
+  inp.addEventListener('input', ()=>{ busca = inp.value; pintar(); });
+  btnAt.onclick = ()=>{ ocultarInativos = !ocultarInativos; btnAt.classList.toggle('on', ocultarInativos); pintar(); };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  pintar();
+}
+
 // Cobrança avulsa — sem produto (exame de faixa, taxa, aula avulsa)
 function _finCobrancaAvulsaSheet(onDone){
-  const alunos = (_profData && _profData.alunos || []).filter(a=>!a._self);
   const cats = (_finCategorias||[]).filter(c=>c.tipo==='receita');
   const catsOpts = cats.map(c=>`<option value="${c.id}">${safeTxt(c.nome)}</option>`).join('');
-  // v494 Sprint 6 item 5: combobox filtrável com <datalist> — nativo, sem lib.
-  // Aluno digita nome, browser filtra. Guardamos ID no campo hidden pra submit.
-  const alunosDatalist = alunos.map(a=>`<option value="${safeAttr(_nomeInst(a))}" data-id="${a.id}"></option>`).join('');
+  // v580: `<datalist>` nativo substituído por `_alunoPicker` — mesmo padrão iOS-clean
+  // do resto do app. Estado do aluno escolhido guardado em `cavAluno` (fechamento).
+  let cavAluno = null;
 
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Nova cobrança avulsa">
     <div class="sheet-grip"></div>
     <div class="sheet-title">＋ Cobrança avulsa</div>
     <div class="sheet-desc">Exame de faixa, taxa extra, aula avulsa. Sem produto — sem baixa de estoque.</div>
     <label class="flbl" style="margin-top:12px">Aluno</label>
-    <input class="inp" id="cav-aluno-nome" list="cav-alunos-list" placeholder="Digite pra buscar…" autocomplete="off">
-    <datalist id="cav-alunos-list">${alunosDatalist}</datalist>
+    <button type="button" class="btn-cad ghost" id="cav-aluno-btn" style="width:100%;text-align:left;padding:12px 14px;display:flex;align-items:center;gap:10px">
+      <span id="cav-aluno-txt" style="flex:1;color:var(--muted);font-weight:500">Toque pra escolher…</span>
+      <span style="color:var(--muted);font-size:13px">›</span>
+    </button>
     <label class="flbl" style="margin-top:10px">Categoria</label>
     <div style="display:flex;gap:8px;align-items:stretch">
       <select class="inp" id="cav-cat" style="flex:1">
@@ -12699,12 +12766,20 @@ function _finCobrancaAvulsaSheet(onDone){
       sel.value = novo.id;
     });
   };
+  // v580: abre picker, atualiza texto do botão
+  const btnAluno = sheet.querySelector('#cav-aluno-btn');
+  const txtAluno = sheet.querySelector('#cav-aluno-txt');
+  btnAluno.onclick = ()=>{
+    _alunoPicker({ titulo:'Escolher aluno', onPick:(a)=>{
+      cavAluno = a;
+      const nome = (a.cad && a.cad.nomeCompleto) || _nomeInst(a);
+      txtAluno.innerHTML = `<b style="color:var(--ink)">${safeTxt(nome)}</b>`;
+    }});
+  };
   const btn = sheet.querySelector('#cav-save');
   btn.onclick = async ()=>{
-    // v494 Sprint 6 item 5: resolve aluno_id pelo nome digitado no datalist
-    const nomeDig = sheet.querySelector('#cav-aluno-nome').value.trim();
-    const opt = sheet.querySelector(`#cav-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
-    const user_id = opt ? opt.dataset.id : null;
+    // v580: pega direto do picker (sem parse de string frágil)
+    const user_id = cavAluno && cavAluno.id;
     const valor = parseFloat(sheet.querySelector('#cav-valor').value);
     const venc = sheet.querySelector('#cav-venc').value;
     if(!user_id || !(valor>0) || !venc){ toast('Preencha aluno, valor e vencimento'); return; }
@@ -13164,8 +13239,8 @@ function _finContratoSheet(c, onDone){
   const editar = !!c; c = c || {};
   const planos = (_finPlanos||[]).filter(p=>p.ativo!==false);
   const planosOpts = planos.map(p=>`<option value="${p.id}">${safeTxt(p.nome)} · ${moneyBR(p.valor)}</option>`).join('');
-  const alunos = (_profData && _profData.alunos || []).filter(a=>!a._self);
-  const alunosOpts = alunos.map(a=>`<option value="${a.id}">${safeTxt(_nomeInst(a))}</option>`).join('');
+  // v580: `<datalist>` substituído pelo `_alunoPicker`. Estado do escolhido em closure.
+  let ctAluno = null;
   const p = c.profiles || {};
   const nome = p.apelido || p.nome_completo || '—';
 
@@ -13175,8 +13250,10 @@ function _finContratoSheet(c, onDone){
     ${editar?`<div class="sheet-desc">${safeTxt(nome)} · status ${safeTxt(c.status)}</div>`:''}
     ${!editar ? `
       <label class="flbl">Aluno</label>
-      <input class="inp" id="ct-aluno-nome" list="ct-alunos-list" placeholder="Digite pra buscar…" autocomplete="off">
-      <datalist id="ct-alunos-list">${alunos.map(a=>`<option value="${safeAttr(_nomeInst(a))}" data-id="${a.id}"></option>`).join('')}</datalist>
+      <button type="button" class="btn-cad ghost" id="ct-aluno-btn" style="width:100%;text-align:left;padding:12px 14px;display:flex;align-items:center;gap:10px">
+        <span id="ct-aluno-txt" style="flex:1;color:var(--muted);font-weight:500">Toque pra escolher…</span>
+        <span style="color:var(--muted);font-size:13px">›</span>
+      </button>
       <label class="flbl" style="margin-top:10px">Plano</label>
       <select class="inp" id="ct-plano">${planosOpts}</select>
     ` : (c.status === 'aguardando_aceite' ? `
@@ -13265,24 +13342,24 @@ function _finContratoSheet(c, onDone){
   if(editar && selPlano && c.plano_id) selPlano.value = c.plano_id;
 
 
-  // v526: resolve aluno mais resiliente. Datalist às vezes não preserva
-  // data-id no <option> matched; falha silenciosa fazia o Salvar dar erro
-  // "Preencha aluno". Fallback: procura no array alunos por _nomeInst
-  // (case-insensitive, ignora espaços extras).
-  const _resolveAlunoId = () => {
-    const inp = sheet.querySelector('#ct-aluno-nome');
-    if(!inp) return null;
-    const nomeDig = inp.value.trim();
-    if(!nomeDig) return null;
-    // 1) tenta match exato no datalist
-    const opt = sheet.querySelector(`#ct-alunos-list option[value="${nomeDig.replace(/"/g,'\\"')}"]`);
-    if(opt && opt.dataset.id) return opt.dataset.id;
-    // 2) fallback: normaliza e procura no array
-    const norm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
-    const alvo = norm(nomeDig);
-    const found = alunos.find(a => norm(_nomeInst(a)) === alvo);
-    return found ? found.id : null;
-  };
+  // v580: botão de aluno abre picker. Estado no closure `ctAluno` (sempre válido).
+  const btnAluno = sheet.querySelector('#ct-aluno-btn');
+  const txtAluno = sheet.querySelector('#ct-aluno-txt');
+  if(btnAluno){
+    btnAluno.onclick = ()=>{
+      _alunoPicker({ titulo:'Escolher aluno para o contrato', onPick:(a)=>{
+        ctAluno = a;
+        const n = (a.cad && a.cad.nomeCompleto) || _nomeInst(a);
+        txtAluno.innerHTML = `<b style="color:var(--ink)">${safeTxt(n)}</b>`;
+        // v580: auto-marca "menor" se aluno tem nascimento < 18 (o professor pode desmarcar)
+        if(chkMenor && a.nascimento){
+          const anosAte = (typeof idadeCBJJ==='function') ? idadeCBJJ(a.nascimento) : null;
+          if(anosAte != null && anosAte < 18 && !chkMenor.checked){ chkMenor.checked = true; chkMenor.onchange && chkMenor.onchange(); }
+        }
+      }});
+    };
+  }
+  const _resolveAlunoId = () => ctAluno && ctAluno.id;
 
   // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
   // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
@@ -13294,8 +13371,7 @@ function _finContratoSheet(c, onDone){
       respWrap.style.display = on ? '' : 'none';
       if(on){
         // v526: resolve resiliente (mesmo helper do submit)
-        const uid = _resolveAlunoId();
-        const a = alunos.find(x=>x.id===uid);
+        const a = ctAluno;
         const r = a && a.cad && a.cad.responsavel;
         if(r){
           const inp = (sel,v)=>{ const e=sheet.querySelector(sel); if(e && !e.value) e.value = v || ''; };
