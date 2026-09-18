@@ -9,6 +9,23 @@
 
 ## Concluídas ✓
 
+### v584 — Wizard de aluno auto-gera contrato quando plano exige (2026-09-18)
+
+Buraco descoberto: no v583 o wizard vinculava plano via `salvarAlunoPlano`, mas se o
+plano tinha `tem_contrato=true` (como ADULTO ANUAL), o contrato tinha que ser feito à
+mão depois em Financeiro → Contratos. Silencioso.
+
+Agora, quando o professor escolhe um plano com `tem_contrato=true`, o wizard **usa a RPC
+transacional `criarContratoComMatricula` da v582 (0055)** direto: contrato + matrícula
+numa transação PG só. Datas do contrato calculadas automaticamente (mesma regra do
+sheet de contrato v581: `MESES[frequencia]` ou `plano.parcelas`; anual → +12 meses -1
+dia). PDF pode ser anexado depois em Financeiro → Contratos.
+
+Aviso visível no passo 4 quando o plano exige contrato: `📄 Este plano exige contrato.
+Será gerado automaticamente com início hoje e fim conforme a frequência do plano.`
+
+Planos sem contrato mantêm o fluxo antigo (`salvarAlunoPlano` só).
+
 ### v583 — Wizard de aluno: passo 4 vira "Plano e turmas", aluno sai pronto (2026-09-18)
 
 O passo 4 do wizard só oferecia plano; turmas eram passo pós-cadastro (Turmas → adicionar

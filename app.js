@@ -8148,7 +8148,21 @@ function renderCadastroAluno(){
     }
     const opts = ['<option value="">— Sem plano (vincular depois) —</option>']
       .concat(planos.filter(p=>p.ativo!==false).map(p=>`<option value="${safeAttr(p.id)}">${safeTxt(p.nome)} · R$ ${Number(p.valor||0).toFixed(2).replace('.',',')}</option>`)).join('');
-    box.innerHTML = `<select class="inp" id="ca-plano-id">${opts}</select>`;
+    box.innerHTML = `<select class="inp" id="ca-plano-id">${opts}</select><div id="ca-plano-aviso"></div>`;
+    // v583: quando o plano exige contrato (tem_contrato=true), avisa e ativa a
+    // rota que cria contrato + matrícula juntos via RPC transacional (0055).
+    const sel = document.getElementById('ca-plano-id');
+    const aviso = document.getElementById('ca-plano-aviso');
+    const _refreshAviso = ()=>{
+      if(!sel || !aviso) return;
+      const pl = planos.find(x=>String(x.id)===String(sel.value));
+      if(pl && pl.tem_contrato){
+        aviso.innerHTML = `<div style="margin-top:8px;padding:10px 12px;background:rgba(34,160,107,0.08);border-left:3px solid var(--good);border-radius:6px;font-size:12.5px">
+          📄 <b>Este plano exige contrato.</b> Será gerado automaticamente com início hoje e fim conforme a frequência do plano. Você pode anexar o PDF assinado depois em <b>Financeiro → Contratos</b>.
+        </div>`;
+      } else { aviso.innerHTML = ''; }
+    };
+    if(sel){ sel.addEventListener('change', _refreshAviso); _refreshAviso(); }
   };
   if(typeof sbProf!=='undefined' && sbProf.getPlanos && (typeof _finPlanos==='undefined' || !_finPlanos)){
     sbProf.getPlanos().then(r=>{ _finPlanos = r; if(document.getElementById('ca-plano-box')) _pintaPlanos(); }).catch(()=>{ if(document.getElementById('ca-plano-box')) _pintaPlanos(); });
@@ -8219,9 +8233,30 @@ function renderCadastroAluno(){
         const novoId=(r&&(r.user_id||r.id))||null;
         if(nascData && novoId && sbProf.atualizarAluno){ try{ await sbProf.atualizarAluno(novoId, {nascimento_data:nascData}); }catch(_){}}
         if(novoId && sbProf.setStatusAluno){ try{ await sbProf.setStatusAluno(novoId, statusInicial); }catch(_){}}
-        if(planoIdSel && novoId && sbProf.salvarAlunoPlano){
-          try{ await sbProf.salvarAlunoPlano({ user_id:novoId, plano_id:planoIdSel, valor_negociado: planoValorNum }); }
-          catch(e){ toast('Aluno criado, mas falhou ao vincular plano: '+(e.message||e)); }
+        if(planoIdSel && novoId){
+          // v583: se o plano exige contrato, chama a RPC transacional 0055 que
+          // cria contrato + matrícula juntos. Senão, só matrícula (fluxo antigo).
+          const _planoObj = ((typeof _finPlanos!=='undefined' && _finPlanos)||[]).find(x=>String(x.id)===String(planoIdSel));
+          const _exigeContrato = _planoObj && _planoObj.tem_contrato;
+          if(_exigeContrato && sbProf.criarContratoComMatricula){
+            // Calcula fim automaticamente (mesma regra do sheet de contrato v581).
+            const MESES = { mensal:1, trimestral:3, semestral:6, anual:12 };
+            const meses = (_planoObj.parcelas && _planoObj.parcelas>1) ? _planoObj.parcelas : (MESES[_planoObj.frequencia] || 12);
+            const dIni = new Date(HOJE_ISO+'T12:00:00');
+            dIni.setMonth(dIni.getMonth()+meses); dIni.setDate(dIni.getDate()-1);
+            const fim = dIni.toISOString().slice(0,10);
+            try{
+              await sbProf.criarContratoComMatricula({
+                user_id: novoId, plano_id: planoIdSel,
+                inicio: HOJE_ISO, fim,
+                criar_matricula: true,
+                valor_negociado: planoValorNum,
+              });
+            } catch(e){ toast('Aluno criado, mas falhou contrato+matrícula: '+(e.message||e)); }
+          } else if(sbProf.salvarAlunoPlano){
+            try{ await sbProf.salvarAlunoPlano({ user_id:novoId, plano_id:planoIdSel, valor_negociado: planoValorNum }); }
+            catch(e){ toast('Aluno criado, mas falhou ao vincular plano: '+(e.message||e)); }
+          }
         }
         // v583: matrícula em turmas — best-effort igual às outras. Aluno "pronto".
         if(_caTurmasSel.size && novoId && sbProf.matricular){
