@@ -9,6 +9,38 @@
 
 ## Concluídas ✓
 
+### v581 — Cadastro de contrato: auto-fim, valor congelado, PDF na criação, duplicata (2026-09-18)
+
+Cinco melhorias no `_finContratoSheet` numa passada, aproveitando o `_alunoPicker` da
+v580 como gatilho central.
+
+**B — Auto-fim pela frequência do plano.** Ao escolher plano (ou trocar data de início),
+o campo Fim é preenchido automaticamente: `mensal → +1 mês -1 dia`, `trimestral → +3`,
+`semestral → +6`, `anual → +12`. Plano com `parcelas` explícito usa `parcelas` meses.
+Se o professor mexer manualmente no Fim, a flag `dataset.auto=0` desativa o auto — o
+valor dele nunca é sobrescrito.
+
+**C — Menor derivado da idade + auto-preenchimento do responsável.** Ao escolher aluno
+com `nascimento` que dá idade < 18 (via `idadeCBJJ`), o checkbox "Contrato de menor"
+auto-marca e o `chkMenor.onchange` dispara: nome, CPF, parentesco e telefone do
+responsável são copiados de `cad.responsavel` (dados do wizard v285). Se algum campo
+estiver vazio na ficha, entra vazio pra o professor completar.
+
+**D — Cartão do valor congelado.** Substitui o texto explicativo genérico por um cálculo
+ao vivo: `R$ 210/mês × 12 = R$ 2.520 congelados`, com a nota "o aluno paga o Valor
+Negociado, em Matrículas". Atualiza junto com plano e datas.
+
+**F — PDF opcional na criação.** Drop-zone com estilo idêntico ao da edição. Arquivo
+selecionado fica em memória (`ctPdfPendente`); ao criar o contrato com sucesso, sobe
+via `sbProf.uploadContrato(res.id, file)` — best-effort com toast em caso de falha (o
+contrato fica criado, só o PDF não subiu). Se o professor não escolher PDF, salva
+normal.
+
+**G — Bloqueio de duplicata.** Se o aluno escolhido já tem contrato `ativo` ou
+`aguardando_aceite`, o cartão do valor congelado ganha um aviso "⚠️ este aluno já tem
+contrato #003 (ativo)". No submit, `_confirmar` pergunta "Criar mesmo assim / Cancelar"
+— o professor decide, não é bloqueio duro (contratos paralelos são raros mas existem).
+
 ### v580 — Picker de aluno padronizado substitui `<datalist>` em Contrato e Cobrança avulsa (2026-09-18)
 
 O `<datalist>` HTML nativo era o único ponto do app que fugia do padrão iOS-clean —

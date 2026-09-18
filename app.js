@@ -13262,12 +13262,9 @@ function _finContratoSheet(c, onDone){
     ` : '')}
     <label class="flbl" style="margin-top:10px">Início</label>
     <input class="inp" id="ct-inicio" type="date" value="${c.inicio||HOJE_ISO}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
-    <label class="flbl" style="margin-top:10px">Fim</label>
+    <label class="flbl" style="margin-top:10px">Fim <span class="ca-opt" style="color:var(--muted);font-weight:500;font-size:11.5px">(auto-calculado pelo plano — pode editar)</span></label>
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:10px;padding:8px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:6px">
-      O contrato congela o <b>valor de tabela do plano</b> na data da assinatura (proteção contra reajuste).
-      O valor que o aluno efetivamente paga é definido em <b>Matrículas</b> → valor negociado.
-    </div>
+    <div id="ct-resumo" style="margin-top:10px"></div>
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
     ${!editar ? `
@@ -13323,6 +13320,15 @@ function _finContratoSheet(c, onDone){
       </div>` : ''}
     ` : ''}
     ${!editar?`
+      <div class="sec-title" style="margin:14px 0 6px;font-size:11px">PDF assinado <span class="ca-opt" style="color:var(--muted);font-weight:500;font-size:11px">(opcional — pode anexar depois)</span></div>
+      <label id="ct-pdf-drop" for="ct-pdf-file" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 14px;border-radius:10px;border:1.5px dashed var(--border,#d5d5da);background:var(--card-alt,rgba(0,0,0,0.02))">
+        <span id="ct-pdf-ico" style="font-size:20px;line-height:1">⬆</span>
+        <span style="flex:1;min-width:0">
+          <span id="ct-pdf-titulo" style="display:block;font-weight:700;font-size:13px;color:var(--ink)">Anexar PDF assinado</span>
+          <span id="ct-pdf-info" style="display:block;font-size:11.5px;color:var(--muted);margin-top:1px">PDF até 10 MB · fluxo manual gov.br</span>
+        </span>
+      </label>
+      <input type="file" id="ct-pdf-file" accept="application/pdf" style="display:none">
       <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>
     `:''}
     ${editar && c.status==='aguardando_aceite' ? `
@@ -13345,21 +13351,85 @@ function _finContratoSheet(c, onDone){
   // v580: botão de aluno abre picker. Estado no closure `ctAluno` (sempre válido).
   const btnAluno = sheet.querySelector('#ct-aluno-btn');
   const txtAluno = sheet.querySelector('#ct-aluno-txt');
+  const _resolveAlunoId = () => ctAluno && ctAluno.id;
+
+  // v581: cálculo automático + resumo + duplicata. Chamado em toda mudança
+  // relevante (aluno/plano/início). Escreve em #ct-resumo e (se início já foi
+  // preenchido) atualiza #ct-fim quando o plano tem frequência conhecida.
+  const _MESES_FREQ = { mensal:1, trimestral:3, semestral:6, anual:12 };
+  const _addMeses = (isoInicio, n) => {
+    if(!isoInicio || !n) return '';
+    const d = new Date(isoInicio+'T12:00:00');
+    d.setMonth(d.getMonth()+n);
+    d.setDate(d.getDate()-1);
+    return d.toISOString().slice(0,10);
+  };
+  const _ctResumo = () => {
+    if(editar) return;   // resumo/auto-fim só na criação
+    const resumo = sheet.querySelector('#ct-resumo');
+    const selP = sheet.querySelector('#ct-plano');
+    const inpI = sheet.querySelector('#ct-inicio');
+    const inpF = sheet.querySelector('#ct-fim');
+    if(!resumo || !selP || !inpI || !inpF) return;
+    const pl = planos.find(x => String(x.id) === String(selP.value));
+    if(!pl){ resumo.innerHTML = ''; return; }
+    // v581-B: auto-fim baseado em plano.frequencia (ou plano.parcelas se estiver setado).
+    // Só sobrescreve se o campo está vazio ou se ainda não foi tocado pelo professor.
+    const meses = (pl.parcelas && pl.parcelas > 1) ? pl.parcelas : (_MESES_FREQ[pl.frequencia] || 12);
+    if(inpI.value && (!inpF.value || inpF.dataset.auto === '1')){
+      inpF.value = _addMeses(inpI.value, meses);
+      inpF.dataset.auto = '1';
+    }
+    // v581-D: cálculo do valor congelado.
+    const valor = Number(pl.valor||0);
+    const total = valor * meses;
+    const linhaValor = `<div style="font-weight:800;font-size:14px">${moneyBR(valor)}/mês × ${meses} = <span style="color:var(--good)">${moneyBR(total)}</span> congelados</div>`;
+    // v581-G: bloqueio de duplicata (contrato ativo ou aguardando_aceite do mesmo aluno).
+    let dup = null;
+    if(ctAluno){
+      dup = (_finContratos||[]).find(c => String(c.user_id)===String(ctAluno.id) && (c.status==='ativo' || c.status==='aguardando_aceite'));
+    }
+    const linhaDup = dup
+      ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(255,59,48,0.08);border-left:3px solid var(--red);border-radius:6px;font-size:12px;color:var(--red);font-weight:600">⚠️ Este aluno já tem contrato #${String(dup.numero||0).padStart(3,'0')} (${safeTxt(dup.status)}). Você vai poder criar mesmo assim, mas confirme se é intencional.</div>`
+      : '';
+    resumo.innerHTML = `<div style="padding:10px 12px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px;font-size:12.5px">
+      ${linhaValor}
+      <div style="color:var(--muted);margin-top:4px;font-size:11.5px">Valor de tabela do plano. O valor que o aluno paga é o Valor Negociado, em <b>Matrículas</b>.</div>
+      ${linhaDup}
+    </div>`;
+  };
+
   if(btnAluno){
     btnAluno.onclick = ()=>{
       _alunoPicker({ titulo:'Escolher aluno para o contrato', onPick:(a)=>{
         ctAluno = a;
         const n = (a.cad && a.cad.nomeCompleto) || _nomeInst(a);
         txtAluno.innerHTML = `<b style="color:var(--ink)">${safeTxt(n)}</b>`;
-        // v580: auto-marca "menor" se aluno tem nascimento < 18 (o professor pode desmarcar)
+        // v580/v581-C: auto-marca "menor" se aluno tem nascimento < 18 e busca dados
+        // do responsável no cad.responsavel (o "ponto de apoio" do wizard v285).
         if(chkMenor && a.nascimento){
           const anosAte = (typeof idadeCBJJ==='function') ? idadeCBJJ(a.nascimento) : null;
-          if(anosAte != null && anosAte < 18 && !chkMenor.checked){ chkMenor.checked = true; chkMenor.onchange && chkMenor.onchange(); }
+          if(anosAte != null && anosAte < 18 && !chkMenor.checked){
+            chkMenor.checked = true;
+            chkMenor.onchange && chkMenor.onchange();   // dispara o auto-preenchimento
+          }
         }
+        _ctResumo();
       }});
     };
   }
-  const _resolveAlunoId = () => ctAluno && ctAluno.id;
+  // Recalcula ao trocar plano ou início.
+  ['#ct-plano','#ct-inicio'].forEach(sel => {
+    const inp = sheet.querySelector(sel);
+    if(inp) inp.addEventListener('change', ()=>{
+      // Se o professor mexeu no fim manualmente, tira a flag auto (não sobrescreve mais).
+      const fim = sheet.querySelector('#ct-fim');
+      if(fim && sel==='#ct-inicio') fim.dataset.auto = '1';   // início mudou → refaz auto
+      _ctResumo();
+    });
+  });
+  const fimInp = sheet.querySelector('#ct-fim');
+  if(fimInp) fimInp.addEventListener('input', ()=>{ fimInp.dataset.auto = '0'; });
 
   // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
   // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
@@ -13388,16 +13458,41 @@ function _finContratoSheet(c, onDone){
       }
     };
   }
+  // v581-F: PDF selecionado na criação (fica em memória, sobe DEPOIS do salvar).
+  // No modo editar, `inpPdf` já é usado mais abaixo pra upload direto; aqui é
+  // outro fluxo (não conflita quando !editar).
+  let ctPdfPendente = null;
+  const inpPdfNovo = !editar && sheet.querySelector('#ct-pdf-file');
+  if(inpPdfNovo){
+    inpPdfNovo.onchange = ()=>{
+      const f = inpPdfNovo.files && inpPdfNovo.files[0];
+      if(!f) return;
+      if(f.size > 10 * 1024 * 1024){ toast('Arquivo muito grande (máx 10 MB)'); inpPdfNovo.value=''; return; }
+      ctPdfPendente = f;
+      const kb = f.size < 1024*1024 ? Math.round(f.size/1024)+' KB' : (f.size/1024/1024).toFixed(1)+' MB';
+      const ico = sheet.querySelector('#ct-pdf-ico'); if(ico) ico.textContent = '📄';
+      const t = sheet.querySelector('#ct-pdf-titulo'); if(t) t.textContent = 'PDF pronto pra enviar';
+      const info = sheet.querySelector('#ct-pdf-info'); if(info) info.textContent = f.name + ' · ' + kb + ' · sobe ao criar';
+      const drop = sheet.querySelector('#ct-pdf-drop'); if(drop){ drop.style.borderColor='var(--good)'; drop.style.borderStyle='solid'; }
+    };
+  }
+
   const btnSave = sheet.querySelector('#ct-save');
   if(btnSave){
-    btnSave.onclick = ()=>{
-      // v526: resolve resiliente (datalist + fallback pelo nome normalizado)
+    btnSave.onclick = async ()=>{
       const user_id = _resolveAlunoId();
       const plano_id = sheet.querySelector('#ct-plano').value;
       const inicio = sheet.querySelector('#ct-inicio').value;
       const fim = sheet.querySelector('#ct-fim').value;
       if(!user_id || !plano_id || !inicio || !fim){ toast('Preencha aluno, plano e datas'); return; }
       if(fim < inicio){ toast('Fim deve ser depois do início'); return; }
+      // v581-G: bloqueia duplicata com confirmação (não com toast bloqueante).
+      const dup = (_finContratos||[]).find(c => String(c.user_id)===String(user_id) && (c.status==='ativo' || c.status==='aguardando_aceite'));
+      if(dup){
+        if(!(await _confirmar({ titulo:`${ctAluno?_nomeInst(ctAluno):'Aluno'} já tem contrato #${String(dup.numero||0).padStart(3,'0')}`,
+            desc:`Status atual: ${dup.status}. Criar um segundo contrato ao mesmo tempo pode confundir a cobrança.`,
+            sim:'Criar mesmo assim', nao:'Cancelar' }))) return;
+      }
       const eh_menor = chkMenor && chkMenor.checked;
       let responsavel = null;
       if(eh_menor){
@@ -13411,10 +13506,16 @@ function _finContratoSheet(c, onDone){
         };
       }
       btnSave.disabled=true; btnSave.textContent='Criando…';
-      // v546: sem valor_congelado — o adapter congela o valor de tabela do
-      // plano. Valor efetivo do aluno vive em aluno_plano.valor_negociado.
       sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
-        .then(res => { toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone(); })
+        .then(async res => {
+          // v581-F: se o professor selecionou PDF na criação, sobe agora — best-effort.
+          if(ctPdfPendente && sbProf.uploadContrato){
+            btnSave.textContent = 'Enviando PDF…';
+            try{ await sbProf.uploadContrato(res.id, ctPdfPendente); }
+            catch(e){ toast('Contrato criado, mas falhou o PDF: '+(e.message||e)); }
+          }
+          toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone();
+        })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };
   }
