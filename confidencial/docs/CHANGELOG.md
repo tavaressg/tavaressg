@@ -9,6 +9,33 @@
 
 ## Concluídas ✓
 
+### v582 + supabase.js v98 + migration 0055 — Contrato cria matrícula na mesma transação PG (2026-09-18)
+
+O E do plano: contrato criado sem matrícula do mesmo plano deixava o cron sem gerar
+cobrança. A opção lazy era encadear `salvarContrato + salvarAlunoPlano` no client (se
+falhar a segunda, órfão silencioso). Fizemos o certo: **RPC transacional**.
+
+**Migration 0055** — `criar_contrato_com_matricula(p_user_id, p_plano_id, p_inicio,
+p_fim, p_obs, p_eh_menor, p_responsavel, p_criar_matricula, p_valor_negociado,
+p_dia_vencimento, p_isento, p_isento_motivo)`. `security definer` + `revoke public/anon`
++ `grant authenticated` (padrão da 0028/0041). Valida `is_professor()`, congela valor e
+frequência do plano, insere em `contratos` e `upsert on conflict (user_id)` em
+`aluno_plano` numa transação PG só — se um falha, o outro reverte. Devolve
+`{ contrato_id, contrato_numero, matricula_criada }`. Aplicada em prod em 2026-09-18
+via `supabase db query --file`.
+
+**supabase.js v98** — `sbProf.criarContratoComMatricula(params)`. Substitui a chamada
+antiga de `salvarContrato` no submit do sheet de contrato.
+
+**UI (app.js v582)** — bloco novo dentro do sheet: checkbox `📊 Criar matrícula neste
+plano também` marcado por default, com 3 campos (valor negociado, dia de vencimento,
+isento). Escolher plano prefill o `dia_vencimento` do plano. Desmarcar deixa o wrap
+opaco. Toast final diz `"Contrato #003 + matrícula criados ✔"` ou apenas
+`"Contrato #003 criado ✔"` conforme `matricula_criada`.
+
+**PDF na criação (v581-F) continua** — se selecionado, sobe via `uploadContrato` depois
+que a RPC volta.
+
 ### v581 — Cadastro de contrato: auto-fim, valor congelado, PDF na criação, duplicata (2026-09-18)
 
 Cinco melhorias no `_finContratoSheet` numa passada, aproveitando o `_alunoPicker` da

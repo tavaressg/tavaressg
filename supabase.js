@@ -1630,6 +1630,30 @@
       if (error) throw error;
       return data;
     }),
+    // v582 (0055): cria contrato + upsert de aluno_plano numa transacao PG.
+    // Substitui o salvarContrato + salvarAlunoPlano em sequencia — se um falhava,
+    // deixava contrato orfao (cron nao gerava cobranca). Se p_criar_matricula for
+    // false, so cria o contrato (fluxo antigo).
+    criarContratoComMatricula: wrap(async (params) => {
+      const { data, error } = await SB.rpc('criar_contrato_com_matricula', {
+        p_user_id: params.user_id,
+        p_plano_id: params.plano_id,
+        p_inicio: params.inicio,
+        p_fim: params.fim,
+        p_obs: params.obs || null,
+        p_eh_menor: !!params.eh_menor,
+        p_responsavel: params.responsavel || null,
+        p_criar_matricula: params.criar_matricula !== false,
+        p_valor_negociado: params.valor_negociado != null ? Number(params.valor_negociado) : null,
+        p_dia_vencimento: params.dia_vencimento != null ? Number(params.dia_vencimento) : null,
+        p_isento: !!params.isento,
+        p_isento_motivo: params.isento_motivo || null,
+      });
+      if (error) throw error;
+      // Retorna { contrato_id, contrato_numero, matricula_criada } — front espera
+      // { id, numero } no molde do salvarContrato antigo.
+      return { id: data.contrato_id, numero: data.contrato_numero, matricula_criada: data.matricula_criada };
+    }),
     marcarAceiteContrato: wrap(async (id, { data_aceite, arquivo_url } = {}) => {
       const row = {
         status: 'ativo',

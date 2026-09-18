@@ -13265,6 +13265,30 @@ function _finContratoSheet(c, onDone){
     <label class="flbl" style="margin-top:10px">Fim <span class="ca-opt" style="color:var(--muted);font-weight:500;font-size:11.5px">(auto-calculado pelo plano — pode editar)</span></label>
     <input class="inp" id="ct-fim" type="date" value="${c.fim||''}" ${editar && c.status !== 'aguardando_aceite' ? 'readonly' : ''}>
     <div id="ct-resumo" style="margin-top:10px"></div>
+    ${!editar?`
+    <div style="margin-top:14px;padding:10px 12px;background:var(--card-alt,rgba(0,0,0,0.03));border-radius:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;font-size:13px">
+        <input type="checkbox" id="ct-cria-matr" checked>
+        <span>📊 Criar matrícula neste plano também <span style="color:var(--muted);font-weight:500;font-size:11.5px">(recomendado — sem isso o cron não gera cobrança)</span></span>
+      </label>
+      <div id="ct-matr-wrap" style="margin-top:10px">
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label class="flbl" style="font-size:11px">Valor negociado (R$)</label>
+            <input class="inp" id="ct-matr-valor" type="text" placeholder="Herda do plano se em branco" style="font-size:13px">
+          </div>
+          <div style="width:100px">
+            <label class="flbl" style="font-size:11px">Dia venc.</label>
+            <input class="inp" id="ct-matr-dia" type="number" min="1" max="28" placeholder="dia" style="font-size:13px">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="ct-matr-isento">
+          <span>Aluno isento (não gera cobrança automática)</span>
+        </label>
+      </div>
+    </div>
+    `:''}
     <label class="flbl" style="margin-top:10px">Observação</label>
     <input class="inp" id="ct-obs" maxlength="400" value="${safeAttr(c.obs||'')}">
     ${!editar ? `
@@ -13422,14 +13446,27 @@ function _finContratoSheet(c, onDone){
   ['#ct-plano','#ct-inicio'].forEach(sel => {
     const inp = sheet.querySelector(sel);
     if(inp) inp.addEventListener('change', ()=>{
-      // Se o professor mexeu no fim manualmente, tira a flag auto (não sobrescreve mais).
       const fim = sheet.querySelector('#ct-fim');
-      if(fim && sel==='#ct-inicio') fim.dataset.auto = '1';   // início mudou → refaz auto
+      if(fim && sel==='#ct-inicio') fim.dataset.auto = '1';
+      // v582: prefill dia_vencimento do bloco matrícula com o dia do plano.
+      if(sel==='#ct-plano'){
+        const pl = planos.find(x=>String(x.id)===String(inp.value));
+        const diaInp = sheet.querySelector('#ct-matr-dia');
+        if(pl && diaInp && !diaInp.dataset.touched){ diaInp.value = pl.dia_vencimento || ''; }
+      }
       _ctResumo();
     });
   });
   const fimInp = sheet.querySelector('#ct-fim');
   if(fimInp) fimInp.addEventListener('input', ()=>{ fimInp.dataset.auto = '0'; });
+  // v582: bloco matrícula. Checkbox colapsa; campos preservam edição do professor.
+  const chkMatr = sheet.querySelector('#ct-cria-matr');
+  const wrapMatr = sheet.querySelector('#ct-matr-wrap');
+  if(chkMatr && wrapMatr){
+    chkMatr.onchange = ()=>{ wrapMatr.style.opacity = chkMatr.checked ? '1' : '0.35'; wrapMatr.style.pointerEvents = chkMatr.checked ? '' : 'none'; };
+  }
+  const diaMatr = sheet.querySelector('#ct-matr-dia');
+  if(diaMatr) diaMatr.addEventListener('input', ()=>{ diaMatr.dataset.touched = '1'; });
 
   // v490 Sprint 3: toggle "Contrato de menor" mostra/esconde bloco responsável.
   // Auto-preenche do profile do aluno (profiles.resp_*) quando marcar.
@@ -13505,16 +13542,32 @@ function _finContratoSheet(c, onDone){
           telefone: sheet.querySelector('#ct-resp-tel').value.trim() || null,
         };
       }
+      // v582: coleta os campos do bloco matrícula (a RPC decide criar ou não).
+      const criar_matricula = !!(chkMatr && chkMatr.checked);
+      const valor_neg_raw = criar_matricula ? sheet.querySelector('#ct-matr-valor').value.trim() : '';
+      const valor_negociado = valor_neg_raw ? _parseValorBR(valor_neg_raw) : null;
+      const dia_raw = criar_matricula ? sheet.querySelector('#ct-matr-dia').value.trim() : '';
+      const dia_vencimento = dia_raw ? parseInt(dia_raw,10) : null;
+      const isento = criar_matricula && sheet.querySelector('#ct-matr-isento').checked;
       btnSave.disabled=true; btnSave.textContent='Criando…';
-      sbProf.salvarContrato({ user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(), eh_menor, responsavel })
+      // v582: RPC transacional. Contrato + matrícula numa transação PG — se um
+      // falhar, o outro reverte. Substitui o salvarContrato+salvarAlunoPlano.
+      sbProf.criarContratoComMatricula({
+        user_id, plano_id, inicio, fim, obs: sheet.querySelector('#ct-obs').value.trim(),
+        eh_menor, responsavel,
+        criar_matricula, valor_negociado, dia_vencimento, isento,
+      })
         .then(async res => {
-          // v581-F: se o professor selecionou PDF na criação, sobe agora — best-effort.
           if(ctPdfPendente && sbProf.uploadContrato){
             btnSave.textContent = 'Enviando PDF…';
             try{ await sbProf.uploadContrato(res.id, ctPdfPendente); }
             catch(e){ toast('Contrato criado, mas falhou o PDF: '+(e.message||e)); }
           }
-          toast('Contrato #'+String(res.numero).padStart(3,'0')+' criado ✔'); close(); if(onDone) onDone();
+          const numTxt = '#'+String(res.numero).padStart(3,'0');
+          toast(res.matricula_criada
+            ? `Contrato ${numTxt} + matrícula criados ✔`
+            : `Contrato ${numTxt} criado ✔`);
+          close(); if(onDone) onDone();
         })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };
