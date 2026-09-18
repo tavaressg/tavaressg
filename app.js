@@ -5276,7 +5276,7 @@ function renderLoja(){
 
   // chips de categoria
   const chips = el(`<div class="cat-chips"></div>`);
-  ['Todos','Kimonos','Vestuário','Acessórios'].forEach(c=>{
+  ['Todos','Uniforme','Vestuário','Acessórios'].forEach(c=>{
     chips.appendChild(el(`<button class="cat-chip ${DB.loja.cat===c?'on':''}" data-click="lojaCat" data-v="${safeAttr(c)}">${c}</button>`));
   });
   body.appendChild(chips);
@@ -13964,21 +13964,21 @@ function profLoja(){
 }
 
 // Tamanhos padrão por categoria — kimono usa medidas próprias (A0–A4 adulto, M0–M4 infantil)
-const CAT_TAMANHOS = { 'Kimonos':['A0','A1','A2','A3','A4'], 'Vestuário':['P','M','G','GG'], 'Acessórios':['Único'] };
+const CAT_TAMANHOS = { 'Uniforme':['A0','A1','A2','A3','A4'], 'Vestuário':['P','M','G','GG'], 'Acessórios':['Único'] };
 // Abre a PÁGINA CHEIA de produto (novo ou edição). Substitui o antigo sheet suspenso.
 function abrirProdutoForm(p){ DB._produtoEdit = p || null; DB.produtoFormOpen = true; render(); window.scrollTo(0,0); }
 function renderProdutoForm(){
   const p = DB._produtoEdit;
   const novo = !p;
-  const cats = ['Kimonos','Vestuário','Acessórios'];
+  const cats = ['Uniforme','Vestuário','Acessórios'];
   // v425: gaveta. Chave por produto — editar A e depois B não pode misturar rascunho.
   // Lido ANTES do estado inicial pra semear categoria/tamanhos/estoque já restaurados
   // (paintEst/paintFotos rodam logo abaixo e precisam do valor final).
   const _pfKey = 'produto:' + (novo ? 'novo' : String(p.id));
   const _pfSalvo = _formDraftLer(_pfKey);
-  let selCat = _pfSalvo ? _pfSalvo.selCat : (p ? p.cat : 'Kimonos');
+  let selCat = _pfSalvo ? _pfSalvo.selCat : (p ? p.cat : 'Uniforme');
   let ativo  = _pfSalvo ? !!_pfSalvo.ativo : (p ? p.ativo!==false : true);
-  let sizes = _pfSalvo ? (_pfSalvo.sizes||[]).slice() : (p ? (p.tam||[]).slice() : (CAT_TAMANHOS['Kimonos']||[]).slice());
+  let sizes = _pfSalvo ? (_pfSalvo.sizes||[]).slice() : (p ? (p.tam||[]).slice() : (CAT_TAMANHOS['Uniforme']||[]).slice());
   let sizesCustom = _pfSalvo ? !!_pfSalvo.sizesCustom : !novo;   // produto existente: nunca trocar os tamanhos ao mudar categoria
   let dirty = !!_pfSalvo;   // rascunho restaurado já conta como mexido (protege o "descartar?")
   // Fotos: primeira = capa (p.img), resto = galeria (p.imgs[]). URLs no Supabase Storage

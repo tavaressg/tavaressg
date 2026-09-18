@@ -9,6 +9,22 @@
 
 ## Concluídas ✓
 
+### v579 — Categoria "Kimonos" da Loja vira "Uniforme" (2026-09-17)
+
+Rename da categoria em 4 pontos do `app.js`:
+- Array `cats` do `renderProdutoForm` (opções do seg control)
+- Chip inicial no filtro da vitrine
+- Mapa `CAT_TAMANHOS` (tamanhos padrão A0-A4 seguem)
+- Default `selCat` quando cria produto novo
+
+**Backfill em produção:** 2 produtos com `categoria='Kimonos'` viraram `'Uniforme'`
+(Kimono Yama | Azul, Kimono Yama | Branco). Os produtos em si mantêm o nome com
+"Kimono" — só a categoria mudou.
+
+Não confundir com a menção "Kimono" ao lado de "No-Gi" no meta de treino
+([app.js:3015](../../app.js#L3015)), que é sobre modalidade de técnica (Gi × No-Gi) e
+não sobre categoria da Loja.
+
 ### v578 — Sort clicável replicado nas 4 abas restantes do Financeiro (2026-09-17)
 
 Padrão da v577 estendido pra **Despesas** (Descrição/Categoria/Vence/Valor/Status/Pago
