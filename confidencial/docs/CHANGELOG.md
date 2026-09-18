@@ -9,6 +9,20 @@
 
 ## Concluídas ✓
 
+### v583 — Wizard de aluno: passo 4 vira "Plano e turmas", aluno sai pronto (2026-09-18)
+
+O passo 4 do wizard só oferecia plano; turmas eram passo pós-cadastro (Turmas → adicionar
+frequência ou ficha → chips de turma). Agora tudo junto: **um mesmo passo cria plano E
+matrícula em turmas**, aluno sai pronto — plano vinculado + turmas para treinar.
+
+O bloco novo lista todas as turmas ativas (`_turmasArr()`, mesmo cache do resto do app)
+como chips clicáveis. Multi-seleção guardada num Set local, sem estado global. No submit,
+depois de `criarAluno` + `salvarAlunoPlano`, chama `sbProf.matricular(novoId, [ids])` —
+mesma RPC de "adicionar aluno à turma" que a ficha usa. Best-effort, não desfaz cadastro
+se falhar (mesma política das outras vinculações do wizard).
+
+Vazio ("Nenhuma turma cadastrada") não bloqueia — o professor cadastra depois pela ficha.
+
 ### v582 + supabase.js v98 + migration 0055 — Contrato cria matrícula na mesma transação PG (2026-09-18)
 
 O E do plano: contrato criado sem matrícula do mesmo plano deixava o cron sem gerar

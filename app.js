@@ -8007,7 +8007,7 @@ function renderCadastroAluno(){
   // (ficha do aluno + botão "Graduar"). Menos atrito no cadastro em lote.
   const selFaixa='branca', selGraus=0;
   let step=0;
-  const STEPS=['Dados do aluno','Endereço','Responsável','Plano'];
+  const STEPS=['Dados do aluno','Endereço','Responsável','Plano e turmas'];
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
     <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
@@ -8074,6 +8074,8 @@ function renderCadastroAluno(){
       <div id="ca-plano-box"><div class="empty-line" style="padding:8px 12px;font-size:12px;color:var(--muted)">Carregando planos…</div></div>
       <label class="flbl" style="margin-top:12px">Valor negociado <span class="ca-opt">(opcional — herda o valor do plano se em branco)</span></label>
       <input class="inp" id="ca-plano-valor" inputmode="decimal" placeholder="R$ 0,00">
+      <div class="cad-sec" style="margin-top:22px">Turmas <span class="ca-opt">(opcional — pode escolher mais de uma)</span></div>
+      <div id="ca-turmas-box"><div class="empty-line" style="padding:8px 12px;font-size:12px;color:var(--muted)">Carregando turmas…</div></div>
     </div>
 
     <div class="cad-nav">
@@ -8151,6 +8153,34 @@ function renderCadastroAluno(){
   if(typeof sbProf!=='undefined' && sbProf.getPlanos && (typeof _finPlanos==='undefined' || !_finPlanos)){
     sbProf.getPlanos().then(r=>{ _finPlanos = r; if(document.getElementById('ca-plano-box')) _pintaPlanos(); }).catch(()=>{ if(document.getElementById('ca-plano-box')) _pintaPlanos(); });
   } else { setTimeout(_pintaPlanos, 0); }
+
+  // v583: chips de turmas no passo 3. Multi-seleção, guardado num Set local.
+  // Reusa _turmasArr() (populado por _loadTurmas — mesmo cache das outras telas).
+  // Aluno "sai pronto": plano + matrícula + turmas na mesma criação.
+  const _caTurmasSel = new Set();
+  const _pintaTurmas = ()=>{
+    const box = document.getElementById('ca-turmas-box'); if(!box) return;
+    if(typeof _loadTurmas==='function') _loadTurmas();
+    const arr = (typeof _turmasArr==='function' ? _turmasArr() : []).filter(t=>!t.arquivada);
+    if(!arr.length){
+      box.innerHTML = '<div class="empty-line" style="padding:8px 12px;font-size:12px;color:var(--muted)">Nenhuma turma cadastrada. Cadastre depois em Turmas ou pela ficha do aluno.</div>';
+      return;
+    }
+    box.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px">'
+      + arr.map(t=>{
+        const sel = _caTurmasSel.has(t.id);
+        return `<button type="button" class="et-chip ${sel?'on':''}" data-turma="${safeAttr(t.id)}" style="padding:8px 14px;font-size:13px">${safeTxt(t.nome)}</button>`;
+      }).join('')
+      + '</div>';
+    box.querySelectorAll('[data-turma]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.dataset.turma;
+        if(_caTurmasSel.has(id)) _caTurmasSel.delete(id); else _caTurmasSel.add(id);
+        btn.classList.toggle('on');
+      };
+    });
+  };
+  setTimeout(_pintaTurmas, 0);
   backBtn.onclick=()=>{ if(step===0) close(); else showStep(step-1); };
   nextBtn.onclick=async()=>{
     if(!validateStep()) return;
@@ -8192,6 +8222,11 @@ function renderCadastroAluno(){
         if(planoIdSel && novoId && sbProf.salvarAlunoPlano){
           try{ await sbProf.salvarAlunoPlano({ user_id:novoId, plano_id:planoIdSel, valor_negociado: planoValorNum }); }
           catch(e){ toast('Aluno criado, mas falhou ao vincular plano: '+(e.message||e)); }
+        }
+        // v583: matrícula em turmas — best-effort igual às outras. Aluno "pronto".
+        if(_caTurmasSel.size && novoId && sbProf.matricular){
+          try{ await sbProf.matricular(novoId, [..._caTurmasSel]); }
+          catch(e){ toast('Aluno criado, mas falhou ao matricular nas turmas: '+(e.message||e)); }
         }
         _profData=null; _profTs=0; _loadProfData();
         back(); _senhaProvisoriaSheet(email, (r&&r.senha_provisoria)||senha); return; }
