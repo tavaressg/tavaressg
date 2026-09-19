@@ -194,18 +194,29 @@ function diaRelativo(iso){
 }
 const plural = (n,s,p)=> `${n} ${Math.abs(n)===1?s:p}`;   // 1 semana · 2 semanas
 const moneyBR = (n) => 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-// v441: preço Pix = preço-cartão − X%. X vem de academies.config.descontoPix (global academia).
-// Retorna 0 se não configurado → _priceHTML mostra só o preço único.
-function _descontoPixPct(){ const n = Number((DB.academyConfig||{}).descontoPix||0); return (isFinite(n) && n>0 && n<=90) ? n : 0; }
-function _precoPix(preco){ const d=_descontoPixPct(); return d ? +(preco*(1-d/100)).toFixed(2) : preco; }
-// Renderiza cartão + pix (verde) quando há desconto; senão só o preço único.
+// v587 (0056): "Dois preços diretos". preco_cartao (obrigatório) + preco_avista (opcional).
+// Sem regra global. Sem cálculo em runtime. `precoAvistaDe(p)` é a fonte única.
+// Se preco_avista == null (não configurado), à vista == cartão (nenhum desconto).
+function precoAvistaDe(p){
+  if(!p) return 0;
+  return p.preco_avista != null ? Number(p.preco_avista) : Number(p.preco_cartao != null ? p.preco_cartao : p.preco || 0);
+}
+function precoCartaoDe(p){
+  if(!p) return 0;
+  return Number(p.preco_cartao != null ? p.preco_cartao : p.preco || 0);
+}
+// Renderiza cartão + à vista quando divergem; senão só o preço único.
 // `size` = 'card' (grid do aluno / sheet) ou 'row' (linha do professor).
-function _priceHTML(preco, size){
-  const d = _descontoPixPct();
-  if(!d) return `<span class="pr-single">${moneyBR(preco)}</span>`;
+function _priceHTML(p, size){
+  // Compat: se receber número (código antigo), monta um "produto" fictício.
+  const prod = (typeof p === 'number') ? { preco_cartao: p } : p;
+  const cartao = precoCartaoDe(prod);
+  const avista = precoAvistaDe(prod);
+  if(avista >= cartao) return `<span class="pr-single">${moneyBR(cartao)}</span>`;
+  const off = Math.round((1 - avista/cartao) * 100);
   const cls = size==='row' ? 'pr-dual pr-row' : 'pr-dual';
-  return `<div class="${cls}"><span class="pr-cartao">${moneyBR(preco)}</span>
-    <span class="pr-pix"><b>${moneyBR(_precoPix(preco))}</b> no Pix <span class="pr-off">−${d}%</span></span></div>`;
+  return `<div class="${cls}"><span class="pr-cartao">${moneyBR(cartao)}</span>
+    <span class="pr-pix"><b>${moneyBR(avista)}</b> à vista <span class="pr-off">−${off}%</span></span></div>`;
 }
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
 
@@ -5154,9 +5165,16 @@ function renderMeusPedidos(){
 function setLojaCat(c){ DB.loja.cat=c; render(); }
 // B6: o badge só conta itens de produtos ainda disponíveis (ativos)
 function carrinhoQtd(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return (p && p.ativo!==false) ? s+i.qtd : s; },0); }
-function carrinhoTotal(){ return DB.loja.carrinho.reduce((s,i)=>{ const p=DB.loja.produtos.find(x=>x.id===i.id); return (p && p.ativo!==false) ? s+p.preco*i.qtd : s; },0); }
-// v444: total efetivo a pagar via Pix (cartão × (1 − desconto)). Igual ao cartão se desconto=0.
-function carrinhoTotalPix(){ return _precoPix(carrinhoTotal()); }
+// v587: dois preços por produto. carrinhoTotal(forma) — 'cartao' soma preco_cartao,
+// 'avista' (pix/dinheiro) soma precoAvistaDe(p). Sem regra global.
+function carrinhoTotal(forma){
+  const usarAvista = forma === 'avista' || forma === 'pix' || forma === 'dinheiro';
+  return DB.loja.carrinho.reduce((s,i)=>{
+    const p=DB.loja.produtos.find(x=>x.id===i.id);
+    if(!p || p.ativo===false) return s;
+    return s + (usarAvista ? precoAvistaDe(p) : precoCartaoDe(p)) * i.qtd;
+  },0);
+}
 
 /* Foto real do produto (loja/ local ou URL do Storage) sobre o fundo emoji — se a
    imagem falhar, o listener global data-fallback remove o <img> e o emoji reaparece.
@@ -5338,8 +5356,8 @@ function abrirProduto(id){
     <div class="sheet-grip"></div>
     <div class="prod-hero${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${p.img?'':safeTxt(p.emoji)}${_prodImgHTML(p)}</div>
     <div class="prod-sheet-name">${safeTxt(p.nome)}</div>
-    <div class="prod-sheet-price">${_priceHTML(p.preco)}</div>
-    ${_descontoPixPct()?`<div class="pr-note">💳 Cartão: pago na academia Yama</div>`:''}
+    <div class="prod-sheet-price">${_priceHTML(p)}</div>
+    ${precoAvistaDe(p) < precoCartaoDe(p) ? `<div class="pr-note">💳 Cartão: pago na academia Yama</div>` : ''}
     <div class="prod-sheet-desc">${safeTxt(p.desc)}</div>
     <div class="flbl" style="margin-top:16px">Tamanho</div>
     <div class="chips tam-chips"></div>
@@ -5441,13 +5459,12 @@ function finalizarCompra(){ _abrirConfirmPix(); }
 // a rastreabilidade do mesmo pedido no extrato do banco.
 function _txidAtual(){ if(!DB._checkoutTxid) DB._checkoutTxid = _pixGerarTxid(); return DB._checkoutTxid; }
 function _registrarPedidoJaPago(){
-  // v444: grava o total EFETIVO pago (Pix, com desconto). O cartão nunca chega aqui —
-  // pagamento presencial na academia é outro fluxo.
-  const total = carrinhoTotalPix();
+  // v587: grava total à vista (pix/dinheiro). Cartão vai por venda presencial.
+  const total = carrinhoTotal('pix');
   const txid = _txidAtual();
   if(DB.sbUser && !DEMO && typeof sbSync!=='undefined' && sbSync.registrarPedido){
     const itens = DB.loja.carrinho.map(i=>{ const p=DB.loja.produtos.find(x=>x.id===i.id);
-      return { produto_id:i.id, nome:p?p.nome:'', tam:i.tam, qtd:i.qtd, preco:p?p.preco:0 }; });
+      return { produto_id:i.id, nome:p?p.nome:'', tam:i.tam, qtd:i.qtd, preco: p ? precoAvistaDe(p) : 0 }; });
     sbSync.registrarPedido(itens, total, txid).then(pedidoId=>{
       if(pedidoId && sbSync.notificarPedidoPago) sbSync.notificarPedidoPago(pedidoId).catch(()=>{});
     }).catch(()=>{});
@@ -5462,10 +5479,10 @@ function _registrarPedidoJaPago(){
    professor colou. Dois botões: copiar (com valor + txid injetados) e "Já paguei"
    (grava pedido + notifica professor por push). Sem WhatsApp, sem Web Share. */
 function _abrirConfirmPix(){
-  // v444: valor da tela e do BR Code já sai com desconto Pix. carrinhoTotal() cartão
-  // aparece só como referência ("de R$ X"), quando há desconto configurado.
-  const totalCartao = carrinhoTotal();
-  const total = carrinhoTotalPix();
+  // v587: valor da tela e do BR Code é o TOTAL À VISTA. cartão aparece como
+  // referência riscada ("de R$ X") quando existe diferença nos produtos.
+  const totalCartao = carrinhoTotal('cartao');
+  const total = carrinhoTotal('pix');
   const brRaw = _lojaPixBrCode();
   const brCom = brRaw ? _pixBrCodeComValorTxid(brRaw, total, _txidAtual()) : '';
   const dados = brRaw ? _pixParseBrCode(brRaw) : null;
@@ -5488,7 +5505,7 @@ function _abrirConfirmPix(){
         <span style="text-align:right">
           ${total<totalCartao?`<span style="color:var(--muted);text-decoration:line-through;font-size:12px;display:block">${moneyBR(totalCartao)}</span>`:''}
           <b style="color:var(--good,#1a9d3f);font-size:17px">${moneyBR(total)}</b>
-          ${total<totalCartao?`<span class="pr-off" style="margin-left:6px">−${_descontoPixPct()}%</span>`:''}
+          ${total<totalCartao?`<span class="pr-off" style="margin-left:6px">−${Math.round((1-total/totalCartao)*100)}%</span>`:''}
         </span></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
@@ -13859,11 +13876,15 @@ function _vendaPresencialSheet(onDone){
   const totalEl = sheet.querySelector('#vp-total');
   const goBtn = sheet.querySelector('#vp-go');
 
-  // v461: total sugerido já aplica desconto Pix pra dinheiro E pix — cartão paga cheio.
-  // Presencial no dinheiro sai igual ao Pix na prática (mesma logística pro caixa), então
-  // o desconto vale. Cartão fica no preço-lista. Total continua editável em qualquer forma.
-  const _bruto = ()=> itens.reduce((s,i)=> s + (i.preco||0)*i.qtd, 0);
-  const totalCalculado = ()=> (forma==='cartao') ? _bruto() : _precoPix(_bruto());
+  // v587: dois preços diretos. Total à vista = soma preco_avista; cartão = soma
+  // preco_cartao. `_bruto` (usado no modo "a prazo", quando forma indefinida)
+  // continua sendo o cartão.
+  const _bruto = ()=> itens.reduce((s,i)=> s + (Number(i.preco_cartao ?? i.preco)||0)*i.qtd, 0);
+  const _totalAvista = ()=> itens.reduce((s,i)=> {
+    const pa = i.preco_avista != null ? Number(i.preco_avista) : Number(i.preco_cartao ?? i.preco ?? 0);
+    return s + pa * i.qtd;
+  }, 0);
+  const totalCalculado = ()=> (forma==='cartao') ? _bruto() : _totalAvista();
   const validar = ()=>{
     const t = totalManual!=null ? totalManual : totalCalculado();
     // A prazo: exige aluno cadastrado + venc; forma_pagamento não é pedida.
@@ -13880,9 +13901,12 @@ function _vendaPresencialSheet(onDone){
     // v461: label mostra "−X%" quando o desconto Pix está sendo aplicado (dinheiro ou pix
     // com config > 0). Cartão sempre paga cheio, sem badge. A prazo: sem badge.
     const lbl = sheet.querySelector('#vp-total-lbl'); if(lbl){
-      const d = _descontoPixPct();
-      const aplicado = !aPrazo && d>0 && forma!=='cartao';
-      lbl.innerHTML = `Total <span style="color:var(--muted);font-weight:500">(editável)</span>${aplicado?` <span class="pr-off">−${d}%</span>`:''}`;
+      // v587: badge derivado da diferença real entre cartão e à vista dos itens.
+      const bruto = _bruto();
+      const avista = _totalAvista();
+      const aplicado = !aPrazo && forma!=='cartao' && avista < bruto && bruto > 0;
+      const pct = aplicado ? Math.round((1 - avista/bruto) * 100) : 0;
+      lbl.innerHTML = `Total <span style="color:var(--muted);font-weight:500">(editável)</span>${aplicado?` <span class="pr-off">−${pct}%</span>`:''}`;
     }
     validar();
   };
@@ -14076,7 +14100,11 @@ function _vendaPickItem(prods, cb){
     qtd++; qtdEl.textContent=qtd; validar();
   };
   goBtn.onclick=()=>{
-    close({ produto_id:selProd.id, nome:selProd.nome, tam:selTam, qtd, preco:selProd.preco });
+    // v587: dois preços diretos. totalCalculado escolhe qual usar por forma.
+    close({ produto_id:selProd.id, nome:selProd.nome, tam:selTam, qtd,
+      preco: precoCartaoDe(selProd),
+      preco_cartao: precoCartaoDe(selProd),
+      preco_avista: precoAvistaDe(selProd) });
   };
   document.body.appendChild(sheet);
   requestAnimationFrame(()=>sheet.classList.add('open'));
@@ -14314,8 +14342,11 @@ function renderProdutoForm(){
   body.innerHTML = `
     <label class="flbl">Nome</label>
     <input class="inp" id="pr-nome" value="${novo?'':safeAttr(p.nome)}" placeholder="Ex: Kimono Yama">
-    <label class="flbl" style="margin-top:12px">Preço (R$)</label>
-    <input class="inp" id="pr-preco" type="number" inputmode="decimal" value="${novo?'':p.preco}" placeholder="0">
+    <label class="flbl" style="margin-top:12px">Preço no cartão (R$)</label>
+    <input class="inp" id="pr-preco-cartao" type="number" inputmode="decimal" step="0.01" value="${novo?'':(p.preco_cartao ?? p.preco ?? '')}" placeholder="0">
+    <label class="flbl" style="margin-top:12px">Preço à vista <span style="color:var(--muted);font-weight:500">(opcional — em branco = igual ao cartão; nunca maior que o cartão)</span></label>
+    <input class="inp" id="pr-preco-avista" type="number" inputmode="decimal" step="0.01" value="${novo?'':(p.preco_avista ?? '')}" placeholder="Ex: 199,90">
+    <div id="pr-preco-preview" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
     <label class="flbl" style="margin-top:12px">Emoji</label>
     <input class="inp" id="pr-emoji" value="${novo?'🥋':safeAttr(p.emoji||'🥋')}" maxlength="2">
     <label class="flbl" style="margin-top:12px">Fotos <span style="color:var(--muted);font-weight:500">(1ª = capa)</span></label>
@@ -14408,21 +14439,45 @@ function renderProdutoForm(){
   // Cliques (+/− estoque, trocar categoria, remover tamanho) não disparam 'input'
   // — este listener garante que essas mudanças também caiam na gaveta.
   body.addEventListener('click', ()=>{ if(dirty) _pfDraft.salvarAgora(); });
+  // v587: preview ao vivo do "de/por" ao lado dos preços.
+  const _pfPrecoRefresh = ()=>{
+    const cInp = body.querySelector('#pr-preco-cartao');
+    const aInp = body.querySelector('#pr-preco-avista');
+    const box  = body.querySelector('#pr-preco-preview');
+    if(!cInp || !aInp || !box) return;
+    const c = parseFloat(String(cInp.value).replace(',','.')) || 0;
+    const aTxt = String(aInp.value).trim();
+    const a = aTxt ? parseFloat(aTxt.replace(',','.')) : null;
+    if(!c){ box.textContent = ''; return; }
+    if(a == null){ box.textContent = `Vitrine: ${moneyBR(c)} (mesmo preço em cartão e à vista)`; return; }
+    if(a > c){ box.textContent = '⚠️ Preço à vista não pode ser maior que o cartão'; box.style.color='var(--red)'; return; }
+    box.style.color = 'var(--muted)';
+    const off = Math.round((1 - a/c) * 100);
+    const econ = c - a;
+    box.textContent = `Vitrine: ${moneyBR(c)} no cartão · ${moneyBR(a)} à vista · economia ${moneyBR(econ)} (−${off}%)`;
+  };
+  body.querySelector('#pr-preco-cartao').addEventListener('input', _pfPrecoRefresh);
+  body.querySelector('#pr-preco-avista').addEventListener('input', _pfPrecoRefresh);
+  setTimeout(_pfPrecoRefresh, 0);
+
   const salvar=()=>{
     const nome=body.querySelector('#pr-nome').value.trim();
-    const preco=parseFloat(body.querySelector('#pr-preco').value)||0;
+    const precoCartao=parseFloat(String(body.querySelector('#pr-preco-cartao').value).replace(',','.'))||0;
+    const avTxt = String(body.querySelector('#pr-preco-avista').value).trim();
+    const precoAvista = avTxt ? parseFloat(avTxt.replace(',','.')) : null;
     const emoji=body.querySelector('#pr-emoji').value.trim()||'🥋';
     if(!nome){ toast('Informe o nome do produto'); return; }
     if(!sizes.length){ toast('Adicione pelo menos um tamanho'); return; }
+    if(precoAvista != null && precoAvista > precoCartao){ toast('Preço à vista não pode ser maior que o cartão'); return; }
     let alvo;
     const img = fotos[0] || null;
     const imgs = fotos.slice(1);
     if(novo){
       const id=Math.max(0,...DB.loja.produtos.map(x=>+x.id||0))+1;
-      alvo={ id, nome, cat:selCat, preco, emoji, cor:'#f0f0f2', desc:'', tam:sizes.slice(), estoque:{...est}, ativo, img, imgs };
+      alvo={ id, nome, cat:selCat, preco:precoCartao, preco_cartao:precoCartao, preco_avista:precoAvista, emoji, cor:'#f0f0f2', desc:'', tam:sizes.slice(), estoque:{...est}, ativo, img, imgs };
       DB.loja.produtos.push(alvo);
     } else {
-      p.nome=nome; p.preco=preco; p.emoji=emoji; p.cat=selCat; p.tam=sizes.slice(); p.estoque={...est}; p.ativo=ativo; p.img=img; p.imgs=imgs; alvo=p;
+      p.nome=nome; p.preco=precoCartao; p.preco_cartao=precoCartao; p.preco_avista=precoAvista; p.emoji=emoji; p.cat=selCat; p.tam=sizes.slice(); p.estoque={...est}; p.ativo=ativo; p.img=img; p.imgs=imgs; alvo=p;
     }
     // A3: persiste no backend quando ligado. Aguardar o retorno é CRÍTICO — senão o adapter
     // trata o id local (numérico) como "produto novo" e faz INSERT a cada salvamento (bug
@@ -16118,32 +16173,12 @@ const _YAMA_ACOES = {
 };
 _dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
 
-// Sheet: só nome + telefone + PIX (Copia e Cola vai em sheet próprio, senha em outro).
-// v443: config exclusiva da Loja (desconto Pix por enquanto). Vive em academies.config,
-// compartilhada por todos os professores. Fora do "Dados da academia" pra não misturar
-// identidade da academia (nome/WhatsApp/PIX) com regras de loja.
-function _lojaConfigSheet(onSave){
-  const cfg = _acadCfg();
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Configurações da loja">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Configurações da loja</div>
-    <div class="sheet-desc">Regras de pagamento e apresentação de preços. Vale pra toda a academia.</div>
-    <label class="flbl" style="margin-top:12px">% desconto no Pix <span style="color:var(--muted);font-weight:500">(0–90, 0 = sem desconto; cartão é pago na academia)</span></label>
-    <input class="inp" id="lc-descpix" type="number" inputmode="numeric" min="0" max="90" step="1" placeholder="Ex: 5" value="${safeAttr(cfg.descontoPix||'')}">
-    <button class="btn-save" id="lc-save" style="margin-top:14px">Salvar</button>
-    <button class="sheet-cancel" id="lc-close">Cancelar</button>
-  </div></div>`);
-  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#lc-close').onclick=close;
-  sheet.querySelector('#lc-save').onclick=()=>{
-    const descN = Math.max(0, Math.min(90, parseInt(sheet.querySelector('#lc-descpix').value)||0));
-    const btn = sheet.querySelector('#lc-save'); btn.disabled=true; btn.textContent='Salvando…';
-    _salvarAcademyConfig({ descontoPix: descN })
-      .then(()=>{ toast('Configurações salvas ✔'); close(); if(onSave) onSave(); else render(); })
-      .catch(e=>{ btn.disabled=false; btn.textContent='Salvar'; toast('Erro: '+(e.message||e)); });
-  };
-  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+// v587 (0056): sheet "Configurações da loja" REMOVIDA. O único ajuste que ela
+// tinha era o % desconto Pix global — o modelo "Dois preços diretos" acabou com
+// essa regra: cada produto define preco_cartao + preco_avista no cadastro.
+// Se algum lugar ainda chamar `_lojaConfigSheet`, mantém um stub que só avisa.
+function _lojaConfigSheet(){
+  toast('Preços agora ficam por produto (Preço + Preço à vista). Edite direto na ficha do produto.');
 }
 function _dadosAcademiaSheet(){
   const cfg = _acadCfg();

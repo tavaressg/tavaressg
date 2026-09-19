@@ -1360,10 +1360,18 @@
     // Cria/edita um produto + suas variantes (estoque por tamanho). p no shape do app.
     salvarProduto: wrap(async (p) => {
       const acad = await myAcademyId();
-      const row = { academy_id: acad, nome: p.nome, categoria: p.cat, preco: p.preco,
+      // v587 (0056): preco_cartao (obrigatorio) + preco_avista (opcional, <= cartao).
+      // Aceita `preco` como sinonimo pra callers antigos durante 1 versao.
+      const precoCartao = p.preco_cartao != null ? Number(p.preco_cartao) : Number(p.preco);
+      const precoAvista = p.preco_avista == null || p.preco_avista === '' ? null : Number(p.preco_avista);
+      if (precoAvista != null && precoAvista > precoCartao) {
+        throw new Error('Preço à vista não pode ser maior que o preço no cartão');
+      }
+      const row = { academy_id: acad, nome: p.nome, categoria: p.cat,
+        preco_cartao: precoCartao, preco_avista: precoAvista,
         emoji: p.emoji, cor: p.cor, descricao: p.desc, ativo: p.ativo !== false,
-        img_url: p.img || null,      // 0003: foto principal
-        img_urls: p.imgs || [] };    // 0004: fotos extras (galeria/carrossel)
+        img_url: p.img || null,
+        img_urls: p.imgs || [] };
       let prodId = (typeof p.id === 'string' && p.id.length >= 32) ? p.id : null;  // uuid = editar; senão criar
       if (prodId) {
         const { error: eU } = await SB.from('produtos').update(row).eq('id', prodId); if (eU) throw eU;
@@ -1980,10 +1988,16 @@
   function _produtoToApp(p, variantes) {
     const tam = [], estoque = {};
     (variantes || []).forEach(v => { tam.push(v.tamanho); estoque[v.tamanho] = v.estoque; });
-    return { id: p.id, nome: p.nome, cat: p.categoria, preco: Number(p.preco), emoji: p.emoji,
-      cor: p.cor, desc: p.descricao,
-      img: p.img_url || null,                                                       // foto principal (compat)
-      imgs: Array.isArray(p.img_urls) ? p.img_urls.filter(Boolean) : [],           // extras (0004)
+    // v587 (0056): dois precos diretos. `preco` mantido como alias de preco_cartao
+    // pra callers antigos (relatorios, exports) — sera removido depois que a
+    // varredura completa confirmar zero uso.
+    const precoCartao = Number(p.preco_cartao);
+    const precoAvista = p.preco_avista == null ? null : Number(p.preco_avista);
+    return { id: p.id, nome: p.nome, cat: p.categoria,
+      preco: precoCartao, preco_cartao: precoCartao, preco_avista: precoAvista,
+      emoji: p.emoji, cor: p.cor, desc: p.descricao,
+      img: p.img_url || null,
+      imgs: Array.isArray(p.img_urls) ? p.img_urls.filter(Boolean) : [],
       tam, estoque, ativo: p.ativo !== false };
   }
 

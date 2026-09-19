@@ -9,6 +9,57 @@
 
 ## Concluídas ✓
 
+### v587 + supabase.js v99 + migration 0056 — Loja com "Dois preços diretos"; sai o descontoPix global (2026-09-19)
+
+Refatoração completa do modelo de preço da Loja. Sai a regra global `descontoPix`
+(0-90% pra academia inteira), entra **dois preços por produto**:
+
+- `produtos.preco_cartao` (obrigatório) — o "preço cheio"
+- `produtos.preco_avista` (opcional) — se preenchido, é o valor exato pago em
+  pix/dinheiro; null = igual ao cartão (sem desconto)
+
+Check constraint garante `preco_avista <= preco_cartao` no banco (surcharge pra pix
+não é permitido). O check já detecta erro se algum cliente antigo tentar mandar
+inválido — cliente também valida antes de submeter, com toast amigável.
+
+**Migration 0056** — 1 transação: drop da coluna dormente `desconto_pct` da
+minha bobeada anterior, rename `preco → preco_cartao`, adição de `preco_avista` com
+check, remoção de `academies.config.descontoPix` via `config = config - 'descontoPix'`.
+Aplicada em prod 2026-09-19. Como `descontoPix` estava em 0 e nenhum produto tinha
+`preco_avista`, migração dos dados é trivial (todos ficam com `preco_avista=null`,
+comportamento idêntico ao anterior).
+
+**supabase.js v99** — `_produtoToApp` devolve `preco_cartao` + `preco_avista` (mantém
+`preco` como alias durante 1 versão); `salvarProduto` aceita os dois e valida
+`preco_avista <= preco_cartao` antes do INSERT.
+
+**app.js v587** — 3 helpers substituem 3 funções antigas:
+- `precoAvistaDe(p)` (novo) — fonte única. `p.preco_avista ?? p.preco_cartao`.
+- `precoCartaoDe(p)` (novo) — `p.preco_cartao ?? p.preco`.
+- `_priceHTML(p, size)` (reescrito) — recebe produto (não número). Mostra dual
+  quando avista < cartao, single quando iguais.
+
+Removido:
+- `_descontoPixPct()`, `_precoPix(preco)`, `carrinhoTotalPix()`
+- Campo "% desconto no Pix" do sheet "Configurações da loja"; a função virou stub
+  com toast informativo redirecionando pra o cadastro do produto
+
+Alterado:
+- `carrinhoTotal(forma)` — recebe 'cartao'/'pix'/'dinheiro'/'avista'
+- `_registrarPedidoJaPago` — soma preços à vista dos itens
+- `_abrirConfirmPix` — badge `−X%` calculado da diferença real dos itens
+- `_vendaPresencialSheet` — total muda por forma; badge dinâmico
+- `_vendaPickItem` — item guarda `preco_cartao` + `preco_avista` do produto
+- `renderProdutoForm` — dois campos com preview ao vivo:
+  "Vitrine: R$ 210 no cartão · R$ 199,90 à vista · economia R$ 10,10 (−4%)"
+
+**Guard novo** `tests/loja-precos.spec.mjs` (entrada `test:precos`): CI vermelho se
+`_descontoPixPct`, `_precoPix`, `carrinhoTotalPix` ou `descontoPix` reaparecer em
+código executável de `app.js`/`supabase.js`. Também garante que `precoAvistaDe` e
+`precoCartaoDe` seguem definidas. 11 guards no total agora.
+
+Reajuste em lote (Fase 2) NÃO entra — dono decidiu não implementar por enquanto.
+
 ### v586 — Regra ERP também no WhatsApp: `_waNome` deixa de cair em apelido (2026-09-19)
 
 Complemento da v585. O placeholder `{nome}` dos templates de WhatsApp usava
