@@ -9,6 +9,27 @@
 
 ## Concluídas ✓
 
+### v585 — Regra ERP: professor nunca vê apelido (2026-09-19)
+
+Decisão do dono: academia de jiu-jitsu não é rede social. Apelido é dado do aluno pra
+personalizar a experiência dele consigo mesmo, não formato de identificação na gestão.
+Professor/dono sempre vê **nome completo** (ou "— sem nome —" quando ficha vazia, pra
+forçar correção).
+
+**`_nomeInst(a)`** ([app.js:9390](../../app.js#L9390)) ganha guard por role: fora do
+role 'aluno', nunca cai no fallback `a.nm` — só nome completo ou "— sem nome —". Um
+único ponto cobre 38 usos espalhados.
+
+**4 lugares** onde o código ainda buscava apelido antes de nome completo foram
+corrigidos (`nome_completo || apelido`, não o contrário):
+- Card de inadimplentes do painel do professor
+- Sheet de edição de cobrança
+- Fila do histórico de reajustes (`getPlanoHistorico`)
+- Título do sheet de contrato (status)
+
+**Ficha continua tendo campo "Apelido"** — é dado válido, o aluno pode preencher pra
+customizar como aparece pra si mesmo. Só não vaza pra visão do professor.
+
 ### v584 — Wizard de aluno auto-gera contrato quando plano exige (2026-09-18)
 
 Buraco descoberto: no v583 o wizard vinculava plano via `salvarAlunoPlano`, mas se o

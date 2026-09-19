@@ -6148,7 +6148,7 @@ function _painelPintarFin(alvo){
     vencs.forEach(c=>{
       const p = c.profiles || {};
       const id = p.id || c.user_id;
-      if(!inadByAluno[id]) inadByAluno[id] = { nome: p.apelido || p.nome_completo || 'aluno', total: 0 };
+      if(!inadByAluno[id]) inadByAluno[id] = { nome: p.nome_completo || p.apelido || 'aluno', total: 0 };
       inadByAluno[id].total += (Number(c.valor)||0);
     });
     const inadArr = Object.values(inadByAluno).sort((a,b)=>b.total-a.total);
@@ -9389,7 +9389,13 @@ const _nome2 = s => String(s||'').trim().split(/\s+/).slice(0,2).join(' ');
    (o dono da conta se vê pelo apelido). Fallback: nomeCompleto → nm → '—'. */
 function _nomeInst(a){
   if(!a) return '—';
-  return (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nm || '—';
+  // v585: regra ERP de academia — professor/dono NUNCA vê apelido. Sempre nome
+  // completo. O `a.nm` (apelido) só entra no fallback pro próprio aluno, na
+  // experiência dele consigo mesmo. Se um aluno não tem nome completo cadastrado,
+  // o professor vê "Sem nome" e vai corrigir na ficha em vez de conviver com apelido.
+  const completo = (a.cad && a.cad.nomeCompleto) || a.nomeCompleto || a.nome_completo || '';
+  if(DB.role !== 'aluno') return completo || '— sem nome —';
+  return completo || a.nm || '—';
 }
 function _waNome(a){
   const c=a.cad||{}; const r=c.responsavel||{};
@@ -12645,7 +12651,8 @@ function _finCategoriaEditSheet(c, onDone){
 // v509: aceita onDone(patch) callback pra optimistic update no chamador
 function _finCobrancaSheet(c, onDone){
   const p = c.profiles || {};
-  const nome = p.apelido || p.nome_completo || 'aluno';
+  // v585: regra ERP — nome completo primeiro.
+  const nome = p.nome_completo || p.apelido || 'aluno';
   const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)+'/'+c.venc.slice(0,4)) : '—';
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Cobrança de ${safeAttr(nome)}">
     <div class="sheet-grip"></div>
@@ -13031,7 +13038,7 @@ function _finPlanoHistoricoSheet(p){
     rows.forEach(r=>{
       const dt = new Date(r.alterado_em);
       const dtTxt = dt.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-      const pQuem = r.profiles && (r.profiles.apelido || r.profiles.nome_completo);
+      const pQuem = r.profiles && (r.profiles.nome_completo || r.profiles.apelido);   // v585: nome completo primeiro
       const va = Number(r.valor_anterior||0), vn = Number(r.valor_novo||0);
       const delta = vn - va;
       const pct = va > 0 ? Math.round((delta/va)*100) : null;
@@ -13312,7 +13319,8 @@ function _finContratoSheet(c, onDone){
   // v580: `<datalist>` substituído pelo `_alunoPicker`. Estado do escolhido em closure.
   let ctAluno = null;
   const p = c.profiles || {};
-  const nome = p.apelido || p.nome_completo || '—';
+  // v585: regra ERP — nome completo primeiro.
+  const nome = p.nome_completo || p.apelido || '—';
 
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Contrato">
     <div class="sheet-grip"></div>
