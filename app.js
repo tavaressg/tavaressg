@@ -9401,7 +9401,9 @@ function _waNome(a){
   const c=a.cad||{}; const r=c.responsavel||{};
   const idade=idadeCBJJ(a.nascimento);
   if(idade!=null && idade<18 && r.nome) return _nome2(r.nome);
-  return _nome2(c.nomeCompleto || a.nm);
+  // v586: regra ERP também no WhatsApp. Nunca cai em apelido — se não tem nome
+  // completo, mensagem sai com "aluno" (feio, mas força correção da ficha).
+  return _nome2(c.nomeCompleto || a.nomeCompleto || '') || 'aluno';
 }
 /* Abre wa.me com template pré-pronto e registra o envio (evita mandar 2× na mesma semana). */
 function _waSend(a, tplKey){

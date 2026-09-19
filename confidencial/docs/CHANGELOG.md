@@ -9,6 +9,17 @@
 
 ## Concluídas ✓
 
+### v586 — Regra ERP também no WhatsApp: `_waNome` deixa de cair em apelido (2026-09-19)
+
+Complemento da v585. O placeholder `{nome}` dos templates de WhatsApp usava
+`_nome2(c.nomeCompleto || a.nm)` — se o aluno não tinha nome completo cadastrado, a
+mensagem saía com o apelido ("Oi Rack, sua mensalidade..."). Alinhando com a regra ERP,
+o fallback agora é literal `'aluno'` ("Oi aluno, sua mensalidade..."). Feio de
+propósito — força correção da ficha.
+
+Menor de idade com responsável cadastrado continua usando o primeiro nome do
+responsável (não muda).
+
 ### v585 — Regra ERP: professor nunca vê apelido (2026-09-19)
 
 Decisão do dono: academia de jiu-jitsu não é rede social. Apelido é dado do aluno pra
