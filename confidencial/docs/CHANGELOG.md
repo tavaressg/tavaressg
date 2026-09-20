@@ -9,6 +9,207 @@
 
 ## Concluídas ✓
 
+### v604 — "Trabalhando em" com ordem estável (2026-09-20)
+
+Dono reportou que os chips reordenavam ~2s após abrir o app (mesma família
+do bug 79/40). Causa: `pullTecnicas` faz `.order('familia')` no servidor e
+substitui `DB.tecnicas`; antes do pull o array vem do dump em ordem histórica,
+depois vira ordem por família. `focoTecnicas()` só filtra sem ordenar → chip
+map reflete a mudança.
+
+Fix local: `focosHome = focoTecnicas().slice().sort(localeCompare pt-BR)` —
+alfabético estável no ponto de exibição da Home. Não mexo em `focoTecnicas()`
+global pra não afetar Renshū/análise, onde a ordem pode ter outro peso.
+
+Validação: `selfTest 176/176 OK`.
+
+### v603 + app.css v257 — Loja Yama shelf: um só CTA (2026-09-20)
+
+Título "🛍️ Loja Yama ›" e "ver tudo ›" faziam a mesma coisa (`abrirLoja`). Somando
+os cards clicáveis (que abrem produto), o shelf tinha 3 alvos com 2 destinos
+diferentes. Padrão de shelf iOS/Material: **título = rótulo, link = ação, card =
+detalhe**. Removido o `data-click`, `role="button"`, `tabindex`, `aria-label` e
+o arrow (`ld-t-arrow` com animação de nudge) do título — vira label. "Ver tudo"
+fica com a ação, cards continuam abrindo produto direto.
+
+CSS: `.ld-t` sem `cursor:pointer`/`:hover`; `.ld-t-arrow` + `@keyframes ld-nudge`
+removidos (estilo morto).
+
+### v602 — Vitrine da Loja: encontrada a causa raiz que ninguém tinha visto (2026-09-20)
+
+O dono relatou que a vitrine "sempre volta a ficar estática, cada correção
+estraga de novo". Diagnóstico ao vivo no browser: **`ticker.scrollLeft += 0.4`
+NÃO movia 1 pixel** — provado no console: `setar scrollLeft = 0.4` retorna
+`0` na leitura, o browser trunca fracionário. Cada frame o loop lia 0, somava
+0.4, escrevia 0.4, browser truncava pra 0. Loop rodou "certinho" (rAF ativo,
+`_ldHeld=false`, ticker no DOM) mas o pixel nunca cruzava a linha inteira.
+
+Bug herdado da v449, sobreviveu a v450, v459, v554, v597 — todas as
+"correções" mexeram no loop, no pause/hold, no drag, e nenhuma tocou na
+matemática. Foi por isso que "algo estraga de novo": nada tinha sido
+consertado — o botão de reset era placebo, o pixel simplesmente não andava.
+
+Fix: acumulador em ponto flutuante local à função. `acc += 0.4` por frame,
+aplica `Math.floor(acc)` no scrollLeft quando cruza 1px, subtrai o inteiro
+consumido. Preserva o ritmo alvo (~24 px/s) sem depender de subpixel scroll.
+`_ldHeld` (drag desktop v597) e `!isConnected` (repaint) continuam iguais.
+
+Validação: probe no browser confirmou movimento após o fix; `selfTest 176/176 OK`.
+
+### v601 + app.css v256 — Date field custom: teclado + sheet estilizado (2026-09-20)
+
+Reescrita da v599. O pill-only da v599 tirou o teclado (usuário perdeu "digitar
+a data") e ainda deixava o calendário nativo do browser aparecendo (visual feio
+denunciado pelo dono).
+
+Agora cada `<input type="date">` vira 3 coisas dentro de `.dp-wrap`:
+
+1. **Input de texto** com máscara `dd/mm/aaaa` — usuário digita normalmente,
+   `inputmode="numeric"` traz o teclado numérico no mobile.
+2. **Botão de calendário** — abre um sheet estilizado do app (fundo card,
+   accent vermelho, dia atual destacado, prev/próximo mês, botões Limpar/Hoje/Confirmar).
+3. **Input date original** (hidden) — sincronizado bidirecional, preserva o
+   contrato `.value` ISO (YYYY-MM-DD) que todo consumidor do app usa.
+
+Máscara/parse/sanitize (`_dpMask` · `_dpBRtoISO` · `_dpISOtoBR`) são helpers puros
+com regex — data inválida (dd/mm/aaaa incompleto ou fora de range) marca o campo
+como `.dp-invalid` no blur e o hidden fica vazio (não dispara evento de valor errado).
+
+Sheet: sem dependência externa; grid 7x com `aspect-ratio:1`, navegação de mês,
+respeita `HOJE_ISO` global pra "hoje" e destaque.
+
+Opt-out por `data-dp="off"` continua valendo. Validação: `selfTest 176/176 OK`.
+
+### v600 + supabase.js v101 — Barra 79/40 ainda piscando: fix real (2026-09-20)
+
+Bug reincidente da v596: o skeleton NÃO aparecia. Causa: o guard era
+`!DB.academyConfig && !(me.aulasGrau && me.aulasGrau.meta) && !cfgFaixa` —
+o dump legado de muitos alunos tem `me.aulasGrau.meta=40` gravado (do onboarding
+antigo), que satisfaz o meio da conjunção → `metaPendente=false` → renderiza
+79/40 até `pullAll` chegar ~2s depois.
+
+Fix duplo:
+1. `aulasStats()`: gatilho agora é só `DB.academyConfig == null && !DEMO && !TESTMODE`.
+   Meta local do dump ignorada porque o servidor pode sobrescrevê-la — 200ms de
+   skeleton é honesto, 2s de valor errado não é.
+2. `supabase.js:pullAll` (v101): garante `d.academyConfig = d.academyConfig || {}`
+   ao final do bloco de academia. Cobre sem-academy_id, `acad=null` e catch —
+   sentinela `null → {}` destrava o skeleton mesmo quando pullAll não achou config.
+
+Validação: selfTest 176/176 OK.
+
+### v599 + app.css v255 — Pill custom pra `<input type=date>` (2026-09-20)
+
+Substitui a caixa cinza feia do browser por um botão-pill formatado em pt-BR
+("20 set 2026") mantendo o **picker nativo** por trás. No desktop reusa o
+calendário do browser (agora com `accent-color: var(--red)` — seleção
+vermelha, casa com a marca). No mobile abre o wheel do iOS/Android nativo
+(melhor que qualquer picker custom em touch).
+
+Como: cada `<input type="date">` é envolvido num `<span.dp-wrap>` com um
+`<button.dp-btn>` visível + o input transparente por cima (`opacity:0`,
+`inset:0`). Click no botão → `input.showPicker()` (fallback `focus()`).
+`MutationObserver` em `document.body` cobre sheets/modais montados
+dinamicamente — nenhum call-site precisou mudar. Opt-out: `data-dp="off"`.
+
+Compat: `showPicker` Chrome/Edge 99+, Safari 16+, Firefox 101+. Fallback
+`focus()` cobre versões antigas.
+
+### v598 + app.css v254 — FAB "cadastrar aluno": + centralizado (2026-09-20)
+
+O botão usava `＋` (U+FF0B fullwidth plus), que em Montserrat/system fonts
+tem baseline offset — o glifo sentava mais alto e à direita do círculo, sem
+jeito de centralizar via flex. Trocado por `+` ASCII com `line-height:1`,
+`padding:0`, `font-weight:400` (o 800 anterior deixava o + gordo demais
+pro tamanho aumentado), `font-family: system-ui` (fallback pra family com
+glifo bem centrado) e `font-size:32px` pra manter o peso visual do original.
+
+### v597 + app.css v253 — Vitrine da Loja: click-and-drag no desktop (2026-09-20)
+
+A vitrine `#ld-ticker` já auto-scrolla via rAF em `scrollLeft` (v449) e o
+toque no mobile já arrasta pelo native scroll do `overflow-x:auto`. Faltava
+só o desktop: mouse sem scrollbar não arrasta nada.
+
+Adicionado no `_lojaTickerInstall` (delegação em `document`): pointer com
+`pointerType==='mouse'` vira drag-to-scroll (`pointermove` → `scrollLeft`),
+`_ldHeld` já existente pausa o auto-scroll durante o gesto e retoma ao
+soltar. Se o arrasto passou de 4px, o `click` sintético do `pointerup` é
+suprimido (senão o soltar em cima de um card abria o produto por engano).
+Toque no mobile mantém o momentum nativo — só filtramos mouse.
+
+CSS: `cursor:grab`/`grabbing` + `user-select:none` no `.ld-ticker` pra
+sinalizar visualmente que é arrastável e não selecionar texto durante o drag.
+
+### v596 — Barra de progresso: fim do flash "100% cheio" no boot (2026-09-20)
+
+Bug reportado pelo dono: ao abrir o app, `.prog-mini` (Início) pintava com
+meta default 40 antes do `pullAll` trazer `academyConfig.metaAulas[faixa]`
+(=130 na azul). Aluno com 59+ aulas via a barra 100% cheia por ~1s até o
+servidor responder e a barra "recuar" pra 79/130 (61%).
+
+Causa: `pullState` (dump) roda antes do 1º render; `pullAll` (que traz
+`academyConfig`) roda depois. Sem sinal de "meta ainda vem", o fallback 40
+pintava valor errado.
+
+Fix: `aulasStats()` agora devolve `metaPendente=true` quando `DB.academyConfig`
+ainda é undefined e não há meta local. O render do `.prog-mini` mostra skeleton
+(`.skel`) no número e no rodapé, barra a 0% — quando `pullAll` termina, o
+`renderBg` já existente pinta o valor real. Transição vira "skeleton → correto"
+em vez de "errado → correto".
+
+### v595 — Loja: cache de nó DOM removido de vez (2026-09-20)
+
+Upgrade da v594 (que só clonava). O `_prodImgCache` (Map url→HTMLImageElement)
+era estruturalmente frágil: nó DOM único como valor cacheado convida a bug de
+"nó em múltiplos pais", vazava produtos removidos, e acoplava a Loja ao listener
+global do `data-fallback`. Trocado por `_prodImgOK: Set<string>` — só a URL
+provada boa fica em memória, cada render cria `<img>` novo (o cache HTTP/imagem
+do browser evita flash), URL já provada dispensa `data-fallback` (sem reintento
+inútil), URL 404 vira decisão de dados na 1ª tentativa e nunca mais tenta.
+Ganho extra: `loading="lazy"` — cards fora do viewport nem entram na fila HTTP.
+
+### v594 — Loja: foto embaralhada ao trocar filtro (2026-09-20)
+
+Bug reportado pelo dono: na Loja Yama, ao filtrar por Uniforme/Vestuário/Acessórios
+as fotos dos cards ficavam trocadas (Bermuda mostrando camiseta, etc). Causa:
+`_prodImgCache` (Map url→HTMLImageElement) devolvia o **próprio nó** do cache. Um
+DOM node só pode existir num lugar — quando dois produtos apontam pra mesma URL
+(upload duplicado, foto reciclada), o 2º `appendChild` MOVE o `<img>` do card
+anterior pro novo. A ordem de pintura muda ao trocar filtro → foto pula.
+
+Fix: `_prodImgNode` devolve `img.cloneNode(true)`. O cache HTTP/imagem do browser
+mantém o mesmo `src` já decodificado → sem flash, sem mover nó.
+
+### v593 + app.css v252 — Sheet "Mais" com ícones da sidebar (2026-09-20)
+
+O sheet "Mais" no mobile do professor usava emoji colorido (🎗️ 💳 🎥 🛍️ ⚙️ 👤)
+enquanto a sidebar desktop usa SVG line-icon monocromático. Padronizado: a
+mesma família (`icoBelt/icoCard/icoVideo/icoStore/icoYama/icoUser`) usada no
+`tabbarProf`, em coluna própria `.mais-ico` 22×22 com `currentColor`.
+
+### v592 — Linha "Configurações da loja" removida (2026-09-20)
+
+O único ajuste dessa sheet (% desconto Pix global) saiu no v587, quando o
+modelo "Dois preços diretos" passou os preços pra ficha de cada produto. A
+linha ficou vestigial, abrindo um stub que só mostrava um toast. Removidos:
+`cfgBtn` em `profLoja` (renderização), `_dlgRegister('lojaConfig', …)` e a
+função `_lojaConfigSheet` inteira. Nenhuma outra referência sobrou.
+
+### app.css v251 — Botão "remover da turma" limpa (2026-09-20)
+
+O `<button class="ses-del">` da lista de alunos matriculados (aba Alunos
+dentro de Turmas) não tinha estilo escopado em `.st-row` — caía no botão
+default do navegador (borda cinza, "✕" com sublinhado). Agora `.st-row .ses-del`
+compartilha o mesmo estilo do `.ses-row .ses-del`: ícone neutro, redondo,
+hover vermelho claro. Alvo de toque 32×32.
+
+### app.css v250 — Strip de turmas do dia centralizada (2026-09-20)
+
+`.erp-classes-strip` (Painel do professor · cards de aulas do dia) ganhou
+`justify-content: safe center`. Com poucos cards, ficam centralizados na
+largura do painel em vez de encostados à esquerda. `safe` evita cortar o
+primeiro card quando os cards estouram e o strip vira scroll horizontal.
+
 ### v591 — Sheet de contrato editar: atalho pra matrícula + cartão do valor (2026-09-20)
 
 Bug reportado: depois de criar contrato, ao abrir pra editar o sheet ficava vazio de

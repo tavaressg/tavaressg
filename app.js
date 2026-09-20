@@ -142,6 +142,7 @@ function _dlgInstall(){
   _dlgInstalled = true;
   _lpInstall();                         // v553: long-press delegado (ver _lpStart)
   _lojaTickerInstall();                 // v554: pausa da vitrine do Perfil
+  _dpInstall();                         // v599: pill custom p/ <input type=date> (picker nativo preservado)
   document.addEventListener('click',  _dlgMake('click',  'data-click'),  false);
   document.addEventListener('change', _dlgMake('change', 'data-change'), false);
   document.addEventListener('input',  _dlgMake('input',  'data-input'),  false);
@@ -2066,6 +2067,13 @@ function aulasStats(){
   // passa a ver a meta correta (ex.: 50 pra azul) sem depender de campo local.
   const cfgFaixa = (DB.academyConfig && DB.academyConfig.metaAulas && DB.academyConfig.metaAulas[me.faixa]) || 0;
   const meta = cfgFaixa || (me.aulasGrau && me.aulasGrau.meta) || 40;
+  // v600: sinaliza "meta ainda nao chegou". academyConfig e' async — antes do pullAll
+  // rodar, DB.academyConfig e' undefined. Gatilho SO' checa isso: se o servidor ainda
+  // nao respondeu, pinta skeleton — nao importa se o dump tem `me.aulasGrau.meta`
+  // legado (=40) que baterceria como fallback errado. Em DEMO/TESTMODE nao esperamos
+  // rede. O guard em supabase.js:pullAll garante que fica `{}` mesmo em erro/sem acad,
+  // entao o skeleton nao trava para sempre.
+  const metaPendente = DB.academyConfig == null && !DEMO && !TESTMODE;
   const base=(me.aulasGrau&&me.aulasGrau.base)||0;
   // v480: restantes = (graus faltando pra virar de faixa) × meta − progresso do grau atual.
   // Antes: hardcoded 160, sem relação com metaAulas nem com quantos graus faltam. Aluno
@@ -2074,7 +2082,7 @@ function aulasStats(){
   // custa `meta` aulas; subtrai `atual` que já foi feito no grau corrente.
   const restantesTotal = (atual)=> Math.max(0, (maxGrausDe(me.faixa) - me.graus + 1) * meta - atual);
   if(DEMO){ const atual=me.aulasGrau.atual||0;
-    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) }; }
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual), metaPendente }; }
   // 0034/0041: com backend, o número vem do SERVIDOR — a MESMA RPC que o painel do
   // professor usa. Fim das duas contagens em JS que divergiam (o aluno via um
   // número na Jornada, o professor via outro na lista). O crédito da 0029 já vem
@@ -2083,7 +2091,7 @@ function aulasStats(){
   const srv = DB._aulasServidor;
   if(srv){
     const atual = srv.grau + base;
-    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) };
+    return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual), metaPendente };
   }
   const dias=_treinoDays();
   const refGrau  = _refDataGrauAtual();
@@ -2098,7 +2106,7 @@ function aulasStats(){
   const creditoGrau = (evGrau && +evGrau.aulas_credito_grau) || 0;
   const noGrau  = creditoGrau  + base + _countSince(dias, refGrau);   // aulas no grau atual
   const atual   = noGrau;
-  return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual) };
+  return { meta, atual, pct:Math.round(atual/meta*100), faltam:Math.max(0,meta-atual), restantes:restantesTotal(atual), metaPendente };
 }
 
 /* v554 — INICIO do aluno. `_pushEstado` guarda a resposta de sbPush.estado()
@@ -2166,13 +2174,15 @@ function alunoInicio(){
   // ---- Faixa / progresso compacto (ACIMA do registrar) — DINÂMICO ----
   const ag = aulasStats();
   const noMaxGrau = me.graus >= maxGrausDe(me.faixa);
+  // v596: metaPendente = academyConfig ainda nao chegou. Skeleton no numero e barra
+  // pra evitar o flash "59/40 100% cheio" antes do servidor responder "meta=130".
   const prog = el(`<div class="prog-mini">
     <div class="pm-top">
       <div class="pm-belt">${beltMini(me.faixa, me.graus)}</div>
-      <span class="pm-num">${ag.atual}/${ag.meta}</span>
+      ${ag.metaPendente ? '<span class="pm-num skel" style="width:64px;height:14px;border-radius:6px;display:inline-block"></span>' : `<span class="pm-num">${ag.atual}/${ag.meta}</span>`}
     </div>
-    <div class="mini-bar"><span style="width:${ag.pct}%"></span></div>
-    <div class="pm-foot">${ag.atual>=ag.meta?aptoMsg(me, noMaxGrau, ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' para '+(noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau')+' →'}</div>
+    <div class="mini-bar"><span style="width:${ag.metaPendente?0:ag.pct}%"></span></div>
+    <div class="pm-foot">${ag.metaPendente ? '<span class="skel" style="width:180px;height:12px;border-radius:6px;display:inline-block"></span>' : (ag.atual>=ag.meta?aptoMsg(me, noMaxGrau, ag.atual-ag.meta):plural(ag.faltam,'aula','aulas')+' para '+(noMaxGrau?'a próxima faixa':'o '+(me.graus+1)+'º grau')+' →')}</div>
   </div>`);
   prog.setAttribute('data-click','irGraduacao');
   w.appendChild(prog);
@@ -2262,7 +2272,12 @@ function alunoInicio(){
 
   // ---- 🎯 Foco atual: o que você está trabalhando agora ----
   // resumo do que estou praticando (espelha o Renshū: estado==='foco')
-  const focosHome = focoTecnicas();
+  // v604: sort alfabetico pt-BR aqui na exibicao. Sem isto, os chips reordenavam
+  // entre o dump (ordem historica) e o pull (pullTecnicas ordena por familia no
+  // servidor) — mesma familia do flash 79/40. Nao mexemos no `focoTecnicas()`
+  // global pra nao afetar Renshu/analise, onde a ordem tem outro peso.
+  const focosHome = focoTecnicas().slice()
+    .sort((a,b)=> String(a.jp||'').localeCompare(String(b.jp||''), 'pt-BR', {sensitivity:'base'}));
   if (focosHome.length){
     const foco = el(`<div class="foco-card">
       <div class="foco-top"><span class="foco-ic">🎯</span>
@@ -4359,14 +4374,27 @@ let _ldTickerOn = false, _ldHeld = false;
 function _lojaTickerStart(){
   if (_ldTickerOn) return;
   _ldTickerOn = true;
+  // v602: BUG antigo (v449 em diante). `ticker.scrollLeft += 0.4` nao movia NADA —
+  // o browser trunca scrollLeft fracionario pra inteiro (setar 0.4 ficava em 0),
+  // entao cada frame lia 0, somava 0.4, escrevia 0.4, browser truncava pra 0.
+  // Loop rodou "certinho" sem mover 1 pixel. Fix: acumulador em ponto flutuante,
+  // aplica no scrollLeft so' quando cruza o pixel inteiro. Ritmo alvo ~24px/s.
+  const PX_POR_FRAME = 0.4;
+  let acc = 0;
   const step = () => {
     const ticker = document.getElementById('ld-ticker');
-    if (!ticker || !ticker.isConnected) { _ldTickerOn = false; return; }   // saiu da tela: encerra
+    if (!ticker || !ticker.isConnected) { _ldTickerOn = false; acc = 0; return; }
     const track = ticker.querySelector('.ld-track');
     if (track && !_ldHeld) {
-      const half = track.scrollWidth / 2;
-      if (ticker.scrollLeft >= half) ticker.scrollLeft -= half;
-      else ticker.scrollLeft += 0.4;
+      acc += PX_POR_FRAME;
+      const px = Math.floor(acc);
+      if (px >= 1) {
+        acc -= px;
+        const half = track.scrollWidth / 2;
+        let next = ticker.scrollLeft + px;
+        if (next >= half) next -= half;   // loop infinito: volta pro comeco (track e' duplicada)
+        ticker.scrollLeft = next;
+      }
     }
     requestAnimationFrame(step);
   };
@@ -4374,9 +4402,188 @@ function _lojaTickerStart(){
 }
 function _lojaTickerInstall(){
   const dentro = (ev) => ev.target && ev.target.closest && ev.target.closest('#ld-ticker');
-  document.addEventListener('pointerdown', (ev) => { if (dentro(ev)) _ldHeld = true; }, { passive:true });
+  // v597: click-and-drag no DESKTOP (mouse). Toque no mobile mantem o scroll nativo
+  // do overflow-x:auto — nao interceptamos pointerType!=='mouse' pra nao competir
+  // com o momentum touch. O rAF do auto-scroll ja pausa via _ldHeld enquanto arrasta.
+  let dragX = 0, dragScroll = 0, dragging = false, ticker = null, moved = 0, suppressClick = false;
+  document.addEventListener('pointerdown', (ev) => {
+    if (!dentro(ev)) return;
+    _ldHeld = true;
+    if (ev.pointerType === 'mouse'){
+      ticker = document.getElementById('ld-ticker'); if(!ticker) return;
+      dragging = true; dragX = ev.clientX; dragScroll = ticker.scrollLeft; moved = 0;
+      ticker.style.cursor = 'grabbing';
+    }
+  }, { passive:true });
+  document.addEventListener('pointermove', (ev) => {
+    if (!dragging || !ticker) return;
+    const dx = ev.clientX - dragX;
+    ticker.scrollLeft = dragScroll - dx;
+    moved = Math.max(moved, Math.abs(dx));
+  }, { passive:true });
+  const soltar = () => {
+    _ldHeld = false;
+    if (dragging){
+      dragging = false;
+      if (ticker){ ticker.style.cursor = 'grab'; ticker = null; }
+      if (moved > 4) suppressClick = true;   // arrastou → mata o click sintetico
+    }
+  };
   ['pointerup','pointercancel','pointerleave'].forEach(t =>
-    document.addEventListener(t, () => { _ldHeld = false; }, { passive:true }));
+    document.addEventListener(t, soltar, { passive:true }));
+  document.addEventListener('click', (ev) => {
+    if (suppressClick && dentro(ev)){ suppressClick = false; ev.stopPropagation(); ev.preventDefault(); }
+    else suppressClick = false;
+  }, true);
+}
+
+/* v601 — date field custom. `<input type=date>` (calendario feio do browser) vira
+   um par: input de TEXTO com mascara dd/mm/aaaa (usuario continua digitando) +
+   botao de calendario que abre um sheet estilizado do app (nao o popup do browser).
+   O input date original fica escondido e sincronizado, preservando o contrato
+   `.value` ISO (YYYY-MM-DD) que todo consumidor do app usa.
+   Opt-out: `<input data-dp="off">`. */
+function _dpMask(v){
+  const d = String(v||'').replace(/\D/g,'').slice(0,8);
+  if(d.length <= 2) return d;
+  if(d.length <= 4) return d.slice(0,2)+'/'+d.slice(2);
+  return d.slice(0,2)+'/'+d.slice(2,4)+'/'+d.slice(4);
+}
+function _dpBRtoISO(br){
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(br||'');
+  if(!m) return '';
+  const y=+m[3], mo=+m[2], d=+m[1];
+  if(mo<1||mo>12||d<1||d>31) return '';
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+function _dpISOtoBR(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+function _dpSetHidden(inp, iso){
+  if(inp.value === iso) return;
+  inp.value = iso;
+  inp.dispatchEvent(new Event('input', {bubbles:true}));
+  inp.dispatchEvent(new Event('change', {bubbles:true}));
+}
+function _dpWrap(inp){
+  if(inp._dpWrapped || inp.dataset.dp === 'off') return;
+  inp._dpWrapped = true;
+  const wrap = document.createElement('span');
+  wrap.className = 'dp-wrap';
+  inp.parentNode.insertBefore(wrap, inp);
+  wrap.appendChild(inp);
+  inp.classList.add('dp-native');   // hidden, mantido como fonte da value ISO
+  const text = document.createElement('input');
+  text.type = 'text';
+  text.className = 'dp-text';
+  text.placeholder = 'dd/mm/aaaa';
+  text.setAttribute('inputmode', 'numeric');
+  text.setAttribute('autocomplete', 'off');
+  text.maxLength = 10;
+  text.value = _dpISOtoBR(inp.value);
+  if(inp.hasAttribute('aria-label')) text.setAttribute('aria-label', inp.getAttribute('aria-label'));
+  if(inp.hasAttribute('required'))   text.setAttribute('required','');
+  const cal = document.createElement('button');
+  cal.type = 'button';
+  cal.className = 'dp-cal-btn';
+  cal.setAttribute('aria-label','Abrir calendário');
+  text.addEventListener('input', ()=>{
+    text.value = _dpMask(text.value);
+    const iso = _dpBRtoISO(text.value);
+    _dpSetHidden(inp, iso);   // vazio se ainda incompleto — nao dispara erro
+  });
+  text.addEventListener('blur', ()=>{
+    if(text.value && !_dpBRtoISO(text.value)) text.classList.add('dp-invalid');
+    else text.classList.remove('dp-invalid');
+  });
+  inp.addEventListener('change', ()=>{
+    const br = _dpISOtoBR(inp.value);
+    if(text.value !== br) text.value = br;
+  });
+  cal.addEventListener('click', ()=>{
+    _dpOpenSheet(inp.value || _dpBRtoISO(text.value), (iso)=>{
+      _dpSetHidden(inp, iso);
+      text.value = _dpISOtoBR(iso);
+      text.classList.remove('dp-invalid');
+    });
+  });
+  wrap.appendChild(text);
+  wrap.appendChild(cal);
+}
+function _dpInstall(){
+  const scan = (root)=>{
+    const nodes = (root && root.querySelectorAll)
+      ? root.querySelectorAll('input[type="date"]:not(.dp-native)') : [];
+    nodes.forEach(_dpWrap);
+  };
+  scan(document.body);
+  new MutationObserver(muts=>{
+    for(const m of muts){
+      for(const n of m.addedNodes){
+        if(n.nodeType !== 1) continue;
+        if(n.matches && n.matches('input[type="date"]')) _dpWrap(n);
+        else scan(n);
+      }
+    }
+  }).observe(document.body, { childList:true, subtree:true });
+}
+const _DP_MESES_LONG = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const _DP_DOW = ['D','S','T','Q','Q','S','S'];
+function _dpOpenSheet(seedISO, done){
+  const today = new Date();
+  const seed = seedISO ? new Date(seedISO+'T12:00:00') : today;
+  let year = seed.getFullYear(), month = seed.getMonth();
+  let selected = seedISO || '';
+  const overlay = el(`<div class="sheet-overlay"><div class="sheet dp-sheet" role="dialog" aria-label="Escolher data">
+    <div class="sheet-grip"></div>
+    <div class="dp-sheet-hd">
+      <button type="button" class="dp-sheet-nav" data-a="prev" aria-label="Mês anterior">‹</button>
+      <div class="dp-sheet-title" aria-live="polite"></div>
+      <button type="button" class="dp-sheet-nav" data-a="next" aria-label="Próximo mês">›</button>
+    </div>
+    <div class="dp-sheet-dow">${_DP_DOW.map(d=>`<span>${d}</span>`).join('')}</div>
+    <div class="dp-sheet-grid"></div>
+    <div class="dp-sheet-actions">
+      <button type="button" class="dp-sheet-btn ghost" data-a="clear">Limpar</button>
+      <button type="button" class="dp-sheet-btn ghost" data-a="today">Hoje</button>
+      <button type="button" class="dp-sheet-btn primary" data-a="confirm">Confirmar</button>
+    </div>
+  </div></div>`);
+  const close = ()=>{ overlay.classList.remove('open'); setTimeout(()=>overlay.remove(),240); };
+  const paint = ()=>{
+    overlay.querySelector('.dp-sheet-title').textContent = `${_DP_MESES_LONG[month]} ${year}`;
+    const grid = overlay.querySelector('.dp-sheet-grid');
+    grid.innerHTML = '';
+    const startDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    for(let i=0; i<startDay; i++){
+      const gap = document.createElement('span');
+      gap.className = 'dp-cell empty';
+      grid.appendChild(gap);
+    }
+    for(let d=1; d<=daysInMonth; d++){
+      const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'dp-cell' + (iso===selected?' sel':'') + (iso===HOJE_ISO?' today':'');
+      cell.textContent = d;
+      cell.setAttribute('aria-label', `${d} de ${_DP_MESES_LONG[month]}`);
+      cell.onclick = ()=>{ selected = iso; paint(); };
+      grid.appendChild(cell);
+    }
+  };
+  overlay.querySelector('[data-a="prev"]').onclick = ()=>{ month--; if(month<0){month=11; year--;} paint(); };
+  overlay.querySelector('[data-a="next"]').onclick = ()=>{ month++; if(month>11){month=0; year++;} paint(); };
+  overlay.querySelector('[data-a="today"]').onclick = ()=>{
+    const t = new Date(); year=t.getFullYear(); month=t.getMonth(); selected=HOJE_ISO; paint();
+  };
+  overlay.querySelector('[data-a="clear"]').onclick = ()=>{ done(''); close(); };
+  overlay.querySelector('[data-a="confirm"]').onclick = ()=>{ done(selected); close(); };
+  overlay.onclick = (e)=>{ if(e.target===overlay) close(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(()=> overlay.classList.add('open'));
+  paint();
 }
 
 function _pushPintar(estado){
@@ -4444,15 +4651,16 @@ function alunoPerfil(){
   // Só aparece quando há produtos reais no catálogo (evita loja-fantasma com mock).
   const _prodsAtivos = (DB.loja?.produtos||[]).filter(p=> p.ativo!==false);
   if(_prodsAtivos.length){
+    // v603: um so' botao de "abrir tudo" — o "ver tudo" na direita. O titulo
+    // volta a ser label (padrao shelf iOS/Material: titulo=rotulo, link=acao,
+    // cards=detalhe). Os produtos em si continuam clicaveis pra ir direto ao item.
     const lojaWrap = el(`<div class="loja-destaque">
-      <div class="ld-head"><span class="ld-t" role="button" tabindex="0" aria-label="Abrir Loja Yama">🛍️ Loja Yama<span class="ld-t-arrow">›</span></span>
-        <a class="ld-link">ver tudo ›</a>
+      <div class="ld-head"><span class="ld-t">🛍️ Loja Yama</span>
+        <a class="ld-link" role="button" tabindex="0" aria-label="Ver todos os produtos da Loja Yama">ver tudo ›</a>
       </div>
       <div class="ld-ticker" aria-label="Vitrine rolante da Loja Yama"><div class="ld-track"></div></div>
     </div>`);
     lojaWrap.querySelector('.ld-link').setAttribute('data-click','abrirLoja');
-    // v442: título "Loja Yama" também abre a loja (não só o "ver tudo").
-    lojaWrap.querySelector('.ld-t').setAttribute('data-click','abrirLoja');
     const track = lojaWrap.querySelector('.ld-track');
     // Ticker: duplica os cards pra loop contínuo (CSS translateX -50%). Pausa no hover/toque.
     // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
@@ -5187,17 +5395,20 @@ function _prodImgHTML(p){
    NÓ <img> já decodificado por URL e MOVÊ-LO para a árvore nova (appendChild move, não recria)
    → a foto pinta na hora, sem piscar. Usado nas listas que re-renderizam (strip do Perfil,
    grade da loja, mini do admin). Sheets one-shot (carrinho/hero) seguem com string. */
-const _prodImgCache = new Map();   // url -> HTMLImageElement reutilizado entre renders
+// v595: URLs comprovadamente carregaveis. Substitui o Map<url,HTMLImageElement>
+// (v594 clonava; v593 e antes movia no e embaralhava fotos ao filtrar). Agora nao
+// se cacheia DOM node — cada render cria <img> novo, e o browser reusa a imagem ja
+// decodificada via cache HTTP. URL ja provada dispensa o data-fallback (evita reintento
+// e desacopla do listener global). URL 404 vira decisao de dados: cai no emoji na
+// primeira tentativa e nunca mais tenta.
+const _prodImgOK = new Set();
 function _prodImgNode(url){
   if(!url) return null;
-  let img = _prodImgCache.get(url);
-  if(!img){
-    img = new Image();
-    img.alt=''; img.decoding='async';
-    img.setAttribute('data-fallback','remove');   // 404 → o listener global remove e o emoji reaparece
-    img.src = url;
-    _prodImgCache.set(url, img);
-  }
+  const img = new Image();
+  img.alt=''; img.decoding='async'; img.loading='lazy';
+  if(!_prodImgOK.has(url)) img.setAttribute('data-fallback','remove');
+  img.addEventListener('load', ()=> _prodImgOK.add(url), { once:true });
+  img.src = url;
   return img;
 }
 function _mountProdImg(container, p){
@@ -7762,7 +7973,7 @@ function profAlunos(){
   }
 
   // FAB só mobile (o "+ Novo" do painel desktop cobre desktop)
-  const fab = el(`<button class="erp-fab" type="button" data-click="cadastrarAluno" aria-label="Cadastrar aluno">＋</button>`);
+  const fab = el(`<button class="erp-fab" type="button" data-click="cadastrarAluno" aria-label="Cadastrar aluno">+</button>`);
 
   _alunosPintarLista(list);   // sincrono: recebe o no' recem-criado
   _alunosPintarHead(head);
@@ -14254,7 +14465,6 @@ _dlgRegister('pedidoCancelar',  (elm) => _pedidoAcao(elm.dataset.id, 'cancelar',
 _dlgRegister('pedidoWhats',     (elm) => _pedidoAcao(elm.dataset.id, 'whats', elm));
 _dlgRegister('irLoja',          () => goProf('loja'));
 _dlgRegister('irPedidos',       () => goProf('pedidos'));
-_dlgRegister('lojaConfig',      () => _lojaConfigSheet());
 _dlgRegister('produtoAbrir',    (elm) => {
   const id = elm.dataset.id;
   abrirProdutoForm(id ? (DB.loja?.produtos||[]).find(x => String(x.id) === String(id)) || null : null);
@@ -14392,11 +14602,6 @@ function profLoja(){
     <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
   pedBtn.setAttribute('data-click','irPedidos');
   w.appendChild(pedBtn);
-  const cfgBtn = el(`<div class="cfg-row" style="margin:0 20px 10px" role="button" tabindex="0">
-    <span>⚙️ Configurações da loja</span>
-    <span style="margin-left:auto;color:var(--muted)">›</span></div>`);
-  cfgBtn.setAttribute('data-click','lojaConfig');
-  w.appendChild(cfgBtn);
   const bar = el(`<div class="loja-actions">
     <button class="btn-cad" id="lj-add">＋ Novo produto</button>
     ${ocultos.length?`<button class="btn-ghost" id="lj-oct">🚫 Ocultos <span class="cnt">${ocultos.length}</span></button>`:''}
@@ -15621,12 +15826,12 @@ function _finAlertsCount(){
 }
 function _profMaisSheet(){
   const linhas = [
-    ['graduacao','🎗️ Graduação','Eventos, retroativa e semear faixas'],
-    ['financeiro','💳 Financeiro','Cobranças, despesas, planos, contratos'],
-    ['videos','🎥 Vídeos','Onboarding — vídeos por turma/faixa'],
-    ['loja','🛍️ Loja','Produtos, estoque, pedidos, PIX'],
-    ['yama','⚙️ Hub YAMA','Dados da academia, mensagens, push, QR'],
-    ['perfil','👤 Meu perfil','Seu diário — o professor também é aluno'],
+    ['graduacao', icoBelt(),  'Graduação',  'Eventos, retroativa e semear faixas'],
+    ['financeiro',icoCard(),  'Financeiro', 'Cobranças, despesas, planos, contratos'],
+    ['videos',    icoVideo(), 'Vídeos',     'Onboarding — vídeos por turma/faixa'],
+    ['loja',      icoStore(), 'Loja',       'Produtos, estoque, pedidos, PIX'],
+    ['yama',      icoYama(),  'Hub YAMA',   'Dados da academia, mensagens, push, QR'],
+    ['perfil',    icoUser(),  'Meu perfil', 'Seu diário — o professor também é aluno'],
   ];
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Mais">
     <div class="sheet-grip"></div>
@@ -15636,8 +15841,9 @@ function _profMaisSheet(){
   </div></div>`);
   const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
   const list = sheet.querySelector('.mais-list');
-  linhas.forEach(([id,lbl,desc])=>{
+  linhas.forEach(([id,ico,lbl,desc])=>{
     const row = el(`<div class="mais-row" role="button" tabindex="0">
+      <div class="mais-ico">${ico}</div>
       <div class="mais-tx"><div class="mais-lbl">${safeTxt(lbl)}</div><div class="mais-desc">${safeTxt(desc)}</div></div>
       <div class="mais-go">›</div></div>`);
     row.onclick=()=>{ close(); goProf(id); };
@@ -16284,13 +16490,6 @@ const _YAMA_ACOES = {
 };
 _dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
 
-// v587 (0056): sheet "Configurações da loja" REMOVIDA. O único ajuste que ela
-// tinha era o % desconto Pix global — o modelo "Dois preços diretos" acabou com
-// essa regra: cada produto define preco_cartao + preco_avista no cadastro.
-// Se algum lugar ainda chamar `_lojaConfigSheet`, mantém um stub que só avisa.
-function _lojaConfigSheet(){
-  toast('Preços agora ficam por produto (Preço + Preço à vista). Edite direto na ficha do produto.');
-}
 function _dadosAcademiaSheet(){
   const cfg = _acadCfg();
   const local = (DB.loja && DB.loja.config) || {};

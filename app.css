@@ -59,6 +59,41 @@ html.kb-open .sheet{padding-bottom:calc(env(safe-area-inset-bottom) + 20px + var
 /* sheet drag-down (handle visual + animação) */
 .sheet{will-change:transform}
 .sheet.dragging{transition:none}
+/* v601: date field custom — input texto mascarado (teclado preservado) + botao
+   de calendario que abre sheet estilizado. Input date original fica escondido
+   como fonte de value ISO pro contrato de formulario. */
+.dp-wrap{position:relative;display:inline-flex;align-items:stretch;background:var(--field);border:1px solid var(--line);border-radius:10px;overflow:hidden;transition:border-color .12s ease}
+.dp-wrap:focus-within{border-color:var(--red)}
+input[type="date"].dp-native{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;padding:0;border:0}
+.dp-text{flex:1;min-width:0;background:transparent;border:0;outline:none;padding:10px 12px;font:inherit;font-size:14px;font-weight:600;color:var(--ink);letter-spacing:.02em}
+.dp-text::placeholder{color:var(--muted);font-weight:500;letter-spacing:normal}
+.dp-text.dp-invalid{color:var(--red)}
+.dp-cal-btn{flex:none;width:40px;background:transparent;border:0;border-left:1px solid var(--line);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .12s ease,color .12s ease}
+.dp-cal-btn::before{content:'';width:18px;height:18px;background:currentColor;-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='5' width='18' height='16' rx='2'/><path d='M8 3v4M16 3v4M3 10h18'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='5' width='18' height='16' rx='2'/><path d='M8 3v4M16 3v4M3 10h18'/></svg>") center/contain no-repeat}
+.dp-cal-btn:hover{background:var(--hover);color:var(--ink)}
+.dp-cal-btn:focus-visible{outline:2px solid var(--red);outline-offset:-2px}
+
+/* Sheet do calendario custom */
+.dp-sheet{max-width:360px}
+.dp-sheet-hd{display:flex;align-items:center;gap:8px;padding:4px 0 12px}
+.dp-sheet-title{flex:1;text-align:center;font-weight:800;font-size:15px;color:var(--ink);text-transform:capitalize}
+.dp-sheet-nav{width:36px;height:36px;border-radius:999px;border:0;background:var(--field);color:var(--ink);font-size:20px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0}
+.dp-sheet-nav:hover{background:var(--hover)}
+.dp-sheet-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:6px}
+.dp-sheet-dow span{text-align:center;font-size:11px;font-weight:800;color:var(--muted);padding:6px 0}
+.dp-sheet-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dp-cell{aspect-ratio:1;border:0;background:transparent;border-radius:10px;font:inherit;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .1s ease,color .1s ease}
+.dp-cell:hover:not(.empty){background:var(--hover)}
+.dp-cell.empty{cursor:default;background:transparent}
+.dp-cell.today{color:var(--red);font-weight:800}
+.dp-cell.sel{background:var(--red);color:#fff}
+.dp-cell.sel.today{color:#fff}
+.dp-sheet-actions{display:flex;gap:8px;margin-top:14px}
+.dp-sheet-btn{flex:1;padding:11px 12px;border-radius:10px;border:0;font:inherit;font-weight:700;font-size:14px;cursor:pointer}
+.dp-sheet-btn.ghost{background:var(--field);color:var(--ink)}
+.dp-sheet-btn.ghost:hover{background:var(--hover)}
+.dp-sheet-btn.primary{background:var(--red);color:#fff}
+.dp-sheet-btn.primary:hover{filter:brightness(.95)}
 /* skeleton loader */
 .skel{background:linear-gradient(90deg,var(--field) 25%,var(--line) 50%,var(--field) 75%);background-size:200% 100%;animation:skel-shimmer 1.4s infinite;border-radius:12px}
 html.reduced-motion .skel{animation:none;background:var(--field)}
@@ -369,8 +404,8 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .ses-row .ses-info:hover{background:var(--hover)}
 .ses-row .ses-edit-hint{opacity:.4;font-size:12px;letter-spacing:0;text-transform:none}
 .ses-row .ses-info:hover .ses-edit-hint{opacity:1;color:var(--red-strong)}
-.ses-row .ses-del{border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer;padding:6px 8px;border-radius:8px}
-.ses-row .ses-del:hover{background:var(--red-tint);color:var(--red-strong)}
+.ses-row .ses-del,.st-row .ses-del{border:none;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:8px;border-radius:999px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:background .12s ease,color .12s ease}
+.ses-row .ses-del:hover,.st-row .ses-del:hover,.ses-row .ses-del:focus-visible,.st-row .ses-del:focus-visible{background:var(--red-tint);color:var(--red-strong);outline:none}
 
 /* Bandeira EUA — SVG inline (não depende de font emoji do sistema/Windows) */
 .ico-us{width:14px;height:14px;display:inline-block;vertical-align:-2px;flex:none}
@@ -742,11 +777,7 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 /* ---------- Destaque da Loja no Perfil ---------- */
 .loja-destaque{margin:8px 0 6px}
 .ld-head{display:flex;align-items:center;justify-content:space-between;padding:0 20px;margin-bottom:11px}
-.ld-t{font-size:13.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:4px;user-select:none}
-.ld-t:hover{color:var(--red)}
-.ld-t-arrow{display:inline-block;font-weight:900;color:var(--red);animation:ld-nudge 1.8s ease-in-out infinite}
-@keyframes ld-nudge{0%,60%,100%{transform:translateX(0)}70%{transform:translateX(4px)}85%{transform:translateX(0)}}
-@media (prefers-reduced-motion: reduce){.ld-t-arrow{animation:none}}
+.ld-t{font-size:13.5px;font-weight:800;color:var(--ink);display:inline-flex;align-items:center;gap:4px;user-select:none}
 .ld-link{font-size:12.5px;font-weight:800;color:var(--red-strong);cursor:pointer}
 .ld-strip{display:flex;gap:11px;overflow-x:auto;scrollbar-width:none;padding:2px 20px 4px}
 .ld-strip::-webkit-scrollbar{display:none}
@@ -1973,7 +2004,8 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .ld-img.has-img .ld-emoji{display:none}
 
 /* ---- Loja Yama · ticker rolante contínuo (aba Mais) ---- */
-.ld-ticker{overflow-x:auto;overflow-y:hidden;position:relative;margin:6px -12px 0;padding:4px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.ld-ticker{overflow-x:auto;overflow-y:hidden;position:relative;margin:6px -12px 0;padding:4px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);cursor:grab;user-select:none;-webkit-user-select:none}
+.ld-ticker:active{cursor:grabbing}
 .ld-ticker::-webkit-scrollbar{display:none}
 .ld-ticker::-webkit-scrollbar{display:none}
 .ld-track{display:flex;gap:12px;width:max-content;padding:0 12px}
@@ -2002,6 +2034,8 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .mais-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px}
 .mais-row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--field);border-radius:12px;cursor:pointer}
 .mais-row:active{background:var(--hover)}
+.mais-ico{flex:none;width:22px;height:22px;color:var(--ink);display:inline-flex;align-items:center;justify-content:center}
+.mais-ico svg{width:22px;height:22px;stroke:currentColor}
 .mais-tx{flex:1;min-width:0}
 .mais-lbl{font-weight:800;color:var(--ink);font-size:14px}
 .mais-desc{font-size:12px;color:var(--muted);margin-top:2px}
@@ -2275,7 +2309,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-adv-panel{padding:10px 20px 0}
 .erp-adv-lbl{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
 /* FAB (mobile) */
-.erp-fab{position:fixed;right:20px;bottom:80px;width:56px;height:56px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:26px;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.15);cursor:pointer;z-index:50;display:none}
+.erp-fab{position:fixed;right:20px;bottom:80px;width:56px;height:56px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:32px;font-weight:400;line-height:1;padding:0;box-shadow:0 4px 12px rgba(0,0,0,.15);cursor:pointer;z-index:50;display:none;font-family:system-ui,-apple-system,sans-serif}
 @media (max-width:800px){ .erp-fab{display:flex;align-items:center;justify-content:center} }
 
 /* Painel Kanri-style — só DESKTOP (>=800px). Barra de ações sempre visível,
@@ -2322,7 +2356,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-daycell.on .erp-daynum,.erp-daycell.on .erp-daylbl{color:#fff}
 
 /* Turmas do dia (horizontal scroll de cards) */
-.erp-classes-strip{display:flex;gap:8px;padding:8px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.erp-classes-strip{display:flex;gap:8px;padding:8px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;justify-content:safe center}
 .erp-classes-strip::-webkit-scrollbar{display:none}
 .erp-class-card{flex:none;min-width:150px;background:#fff;color:var(--ink);border:1px solid var(--line);border-left:6px solid var(--tc,#334155);border-radius:12px;padding:12px 14px 12px 14px;text-align:left;cursor:pointer;font-family:inherit;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;box-shadow:0 1px 2px rgba(0,0,0,.04)}
 .erp-class-card:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.06);border-color:var(--tc,#334155)}

@@ -412,6 +412,10 @@
             }
           } catch (_) {}
         }
+        // v600: sentinela "pullAll respondeu". aulasStats() usa `DB.academyConfig == null`
+        // como flag de "cfg ainda nao chegou" p/ pintar skeleton. Se nao acharmos config
+        // (sem academy_id, acad null, erro), marcamos {} pra o skeleton nao travar.
+        if (d.academyConfig == null) d.academyConfig = {};
         // Turma real da matrícula (enroll_read deixa o próprio aluno ler a sua).
         // Sem isso o Perfil mostrava o mock 'Adulto · Gi · 19h30' pra todo mundo.
         try {
