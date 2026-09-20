@@ -13330,6 +13330,72 @@ function _finCategoriaInlineSheet(tipo, onCreated){
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
 }
 
+// v588 (Rota C): sheet de sucesso pós-criação de contrato. Substitui o toast
+// anterior. Objetivo: dar um atalho pra ajustar trava/isento/motivo/obs na
+// matrícula (5% dos casos) sem obrigar o professor a ir até Financeiro →
+// Matrículas achar o aluno de novo. Também permite anexar PDF direto se ele
+// só apareceu depois de criar o contrato. Se ele quiser fluxo antigo, "Fechar".
+function _finContratoCriadoSheet(res, aluno, planoObj, pdfJaAnexado){
+  const numTxt = '#'+String(res.numero||0).padStart(3,'0');
+  const matr = !!res.matricula_criada;
+  const nomeAluno = aluno ? _nomeInst(aluno) : '—';
+  const nomePlano = (planoObj && planoObj.nome) || '';
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Contrato criado">
+    <div class="sheet-grip"></div>
+    <div style="text-align:center;font-size:36px;line-height:1;margin-top:4px">✅</div>
+    <div class="sheet-title" style="margin-top:8px">Contrato ${numTxt}${matr?' + matrícula':''} criados</div>
+    <div class="sheet-desc" style="text-align:center">
+      <b>${safeTxt(nomeAluno)}</b>${nomePlano?' · '+safeTxt(nomePlano):''}<br>
+      <small>Pronto pra usar. Precisa ajustar algo específico?</small>
+    </div>
+    <button class="btn-cad" data-click="ctCriadoAjustar" data-uid="${safeAttr(aluno?aluno.id:'')}"
+      style="width:100%;margin-top:14px;text-align:left;padding:14px 16px">
+      <div style="font-weight:700;font-size:13.5px">⚙️ Ajustar matrícula</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:500">Trava de reajuste, isenção, motivo, observação…</div>
+    </button>
+    ${pdfJaAnexado ? '' : `<button class="btn-cad ghost" data-click="ctCriadoPdf" data-cid="${safeAttr(res.id)}"
+      style="width:100%;margin-top:8px;text-align:left;padding:14px 16px">
+      <div style="font-weight:700;font-size:13.5px">📄 Anexar PDF assinado</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:500">Se o contrato já foi assinado, sobe agora sem sair.</div>
+    </button>`}
+    <button class="sheet-cancel" id="ctc-close" style="margin-top:12px" data-autofocus>Fechar</button>
+  </div></div>`);
+  const close=()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#ctc-close').onclick=close;
+  sheet.onclick=(e)=>{ if(e.target===sheet) close(); };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  // Fecha depois que o professor clica em qualquer CTA (handlers abaixo já abrem
+  // outra sheet ou file picker — não deixamos esta sobreposta).
+  sheet.querySelectorAll('[data-click]').forEach(btn=>{
+    btn.addEventListener('click', () => setTimeout(close, 50), { once: true });
+  });
+}
+
+_dlgRegister('ctCriadoAjustar', (el) => {
+  const uid = el.dataset.uid;
+  const aluno = _profAlunosArr().find(a => String(a.id) === String(uid));
+  if(aluno && typeof _finAlunoPlanoSheet === 'function'){
+    _finAlunoPlanoSheet(aluno, () => _finReload(['matriculas','cobrancas']));
+  }
+});
+
+_dlgRegister('ctCriadoPdf', (el) => {
+  const cid = el.dataset.cid;
+  if(!cid || typeof sbProf === 'undefined' || !sbProf.uploadContrato) return;
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'application/pdf';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    if(f.size > 10 * 1024 * 1024){ toast('Arquivo muito grande (máx 10 MB)'); return; }
+    toast('Enviando PDF…');
+    sbProf.uploadContrato(cid, f)
+      .then(() => { toast('PDF anexado ✔'); _finReload(['contratos']); })
+      .catch(e => toast('Erro: ' + (e.message||e)));
+  };
+  inp.click();
+});
+
 // Contrato — criar/editar/aceite/cancelar
 function _finContratoSheet(c, onDone){
   const editar = !!c; c = c || {};
@@ -13660,11 +13726,12 @@ function _finContratoSheet(c, onDone){
             try{ await sbProf.uploadContrato(res.id, ctPdfPendente); }
             catch(e){ toast('Contrato criado, mas falhou o PDF: '+(e.message||e)); }
           }
-          const numTxt = '#'+String(res.numero).padStart(3,'0');
-          toast(res.matricula_criada
-            ? `Contrato ${numTxt} + matrícula criados ✔`
-            : `Contrato ${numTxt} criado ✔`);
+          // v588 (Rota C): sheet de sucesso substitui o toast. Deliberada — permite
+          // ajustar detalhes finos da matrícula (trava, isento, motivo, obs) sem
+          // ter que ir procurar o aluno em Financeiro → Matrículas.
+          const planoObj = planos.find(x => String(x.id) === String(plano_id));
           close(); if(onDone) onDone();
+          _finContratoCriadoSheet(res, ctAluno, planoObj, ctPdfPendente != null);
         })
         .catch(e=>{ btnSave.disabled=false; btnSave.textContent='Criar contrato (aguardando aceite)'; toast('Erro: '+(e.message||e)); });
     };

@@ -9,6 +9,30 @@
 
 ## Concluídas ✓
 
+### v588 — Contrato criado: sheet de sucesso com atalho pra ajustar matrícula (2026-09-19)
+
+Depois de discussão longa (rotas A/B/C/D + análise da cascata real do
+`gerar_cobrancas_mes`), decisão: modelo comercial atual está certo (cascata do cron
+já protege quem tem `valor_negociado`; trava explícita é feature de casos raros).
+
+Adicionado: **sheet de sucesso pós-criação** substitui o toast antigo.
+
+Depois de criar contrato via `criarContratoComMatricula`, aparece:
+- ✅ "Contrato #003 + matrícula criados"
+- Nome do aluno + plano
+- **[⚙️ Ajustar matrícula]** — abre `_finAlunoPlanoSheet(aluno)` cheio (trava,
+  isento, motivo, obs, contrato já pré-selecionado no dropdown "Vincular a contrato"
+  pela lógica antiga do v518)
+- **[📄 Anexar PDF assinado]** — só aparece se não anexou na criação; abre file
+  picker e chama `sbProf.uploadContrato(contratoId, file)` best-effort
+- **[Fechar]** — comportamento antigo
+
+Trade-off aceito: sheet extra aparece sempre, mesmo pra quem só quer criar e fechar
+(1 clique extra em "Fechar" em cadastros em lote). Contrapartida: os 5% que precisam
+de ajuste fino saem em 2 cliques em vez de navegar até Financeiro → Matrículas.
+
+Zero migration, zero adapter, ~55 linhas em `app.js`.
+
 ### v587 + supabase.js v99 + migration 0056 — Loja com "Dois preços diretos"; sai o descontoPix global (2026-09-19)
 
 Refatoração completa do modelo de preço da Loja. Sai a regra global `descontoPix`
