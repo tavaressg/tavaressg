@@ -1678,6 +1678,23 @@
       }).eq('id', id);
       if (error) throw error;
     }),
+    // v589: delete real, restrito ao status 'aguardando_aceite'. Contrato ativo
+    // não deve ser apagado — histórico legal e cobranças vinculadas justificam
+    // preservar via cancelamento. Aqui só cobre "criei errado, quero limpar
+    // antes do aluno assinar". A verificação do status roda tanto no cliente
+    // (bloqueia botão) quanto aqui (defesa em profundidade contra chamada solta).
+    deletarContrato: wrap(async (id) => {
+      const { data: c, error: eR } = await SB.from('contratos').select('status,arquivo_url').eq('id', id).single();
+      if (eR) throw eR;
+      if (!c) throw new Error('contrato não encontrado');
+      if (c.status !== 'aguardando_aceite') {
+        throw new Error(`contrato com status "${c.status}" não pode ser excluído — use cancelar`);
+      }
+      // Best-effort: se tem PDF no storage, tenta remover antes do DELETE
+      if (c.arquivo_url) { try { await SB.storage.from('contratos').remove([c.arquivo_url]); } catch(_){} }
+      const { error } = await SB.from('contratos').delete().eq('id', id);
+      if (error) throw error;
+    }),
 
     // -- Categorias (Tipo de Lançamento) --
     getCategorias: wrap(async (tipo) => {

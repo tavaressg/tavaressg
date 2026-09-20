@@ -13520,6 +13520,7 @@ function _finContratoSheet(c, onDone){
     `:''}
     ${editar && c.status==='aguardando_aceite' ? `
       <button class="btn-save" id="ct-aceite" style="margin-top:14px">Marcar aceite (aluno assinou)</button>
+      <button class="btn-cad ghost" id="ct-excluir" style="margin-top:8px;color:var(--red)">🗑️ Excluir contrato (criado por engano)</button>
     `:''}
     ${editar && c.status==='ativo' ? `
       <button class="btn-cad ghost" id="ct-cancelar" style="margin-top:8px;color:var(--red)">Cancelar contrato</button>
@@ -13774,6 +13775,26 @@ function _finContratoSheet(c, onDone){
       sbProf.cancelarContrato(c.id, motivo)
         .then(()=>{ toast('Contrato cancelado'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnCanc.disabled=false; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  // v589: excluir contrato só quando status='aguardando_aceite'. DELETE real —
+  // some da lista, ninguém consulta depois. Restrito também no adapter/backend.
+  const btnExc = sheet.querySelector('#ct-excluir');
+  if(btnExc){
+    btnExc.onclick = async ()=>{
+      const numTxt = '#'+String(c.numero||0).padStart(3,'0');
+      const nomeAluno = ((c.profiles && (c.profiles.nome_completo || c.profiles.apelido)) || 'este aluno');
+      if(!(await _confirmar({
+        titulo: `Excluir contrato ${numTxt}?`,
+        desc: `${nomeAluno} · ${c.planos && c.planos.nome || ''}\n\nO contrato ainda não foi aceito, então dá pra apagar de vez. Não afeta cobranças (nenhuma foi gerada) nem a matrícula do aluno.\n\nNão dá pra desfazer.`,
+        sim: 'Excluir contrato',
+        nao: 'Manter contrato',
+        perigo: true,
+      }))) return;
+      btnExc.disabled = true; btnExc.textContent = 'Excluindo…';
+      sbProf.deletarContrato(c.id)
+        .then(()=>{ toast('Contrato excluído'); close(); if(onDone) onDone(); })
+        .catch(e=>{ btnExc.disabled=false; btnExc.textContent='🗑️ Excluir contrato (criado por engano)'; toast('Erro: '+(e.message||e)); });
     };
   }
   // v488 (0044): upload PDF assinado (V1 gov.br externo)

@@ -9,6 +9,25 @@
 
 ## Concluídas ✓
 
+### v589 + supabase.js v100 — Excluir contrato (só quando aguardando_aceite) (2026-09-19)
+
+Ação nova: "🗑️ Excluir contrato (criado por engano)". Aparece **só** quando o
+contrato está com status `aguardando_aceite` — antes do aluno assinar, nada foi
+materializado (cobrança nem cascata do cron), então delete real é seguro. Contrato
+já `ativo` continua com "Cancelar contrato" (soft, existente).
+
+**`sbProf.deletarContrato(id)`** (v100) — defesa em profundidade:
+1. Lê `status` + `arquivo_url` do contrato
+2. Se `status !== 'aguardando_aceite'`, aborta com mensagem clara
+3. Se tem `arquivo_url`, remove do storage best-effort (evita PDF órfão)
+4. `DELETE FROM contratos WHERE id = ?`
+
+**UI (app.js v589)** — `_confirmar` com título nomeando o contrato + aluno,
+descrição explicando que não afeta cobrança nem matrícula. Botão marcado `perigo`
+pra formatação vermelha do sheet. Feedback no botão durante o delete.
+
+Custo: ~40 linhas + 1 função nova no adapter. Zero migration.
+
 ### v588 — Contrato criado: sheet de sucesso com atalho pra ajustar matrícula (2026-09-19)
 
 Depois de discussão longa (rotas A/B/C/D + análise da cascata real do
