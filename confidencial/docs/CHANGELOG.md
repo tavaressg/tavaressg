@@ -9,6 +9,29 @@
 
 ## Concluídas ✓
 
+### v591 — Sheet de contrato editar: atalho pra matrícula + cartão do valor (2026-09-20)
+
+Bug reportado: depois de criar contrato, ao abrir pra editar o sheet ficava vazio de
+ações (só Plano/Início/Fim/Obs/PDF/Salvar/Aceite/Fechar). O que o professor queria
+mexer — valor negociado, dia venc, isento, trava, obs da matrícula — vive em
+`aluno_plano`, não no contrato. Sem caminho visível, ele ficava preso.
+
+Duas correções:
+
+**1. Atalho "⚙️ Ajustar matrícula"** — aparece no editar de qualquer status (não só
+pós-criação como no v588). Reusa handler `ctCriadoAjustar` com `data-uid=c.user_id`.
+Abre `_finAlunoPlanoSheet(aluno)` cheia com contrato pré-selecionado no dropdown
+(lógica do v518). Regra: matrícula é a entidade certa pra esses campos; contrato é
+o documento; o atalho apenas conecta os dois.
+
+**2. Cartão do valor congelado passa a aparecer no editar** — o `_ctResumo` tinha
+`if(editar) return` do v581. Agora renderiza sempre, disparado no boot via
+`setTimeout(_ctResumo, 0)`. Auto-fim continua limitado à criação (`!editar` no ramo
+que sobrescreve fim) — não mexe em prazo de contrato gravado.
+
+Nota do reportado: botão "🗑️ Excluir contrato" (v589) já estava no HTML. Se não
+aparece pro professor, é cache do browser — hard refresh resolve.
+
 ### v590 — Cartão do valor congelado no sheet de contrato: fix visual (2026-09-19)
 
 Bug reportado: plano JUVENIL & KIDS | ANUAL (valor R$ 1.920 total anual, parcelas

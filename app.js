@@ -13518,6 +13518,12 @@ function _finContratoSheet(c, onDone){
       <input type="file" id="ct-pdf-file" accept="application/pdf" style="display:none">
       <button class="btn-save" id="ct-save" style="margin-top:14px">Criar contrato (aguardando aceite)</button>
     `:''}
+    ${editar ? `
+      <button class="btn-cad ghost" data-click="ctCriadoAjustar" data-uid="${safeAttr(c.user_id||'')}" style="margin-top:14px;text-align:left;padding:14px 16px;width:100%">
+        <div style="font-weight:700;font-size:13.5px">⚙️ Ajustar matrícula</div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:500">Valor negociado, dia venc., isenção, trava, observação…</div>
+      </button>
+    `:''}
     ${editar && c.status==='aguardando_aceite' ? `
       <button class="btn-save" id="ct-aceite" style="margin-top:14px">Marcar aceite (aluno assinou)</button>
       <button class="btn-cad ghost" id="ct-excluir" style="margin-top:8px;color:var(--red)">🗑️ Excluir contrato (criado por engano)</button>
@@ -13553,7 +13559,9 @@ function _finContratoSheet(c, onDone){
     return d.toISOString().slice(0,10);
   };
   const _ctResumo = () => {
-    if(editar) return;   // resumo/auto-fim só na criação
+    // v591: passa a aparecer também no editar — o professor precisa ver o cálculo
+    // do valor congelado depois de criar. Auto-fim continua limitado à criação
+    // (não sobrescreve fim de contrato já assinado).
     const resumo = sheet.querySelector('#ct-resumo');
     const selP = sheet.querySelector('#ct-plano');
     const inpI = sheet.querySelector('#ct-inicio');
@@ -13563,8 +13571,9 @@ function _finContratoSheet(c, onDone){
     if(!pl){ resumo.innerHTML = ''; return; }
     // v581-B: auto-fim baseado em plano.frequencia (ou plano.parcelas se estiver setado).
     // Só sobrescreve se o campo está vazio ou se ainda não foi tocado pelo professor.
+    // No editar não sobrescreve — respeita o valor gravado.
     const meses = (pl.parcelas && pl.parcelas > 1) ? pl.parcelas : (_MESES_FREQ[pl.frequencia] || 12);
-    if(inpI.value && (!inpF.value || inpF.dataset.auto === '1')){
+    if(!editar && inpI.value && (!inpF.value || inpF.dataset.auto === '1')){
       inpF.value = _addMeses(inpI.value, meses);
       inpF.dataset.auto = '1';
     }
@@ -13634,6 +13643,9 @@ function _finContratoSheet(c, onDone){
   });
   const fimInp = sheet.querySelector('#ct-fim');
   if(fimInp) fimInp.addEventListener('input', ()=>{ fimInp.dataset.auto = '0'; });
+  // v591: dispara o resumo no boot pra o editar mostrar o cartão logo de cara
+  // (o listener de 'change' só acionava depois de o professor mexer em algo).
+  setTimeout(_ctResumo, 0);
   // v582: bloco matrícula. Checkbox colapsa; campos preservam edição do professor.
   const chkMatr = sheet.querySelector('#ct-cria-matr');
   const wrapMatr = sheet.querySelector('#ct-matr-wrap');
