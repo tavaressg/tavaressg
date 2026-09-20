@@ -13568,10 +13568,21 @@ function _finContratoSheet(c, onDone){
       inpF.value = _addMeses(inpI.value, meses);
       inpF.dataset.auto = '1';
     }
-    // v581-D: cálculo do valor congelado.
-    const valor = Number(pl.valor||0);
-    const total = valor * meses;
-    const linhaValor = `<div style="font-weight:800;font-size:14px">${moneyBR(valor)}/mês × ${meses} = <span style="color:var(--good)">${moneyBR(total)}</span> congelados</div>`;
+    // v590: cálculo do valor congelado corrigido. `pl.valor` é o TOTAL do ciclo
+    // do plano (anual = total anual, mensal = total mensal). A v581 multiplicava
+    // valor × meses, ficando 1920 × 12 = 23.040 quando o correto era 1920/12/mês
+    // × 12 = 1920. O cron divide pelo número de parcelas — aqui espelhamos isso.
+    const totalCiclo = Number(pl.valor||0);
+    const parcs = (pl.parcelas && pl.parcelas > 1) ? pl.parcelas : null;
+    let linhaValor;
+    if(parcs){
+      const parcela = totalCiclo / parcs;
+      linhaValor = `<div style="font-weight:800;font-size:14px">${moneyBR(parcela)}/mês × ${parcs} = <span style="color:var(--good)">${moneyBR(totalCiclo)}</span> congelados</div>`;
+    } else if(pl.frequencia === 'mensal'){
+      linhaValor = `<div style="font-weight:800;font-size:14px"><span style="color:var(--good)">${moneyBR(totalCiclo)}</span>/mês recorrente</div>`;
+    } else {
+      linhaValor = `<div style="font-weight:800;font-size:14px"><span style="color:var(--good)">${moneyBR(totalCiclo)}</span> congelados</div>`;
+    }
     // v581-G: bloqueio de duplicata (contrato ativo ou aguardando_aceite do mesmo aluno).
     let dup = null;
     if(ctAluno){

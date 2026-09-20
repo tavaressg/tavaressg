@@ -9,6 +9,22 @@
 
 ## Concluídas ✓
 
+### v590 — Cartão do valor congelado no sheet de contrato: fix visual (2026-09-19)
+
+Bug reportado: plano JUVENIL & KIDS | ANUAL (valor R$ 1.920 total anual, parcelas
+12) aparecia no cartão como `R$ 1.920,00/mês × 12 = R$ 23.040,00 congelados`. O
+`plano.valor` já É o total do ciclo — a v581 multiplicava indevidamente por meses
+de novo (contava 2x).
+
+Correção espelha a lógica do cron `gerar_cobrancas_mes`:
+- Plano com `parcelas > 1` → `parcela = valor/parcelas`; card: `R$ 160/mês × 12 =
+  R$ 1.920 congelados`
+- Plano `mensal` sem parcelamento → `R$ 190/mês recorrente`
+- Plano sem parcelamento e não-mensal → só o total
+
+**Não afetava cobrança em produção** (o cron sempre esteve correto). Bug 100%
+cosmético do sheet de criação.
+
 ### v589 + supabase.js v100 — Excluir contrato (só quando aguardando_aceite) (2026-09-19)
 
 Ação nova: "🗑️ Excluir contrato (criado por engano)". Aparece **só** quando o
