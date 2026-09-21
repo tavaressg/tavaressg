@@ -274,12 +274,35 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .cad-nav{display:flex;gap:10px;margin-top:18px}
 .cad-nav .btn-save,.cad-nav .sheet-cancel{flex:1;margin-top:0}
 /* Turmas + grade de horários (gestão) */
-.grade-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* v606: scrollbar polido — antes barra cinza chunky do sistema. Agora slim,
+   rounded, cor da marca no thumb, aparece so' quando ha scroll. Firefox usa
+   `scrollbar-width:thin` + `scrollbar-color`; WebKit tem ::-webkit-scrollbar. */
+.grade-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--muted) transparent;padding-bottom:6px}
+.grade-wrap::-webkit-scrollbar{height:6px;background:transparent}
+.grade-wrap::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+.grade-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.grade-wrap::-webkit-scrollbar-track{background:transparent}
 .grade{display:grid;gap:4px;min-width:max-content}
 /* Desktop: dias em cima (grade-desktop). Mobile: horas em cima (grade-mobile).
    CSS controla qual aparece pra evitar scroll horizontal desconfortável no phone. */
 .grade-desktop{display:none}
-.grade-mobile{display:grid;min-width:0}
+.grade-mobile{display:grid;min-width:max-content;grid-auto-rows:56px}
+/* v605: coluna de DIAS fixa (sticky left) e header de HORAS fixo (sticky top)
+   pra o professor nao perder referencia ao rolar a grade horizontalmente.
+   v606: `grid-auto-rows:56px` forca linhas de mesma altura — antes uma celula
+   com 2 chips esticava a linha toda (TER ficava 2x mais alta que QUA). Multiplos
+   chips numa celula dividem a altura via flex:1 (ja no .g-chip). */
+.grade.grade-mobile .g-cell{min-height:0}
+.grade.grade-mobile .g-chip{min-height:0}
+/* v605: mesma politica no desktop. Regra do dono (2026-09-20): nunca ha 2 turmas
+   no mesmo horario, entao cada celula so' tem 1 chip — a altura fixa e o min-height:0
+   sao safety net contra dado de demo/teste que empilha (ex: KODOMO+CHIISAI TER 09:00). */
+.grade.grade-desktop{grid-auto-rows:64px}
+.grade.grade-desktop .g-cell{min-height:0}
+.grade.grade-desktop .g-chip{min-height:0}
+.grade-mobile .g-dia{position:sticky;left:0;background:var(--card);z-index:2;box-shadow:1px 0 0 var(--line)}
+.grade-mobile .g-corner{position:sticky;left:0;top:0;background:var(--card);z-index:3}
+.grade-mobile .g-chip .g-nm,.grade-mobile .g-chip .g-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 @media (min-width:800px){
   .grade-desktop{display:grid}
   .grade-mobile{display:none}
@@ -1097,8 +1120,11 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .seg button.active{background:var(--card);color:var(--red-strong);box-shadow:0 2px 10px rgba(0,0,0,.08)}
 
 /* ---------- PROFESSOR ---------- */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 20px}
-.stat-card{background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow)}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 20px}
+.stat-card{background:var(--card);border-radius:16px;padding:12px 14px;box-shadow:var(--shadow)}
+/* v609: no mobile o painel do professor tem 7 KPIs em 2 colunas — reduz padding
+   e valor pra caber melhor sem virar scroll infinito. Desktop mantem generoso. */
+@media (min-width:800px){ .stat-card{padding:16px 18px} }
 /* Acesso dos alunos (v308): senha padrão + convite em lote */
 .ac-intro{padding:14px 20px;background:var(--card);margin:0 0 8px}
 .ac-senha{font-size:15px;margin-bottom:6px}
@@ -1116,9 +1142,14 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .push-nudge .pn-s{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.35}
 .push-nudge .pn-x{flex:none;width:28px;height:28px;border-radius:8px;border:none;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
 .push-nudge .pn-x:hover{background:var(--field)}
-.stat-card .sv{font-size:25px;font-weight:800;letter-spacing:-.5px}
-.stat-card .sl{font-size:12px;color:var(--muted);font-weight:700;margin-top:2px}
-.stat-card .si{font-size:20px;margin-bottom:8px;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center}
+.stat-card .sv{font-size:22px;font-weight:800;letter-spacing:-.5px}
+.stat-card .sl{font-size:11.5px;color:var(--muted);font-weight:700;margin-top:2px;line-height:1.25}
+.stat-card .si{font-size:18px;margin-bottom:6px;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+@media (min-width:800px){
+  .stat-card .sv{font-size:25px}
+  .stat-card .sl{font-size:12px;margin-top:2px}
+  .stat-card .si{font-size:20px;margin-bottom:8px;width:40px;height:40px;border-radius:11px}
+}
 .stat-card .si svg{width:21px;height:21px;display:block}
 .stat-card .si.red{background:var(--red-tint);color:var(--red)} .stat-card .si.blue{background:var(--blue-tint);color:var(--blue)}
 .stat-card .si.green{background:var(--green-tint);color:var(--good)} .stat-card .si.gold{background:var(--gold-tint);color:#d99400}
@@ -1150,6 +1181,14 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .filter-seg{display:flex;background:var(--field);border-radius:10px;padding:3px;margin:0 20px 14px}
 .filter-seg button{flex:1;border:none;background:none;padding:7px 4px;font-size:12px;font-weight:800;color:var(--muted);cursor:pointer;border-radius:8px}
 .filter-seg button.active{background:var(--card);color:var(--red-strong);box-shadow:var(--shadow)}
+/* v610: tabs do Financeiro (5 tabs) nao cabem em 1fr no mobile — "Matriculas"
+   ficava cortado. Botoes ganham largura natural e o container rola. Scrollbar
+   slim polido (mesmo padrao da grade de Turmas v606). */
+#fin-tabs{overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+#fin-tabs::-webkit-scrollbar{height:4px;background:transparent}
+#fin-tabs::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+#fin-tabs::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+#fin-tabs button{flex:none;padding:7px 14px;white-space:nowrap}
 /* ---------- Chips de filtro avançado (histórico) ---------- */
 .hist-filter-bar{display:flex;gap:8px;padding:0 20px 10px}
 .hf-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 0;border:1.5px solid var(--line);background:var(--card);border-radius:12px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer}
@@ -1956,32 +1995,54 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* ---- Risco de abandono: tiles coloridos + linhas ---- */
 .risco-tile{position:relative;overflow:hidden}
 .risco-tile .risco-rng{font-size:10.5px;font-weight:700;color:var(--muted);margin-top:2px}
-.risco-tile.risco-critico   .sv{color:#c1121f}
-.risco-tile.risco-em_risco  .sv{color:#e07a13}
-.risco-tile.risco-atencao   .sv{color:#2f6fe5}
-.risco-tile.risco-engajado  .sv{color:#2fa86a}
-.risco-tile.risco-critico  { box-shadow:inset 4px 0 0 #c1121f, var(--shadow) }
-.risco-tile.risco-em_risco { box-shadow:inset 4px 0 0 #e07a13, var(--shadow) }
-.risco-tile.risco-atencao  { box-shadow:inset 4px 0 0 #2f6fe5, var(--shadow) }
-.risco-tile.risco-engajado { box-shadow:inset 4px 0 0 #2fa86a, var(--shadow) }
+/* v611: tiles como BOTOES clicaveis (filtro). Sem borda unilateral — cor fica so'
+   no numero e label. Estado .on inverte o fundo pra cor pastel da categoria. */
+.risco-tile{cursor:pointer;border:none;text-align:left;font-family:inherit;transition:transform .12s ease,background .12s ease}
+.risco-tile:hover{transform:translateY(-1px)}
+.risco-tile:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.risco-tile.risco-critico   .sv,.risco-tile.risco-critico   .sl{color:#c1121f}
+.risco-tile.risco-em_risco  .sv,.risco-tile.risco-em_risco  .sl{color:#e07a13}
+.risco-tile.risco-atencao   .sv,.risco-tile.risco-atencao   .sl{color:#2f6fe5}
+.risco-tile.risco-engajado  .sv,.risco-tile.risco-engajado  .sl{color:#2fa86a}
+.risco-tile.on.risco-critico  {background:rgba(193,18,31,.10)}
+.risco-tile.on.risco-em_risco {background:rgba(224,122,19,.10)}
+.risco-tile.on.risco-atencao  {background:rgba(47,111,229,.10)}
+.risco-tile.on.risco-engajado {background:rgba(47,168,106,.10)}
+/* v614: card final — 2 linhas, gradient de fundo por bucket (volta v611), chips
+   financeiro+lesao na COLUNA DIREITA (compacta a linha meta), WhatsApp tile verde. */
 .risco-list{padding:0 20px}
-.risco-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:13px;padding:10px 14px;
-  margin-bottom:6px;box-shadow:var(--shadow)}
-.risco-critico-list  .risco-row{background:linear-gradient(90deg, rgba(193,18,31,.10), var(--card) 40%)}
-.risco-em_risco-list .risco-row{background:linear-gradient(90deg, rgba(224,122,19,.10), var(--card) 40%)}
-.risco-atencao-list  .risco-row{background:linear-gradient(90deg, rgba(47,111,229,.08), var(--card) 40%)}
+.risco-row{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:12px;
+  padding:10px 12px;margin-bottom:6px;box-shadow:var(--shadow);cursor:pointer;transition:transform .12s ease}
+.risco-row:hover{transform:translateY(-1px)}
+.risco-row:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.risco-critico-list  .risco-row{background:linear-gradient(90deg, rgba(193,18,31,.08), var(--card) 40%)}
+.risco-em_risco-list .risco-row{background:linear-gradient(90deg, rgba(224,122,19,.08), var(--card) 40%)}
+.risco-atencao-list  .risco-row{background:linear-gradient(90deg, rgba(47,111,229,.06), var(--card) 40%)}
+.risco-engajado-list .risco-row{background:linear-gradient(90deg, rgba(47,168,106,.06), var(--card) 40%)}
 .risco-row .risco-mid{flex:1;min-width:0}
-.risco-row .nm{font-size:14px;font-weight:700;color:var(--ink)}
-.risco-row .meta{display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap}
-.risco-row .risco-motivo{font-size:11.5px;font-weight:700;color:var(--muted)}
-.risco-row .risco-score{font-size:22px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1;text-align:right}
-.risco-row .risco-score small{font-size:11px;font-weight:700;color:var(--muted);margin-left:2px}
-.risco-row .risco-wa{border:none;background:var(--green);color:#fff;font-family:inherit;font-size:12px;font-weight:800;
-  padding:8px 12px;border-radius:99px;cursor:pointer;white-space:nowrap;flex:none}
-.risco-row .risco-wa:hover{filter:brightness(1.05)}
-.risco-critico-list  .risco-row .risco-score{color:#c1121f}
-.risco-em_risco-list .risco-row .risco-score{color:#e07a13}
-.risco-atencao-list  .risco-row .risco-score{color:#2f6fe5}
+.risco-row .rr-nm{font-size:14px;font-weight:800;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.risco-row .rr-meta-line{display:flex;flex-wrap:wrap;gap:6px 8px;margin-top:5px;align-items:center}
+.risco-row .rr-txt{font-size:11.5px;color:var(--muted);font-weight:600;line-height:1.35}
+/* v616: dias sem treinar coloridos por bucket (mesmo padrao dos tiles do topo). */
+.risco-row .rr-days{font-weight:800;font-variant-numeric:tabular-nums}
+.risco-atencao-list  .risco-row .rr-days{color:#2f6fe5}
+.risco-em_risco-list .risco-row .rr-days{color:#e07a13}
+.risco-critico-list  .risco-row .rr-days{color:#c1121f}
+.risco-engajado-list .risco-row .rr-days{color:#2fa86a}
+.risco-row .rr-right{display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:none}
+/* v614: chips suaves — mesma familia dos tags do resto do app (fundo bem leve,
+   texto cor natural sem exagero). */
+.risco-row .rr-fin{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;line-height:1.4;white-space:nowrap;letter-spacing:.1px}
+.risco-row .rr-fin.green{background:rgba(47,168,106,.10);color:#2fa86a}
+.risco-row .rr-fin.gold {background:rgba(224,122,19,.10);color:#c98a2f}
+.risco-row .rr-fin.red  {background:rgba(193,18,31,.09); color:#c1121f}
+.risco-row .rr-fin.gray {background:var(--field);color:var(--muted)}
+/* v612: WhatsApp = tile verde-pastel com balao (mesmo padrao do action item da UI). */
+.risco-row .risco-wa{border:0;background:rgba(47,168,106,.18);color:var(--ink);font-family:inherit;font-size:18px;line-height:1;
+  width:40px;height:40px;border-radius:10px;cursor:pointer;flex:none;display:inline-flex;align-items:center;justify-content:center;
+  transition:transform .1s ease,background .12s ease}
+.risco-row .risco-wa:hover{background:rgba(47,168,106,.28)}
+.risco-row .risco-wa:active{transform:scale(.96)}
 
 /* ---- Relatórios · Alunos (Excel) — tabela ampla scrollável ---- */
 .xls-wrap{padding:0 20px 12px}
@@ -2275,7 +2336,7 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .yama-row-t{font-size:14.5px;font-weight:700;color:var(--ink)}
 .yama-row-s{font-size:12.5px;color:var(--muted);font-weight:500;margin-top:2px;line-height:1.4}
 .yama-row-go{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:20px;font-weight:400}
-.erp-dash-greet{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
+.erp-dash-greet{font-size:14px;color:var(--ink);font-weight:700;margin-top:0}
 /* ============================================================
    ALUNOS v2 — layout ERP compacto (v278). Chips-KPI clicáveis
    substituem segmented; filtros avançados atrás de botão;
@@ -2284,9 +2345,15 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .erp-alunos-hd{padding:14px 20px 6px}
 .erp-alunos-title{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:-.3px}
 .erp-alunos-sub{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px}
-.erp-alunos-chips{display:flex;gap:6px;padding:6px 20px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-.erp-alunos-chips::-webkit-scrollbar{display:none}
-.erp-alunos-kpi{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:88px;padding:8px 12px;background:var(--card);border:1.5px solid var(--line);border-radius:10px;cursor:pointer;font-family:inherit;transition:transform .12s ease}
+/* v608: mobile mostra 7 chips em grid 4x2 (sem scroll horizontal, tudo visivel).
+   Desktop (>=800px) volta pra linha unica que cabe os 7 em 1 row. */
+.erp-alunos-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 20px 0}
+@media (min-width:800px){
+  .erp-alunos-chips{display:flex;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .erp-alunos-chips::-webkit-scrollbar{display:none}
+}
+.erp-alunos-kpi{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;padding:8px 8px;background:var(--card);border:1.5px solid var(--line);border-radius:10px;cursor:pointer;font-family:inherit;transition:transform .12s ease}
+@media (min-width:800px){ .erp-alunos-kpi{flex:none;min-width:88px;padding:8px 12px} }
 .erp-alunos-kpi:hover{transform:translateY(-1px)}
 .erp-alunos-kpi .erp-alunos-kpi-v{font-size:17px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}
 .erp-alunos-kpi .erp-alunos-kpi-l{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:4px;white-space:nowrap}

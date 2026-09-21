@@ -9,6 +9,282 @@
 
 ## Concluídas ✓
 
+### migration 0059 — Backfill de vendas presenciais antigas + fix de categoria inativa (2026-09-21)
+
+Dono relatou: Gabriel Tavares (venda presencial de hoje) não apareceu no
+Financeiro depois do 0057/0058 aplicado. Causa: a venda foi ANTES do deploy
+— só criou `pedidos`, sem mensalidade. RPCs novas só cobrem vendas
+futuras.
+
+**0059 faz 2 coisas:**
+
+1. **Backfill retroativo.** DO block itera `pedidos` `status='concluido' +
+   canal='presencial' + forma_pagamento NOT NULL + NOT EXISTS mensalidade
+   com pedido_id`. Cria mensalidade `pago` retroativa usando `criado_em`
+   do pedido pra data. Idempotente via `NOT EXISTS` — rodar de novo não
+   duplica. Confirmado ao vivo: **6 vendas retroativas apareceram no mês
+   corrente**, incluindo Gabriel.
+
+2. **Bug fix nas RPCs.** `registrar_venda_presencial` (0057/0058) filtrava
+   categoria por `ativo` no SELECT — se "Uniforme/Loja" existisse mas
+   estivesse inativa, caía no INSERT que violava UNIQUE
+   (academy_id, nome, tipo). Reescrito: SELECT sem filtro `ativo`, ordenado
+   por `ativo desc` (pega ativa primeiro), reativa se necessário,
+   `ON CONFLICT DO UPDATE SET ativo=true` no INSERT. Mesmo bug estava no
+   backfill — usado o mesmo pattern.
+
+Também corrigido: `p.created_at` → `p.criado_em` (nome real da coluna em
+`pedidos`; foi meu erro no primeiro rascunho).
+
+### v617 + migrations 0057/0058 — Toda venda entra em Cobranças, inclusive avulsa (2026-09-21)
+
+Sequência completa aplicada em prod pelo `supabase db push`:
+
+**0057 · `registrar_venda_presencial` grava mensalidade paga.** Aluno cadastrado
+→ `mensalidades` com `avulsa=true, status='pago', data_pagamento=hoje,
+forma_pagamento=<forma>`, categoria "Uniforme/Loja" (cria inline). Aparece
+em Financeiro > Cobranças e no Recebido do mês.
+
+**0058 · mensalidades aceita cliente avulso.** Adicionado `academy_id NOT NULL`
+(backfill via profiles) + `cliente_avulso text` + `user_id` vira nullable.
+Policy `mensalidades_prof_all` reescrita usando `academy_id` direto (sem JOIN
+em profiles, que quebrava quando user_id NULL). `registrar_venda_presencial`
++ `registrar_venda_a_prazo` + `gerar_cobrancas_mes` reescritos pra carimbar
+`academy_id`. `mens_self_read` do aluno NÃO muda (compara `user_id=auth.uid()`;
+NULL nunca casa).
+
+**Ledger:** `0055`/`0056` marcados como applied via `supabase migration repair`
+(já estavam em prod desde v587/v588 via SQL Editor). `0056_desconto_pct_produto.sql`
+removido do disco — foi neutralizado pela `0056_precos_direto_produto.sql` na mesma
+versão, mantê-lo confundia o CLI.
+
+**v617 (app):** helper `_cobNome(c)` centraliza `nome_completo || apelido ||
+cliente_avulso || 'aluno'`. Substituído nos 3 renders (`buildRow` da tabela,
+`_finCobExcluir` confirmação, `_finCobrancaSheet` título) e no sort (`nomeDe`).
+Busca da tabela também concatena `c.cliente_avulso` na bag — dono digita
+"João" e acha venda avulsa "João".
+
+`selfTest 176/176 OK`.
+
+### migration 0057 — Venda presencial vira receita em Financeiro (2026-09-21)
+
+Dono relatou: Angelo/Cauã/Ingryd apareciam em Financeiro > Cobranças, Gabriel
+Tavares não — porque Gabriel foi "presencial paga" (dinheiro/cartão/pix) e
+os outros foram "a prazo". `registrar_venda_presencial` (0038) só gravava em
+`pedidos` + `stock_movements`; nada em `mensalidades` → sumia do "Recebido
+no mês".
+
+Decisão do dono (2026-09-21): TODA venda entra como receita. Presencial vira
+mensalidade `avulsa=true, status='pago', data_pagamento=current_date, forma_pagamento=<forma>`,
+categoria "Uniforme/Loja" (cria inline se não existir).
+
+Mapeamento de forma: `pedidos.forma_pagamento` (dinheiro/cartao/pix) → `mensalidades.forma_pagamento`
+(dinheiro/pix/**cartao_credito**). Cartão vira crédito por default de venda
+presencial. Se algum dia precisar débito, adicionar toggle no `_finCobVendaNova`.
+
+**Limitação conhecida:** cliente avulso (sem user_id) NÃO entra em mensalidades
+— `mensalidades.user_id NOT NULL` + policy `mensalidades_prof_all` faz JOIN em
+`profiles`. Cobrir avulsos exige adicionar `academy_id` em mensalidades e
+reescrever policy. Deixado como dívida — venda avulsa continua registrada em
+`pedidos` (visível em Pedidos, só não em Cobranças). Cliente avulso é raro
+(dono geralmente cadastra antes de vender).
+
+**Deploy:** aplicar via `supabase db push` no repo `confidencial/`.
+
+### v616 + app.css v271 — Retenção: "9d" colorido por bucket (2026-09-21)
+
+"9d" na meta line ganha a cor do bucket (azul Atenção, dourado Em risco,
+vermelho Crítico, verde Engajado). Bate com o número colorido dos tiles do
+topo — dá pra bater o olho e ver a gravidade sem ler a seção.
+
+Implementação: `<b class="rr-days">${ds}d</b>` no bits, CSS herda a cor via
+`.risco-{id}-list .risco-row .rr-days`. Font `tabular-nums` pra alinhar.
+
+### v615 + app.css v270 — Retenção: refino final do card (2026-09-20)
+
+Dono pediu 6 ajustes de UX/design:
+
+1. **Cores dos chips financeiro suaves** — antes `#1f7a48` sobre fundo verde
+   forte (destoava do resto do app). Agora usa cores `--good`/`--gold`/`--red`
+   do sistema, opacity 0.10 no fundo — mesma família dos tags leves da UI.
+2. **Progresso sempre visível** (`22/65 · 2º grau`, `1/65 · 2º grau`,
+   `45/130 · 3º grau`) — antes só ≥60% da meta, o que criava inconsistência
+   visual entre cards. Consistência > "evitar ruído".
+3. **Chip financeiro + lesão pra coluna direita** — meta line ficou só com
+   texto (belt · turma · data · dias · progresso). Card mais compacto,
+   sem quebrar em 2 linhas de texto.
+4. **"última sex 11/set" → "Sex 11/Set"** — sem prefixo redundante,
+   capitalização já indica dia da semana. Mais curto.
+5. **"9d sem treinar" → "9d"** — simplificado, mesma info em menos espaço.
+6. **Lesão como indicador visual** (v615) — helper `_riscoLesaoLbl(a)` usa
+   `_relData.lesoes` (já carregado pra Retenção). Se status=`ativa`/
+   `recuperando` → chip vermelho `🩹`. Se resolvida ≤90d → chip dourado.
+   Tooltip mostra "Lesão · [parte]".
+7. **Gradient de fundo por bucket volta** — Crítico com leve tint vermelho
+   (rgba .08), Em risco dourado, Atenção azul, Engajado verde. Reforço
+   visual sutil da urgência, sem ficar carnavalesco.
+
+**Bônus v615:** removi belt pill do meta line (quebrava em 2 linhas e
+espremia o nome do aluno com ellipsis prematuro). Agora belt vira texto no
+início da meta line (`Branca · 1º · ADULTO · Sex 11/Set · 9d · 22/65 · 2º grau`).
+Nome ganha a linha inteira, ellipsis só se o nome for realmente muito longo.
+
+Validação: `node --check` OK, `selfTest 176/176 OK`.
+
+### v613 + app.css v269 — Retenção: card alinhado ao design, bug "ADULTO 06:00" (2026-09-20)
+
+Dono achou o v612 destoando do resto do app (chips coloridos + emojis 📅📍),
+e detectou dado errado: **TODOS os alunos mostravam "ADULTO 06:00"**.
+
+Causa do bug: `_riscoTurmaLbl` fazia `sessoes.sort(hora)[0]` — pegava sempre
+a sessão de menor horário da turma. Se ADULTO tem 06:00 na grade, todo aluno
+matriculado em ADULTO aparecia com 06:00, independente de quando ele treina
+(o app não sabe qual sessão específica cada aluno vai — ele é matriculado
+na turma inteira). Fix: só o **nome** da turma. `+N` se aluno tem múltiplas
+("ADULTO +1"). Zero chute de horário.
+
+Refino visual:
+- Emojis 📅 📍 removidos (poluição, destoava dos outros cards do app).
+- Meta line agora é texto puro `separado por · ` — padrão da UI (`.rr-txt`
+  cor muted, font 11.5px). Só o chip financeiro (Em dia / A vencer / Vencido)
+  mantém cor — é a info acionável que muda a mensagem WhatsApp.
+- "9d sem treinar" inline no texto, sem chip próprio.
+- Belt pill segue no lugar (padrão consagrado do app).
+
+### v612 + app.css v268 — Retenção: card redesenhado compacto (2026-09-20)
+
+Dono achou v611 muito "grossa e desorganizada" — nome + score enorme + WA
+com texto ocupavam 3 linhas e o gradient de fundo poluía. Redesenho:
+
+- **Card 2 linhas apenas.** Header = nome só (linha inteira, ellipsis).
+  Meta line = `[belt pill] · 📅 sex 11/set · 📍 ADULTO 06:00 · [🟢 Em dia] · 9d sem treinar`.
+- **Sem gradient de fundo** (bg vermelho/dourado/azul por bucket saiu, `.risco-{id}-list .risco-row` deletado). Card branco limpo, distinção fica no tile do topo.
+- **Sem score gigante** (22px negrito no lado direito). "9d sem treinar" vira mais um chip inline, mesmo peso dos outros.
+- **Belt pill inline na meta line** — antes fazia parte do header e roubava largura do nome (nome "Kátia" ficava truncado em "Kátia..." em 375px porque a pill puxava 146px de 207px disponíveis). Agora meta com flex-wrap acomoda.
+- **WhatsApp botão 40×40 tile verde-pastel com 💬**, mesmo padrão do action-item da UI (não círculo verde chapado do WhatsApp brand).
+- **Ícones nos meta chips:** 📅 pra última aula, 📍 pra turma, dot colorido pro chip financeiro.
+- **Chip "9d sem treinar" inline** — dono confirmou que quer manter apesar da referência não ter.
+
+### v611 + app.css v267 — Retenção: tiles clicáveis, cards ricos, fim do "999 dias" (2026-09-20)
+
+Quatro mudanças pedidas no `_relRisco` (Relatórios → Retenção):
+
+1. **Tiles KPI viram filtro clicável.** Antes eram puramente visuais e o
+   professor rolava manualmente até a seção (Crítico ficava lá no fim). Agora
+   click no tile "Crítico" esconde as outras seções e mostra só Crítico;
+   2º click no mesmo desfaz. `scrollTo(top, smooth)` no handler. `DB._riscoFiltro`
+   guarda o estado.
+2. **Fim da borda unilateral** (`box-shadow:inset 4px 0 0`) — feia, roubava
+   4px. Cor agora vive só no número + label do tile. Estado ativo: fundo
+   pastel da cor (10% opacity), `aria-pressed`, hover translate.
+3. **Card do aluno enriquecido** (info que muda a mensagem WhatsApp):
+   - **Turma + última aula:** "ADULTO 06:00 · última sex 21/ago" — professor
+     sabe qual aula o aluno perdeu, em vez do genérico "9d sem treinar".
+   - **Chip financeiro sempre visível:** Em dia (verde) / A vencer (dourado) /
+     Vencido (vermelho). Muda tom da abordagem: "tudo bem?" soa diferente
+     quando aluno tá vencido.
+   - **Progresso do grau só quando ≥60% da meta:** "34/50 · 2º grau" — vira
+     motivador ("falta 16 pra virar grau, aparece!"). Aluno novo (< 60%) não
+     mostra pra não virar ruído.
+4. **"999 dias sem treinar" → "sem histórico".** 999 é sentinela pra "nunca
+   treinou" (supabase.js:848), virava texto estranho na UI. `_riscoMotivo`
+   traduz; score no card mostra "—" no lugar de "999d"; chip "Sem histórico".
+
+Mobile (`<520px`): card reflow — score sobe pro lado do avatar, nome ocupa
+largura toda, WhatsApp desce pra segunda linha. Cabe legível em 375px.
+
+### v610 + app.css v266 — KPI "Vencidos" leva pra Financeiro + tabs Financeiro (2026-09-20)
+
+Duas coisas pedidas mid-turn pelo dono:
+
+1. **KPI "Vencidos" no Painel do professor levava pra aba Alunos.** Errado —
+   é uma métrica financeira. Trocado destino: agora `_PAINEL_IR.financeiro`
+   entra na aba Financeiro (Cobranças). Corrige [app.js:6590](app.js:6590).
+2. **Tabs do Financeiro (Dashboard/Cobranças/Despesas/Planos/Matrículas)
+   cortadas no mobile.** `#fin-tabs` tem `overflow-x:auto` mas os botões
+   herdam `flex:1` do `.filter-seg`, então tentavam caber (e "Matrículas"
+   virava "Matrícul..."). Agora `#fin-tabs button{flex:none; padding 14px;
+   white-space:nowrap}` — cada tab largura natural, container rola de
+   verdade, scrollbar slim (mesmo padrão da grade v606). "Matrículas" cabe
+   inteira ao rolar.
+
+### v609 + app.css v264-v265 — Painel do professor mobile: fim da duplicação + cards compactos (2026-09-20)
+
+Dois problemas no Painel mobile:
+
+1. **"Yama Jiu-Jitsu" aparecia 2× seguidos** — topbar dizia "Yama Jiu-Jitsu /
+   Painel do professor" e o `.erp-dash-hd` logo abaixo repetia "Yama Jiu-Jitsu /
+   Olá, Prof. Ricardo Maciel...". Redundância pura, roubava 40px verticais.
+   Fix: removido `.erp-dash-acad` do dashboard header (topbar já cumpre). Só
+   sobra "Olá, [nome] — [dia, data]", promovida a peso maior (14/700, ink).
+
+2. **KPI cards enormes** — 7 cards em 2 colunas, cada um com `padding:16px 18px`
+   + valor 25px + ícone 40×40 = ~110px/card × 4 rows = 440px só de KPI antes
+   de mostrar qualquer alerta ou financeiro.
+   Fix: mobile ganha `padding:12px 14px`, valor 22px, ícone 34×34 — ~75px/card.
+   Desktop mantém generoso via media `(min-width:800px)`.
+
+Resultado: primeira dobra agora mostra saudação + strip de dias + turmas do
+dia + 3 rows de KPIs + início do FINANCEIRO no viewport 375×812. Antes,
+mesma dobra parava depois de 2 rows.
+
+### app.css v263 — Alunos: 7 chips-KPI em grid 4×2 no mobile (2026-09-20)
+
+Dono relatou não ver todos os chips no mobile — os 7 (Todos/Presentes/Ativos/
+Ausentes 7+d/Aptos a grau/Vencidos/Inativos) rolavam horizontalmente e só 4
+apareciam de cara. Métrica escondida = descoberta zero.
+
+`.erp-alunos-chips` no mobile agora é `grid-template-columns:repeat(4,1fr)`
+com 7 filhos → 4 em cima, 3 embaixo. Chips perdem `min-width:88px` e `flex:none`
+(desnecessários no grid) e ganham padding menor pra caber com valores tabulares.
+Desktop (≥800px) mantém a linha única com scroll (7 chips cabem numa row).
+
+### v607 — "Próximo a graduar" configurável pela academia (2026-09-20)
+
+`PROXIMOS_PCT = 0.8` (linha 15551) era hardcoded no módulo de graduação —
+única regra dessa família que não vivia em `academyConfig` (metaAulas por
+faixa, senha padrão, WA templates, qrToken já estão lá).
+
+Agora lê de `DB.academyConfig.proximosPct` com fallback 0.8. Editor: sheet
+"Meta de aulas por faixa" ganhou input **"Próximo a graduar %"** (range
+50-99). Valor fora do range volta ao default. Salva via `_salvarAcademyConfig`
+(merge raso, mesma stack do `metaAulas`). Título/empty da seção
+`_gradAptosSection` já usava `Math.round(PROXIMOS_PCT*100)` — refletem
+automaticamente. Zero migration (JSONB `config` aceita campo novo). Fecha a
+categoria "config da academia" sem deixar 1 constante hardcoded fora.
+
+Validação: `selfTest 176/176 OK`.
+
+### app.css v262 — Scrollbar da grade polido (2026-09-20)
+
+Barra chunky cinza do sistema com arrows nas pontas na grade de Turmas.
+Trocada por scrollbar slim (6px), thumb arredondado cor `--line`, hover
+`--muted`, track transparente. Firefox via `scrollbar-width:thin` +
+`scrollbar-color`; WebKit via `::-webkit-scrollbar*`. `padding-bottom:6px`
+no wrap pra barra não sobrepor conteúdo.
+
+### v605 + app.css v258-v260 — Grade de Turmas legível no mobile (2026-09-20)
+
+Dono pediu foco no modo professor no mobile. Grade de Turmas era o pior caso:
+colunas com `minmax(0,1fr)` espremiam "17:30" e "ADULTO 16+" a ilegível no
+viewport 375px, labels de hora colidiam no topo.
+
+Fixes:
+- **v605 (JS + css v258):** colunas de hora com largura fixa 72px. Grid fica
+  wider que a viewport e `.grade-wrap{overflow-x:auto}` já existente permite
+  scroll horizontal. Coluna de DIAS vira **sticky left** — professor rola pra
+  direita e mantém a referência SEG/TER/QUA visível.
+- **app.css v259:** `grid-auto-rows:56px` força linhas de mesma altura — antes
+  uma célula com 2 chips (TER 09:00 tem KODOMO+CHIISAI) esticava a linha
+  inteira, deixando TER ~2× mais alto que QUA. Feio.
+- **app.css v260:** especificidade fix — `.grade .g-chip{min-height:44px}` (na
+  linha 383) vencia `.grade-mobile .g-chip{min-height:0}` (linha ~283) por vir
+  depois no arquivo. Trocado por `.grade.grade-mobile .g-chip` (especificidade
+  3 vs 2). Múltiplos chips numa célula agora dividem os 56px via `flex:1`.
+
+Elipse em `.g-nm`/`.g-sub` (`text-overflow:ellipsis`) evita nome de turma
+longo estourar coluna. `selfTest 176/176 OK`.
+
 ### v604 — "Trabalhando em" com ordem estável (2026-09-20)
 
 Dono reportou que os chips reordenavam ~2s após abrir o app (mesma família

@@ -6432,6 +6432,7 @@ const _PAINEL_IR = {
   graduacao: () => goProf('graduacao'),
   pedidos:   () => goProf('pedidos'),
   loja:      () => goProf('loja'),
+  financeiro:() => { _finTab='cobrancas'; goProf('financeiro'); },   // v610
   erros:     () => _profErrosSheet(),
   risco:     () => { DB.relTab = 'risco'; goProf('relatorios'); },
   inativos:  () => { DB._pendingAlunosFiltro = 'inativos'; goProf('alunos'); },
@@ -6470,11 +6471,10 @@ function profPainel(){
   const alunos = d ? d.alunos : [];
   const kpis   = d ? d.kpis   : { total:0, ativos:0, receitaMes:0 };
 
-  // Header institucional: nome da academia + saudação
-  const acadNm = (DB.academia && DB.academia.nome) || 'Academia';
+  // v609: nome da academia saiu daqui — a topbar (renderProfessor) ja mostra
+  // "Yama Jiu-Jitsu / Painel do professor" acima. Deixar so' saudacao personalizada.
   const dashHd = el(`<div class="erp-dash-hd">
     <div class="erp-dash-hd-l">
-      <div class="erp-dash-acad">${safeTxt(acadNm)}</div>
       <div class="erp-dash-greet">Olá, ${safeTxt(DB.professor.nome||'Professor')} — ${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div>
     </div>
     <button class="erp-yama-btn" aria-label="Yama · Configurações" title="Yama · Configurações">⚙️</button>
@@ -6587,7 +6587,7 @@ function profPainel(){
   grid.appendChild(kpiCard('gold', icoAlert(), ausentes, 'Ausentes 7+ dias', 'risco'));
   grid.appendChild(kpiCard('purple', '🥋', recebendoGrau, 'Recebendo grau', 'graduacao'));
   grid.appendChild(kpiCard('pink', '🎂', anivMes.length, 'Aniversariantes do mês', 'anivMes'));
-  grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', 'alunos'));
+  grid.appendChild(kpiCard('red', '💰', vencidos, 'Vencidos', 'financeiro'));
   grid.appendChild(kpiCard('gray', '⏸️', inativos, 'Inativos', 'inativos'));
   w.appendChild(grid);
 
@@ -9546,7 +9546,11 @@ function _loadRelData(){
 
 /* ---- Risco de evasão v2: ausência absoluta OU queda de frequência (tendência) ---- */
 function _riscoMotivo(a){
-  if((a.diasSem||0) >= RISCO_DIAS) return `${a.diasSem} dias sem treinar`;
+  const ds = a.diasSem||0;
+  // v611: 999 e' sentinela "nunca treinou" (supabase.js:848). Antes virava
+  // "999 dias sem treinar" nomeclatura estranha.
+  if(ds >= 999) return 'sem histórico de aulas';
+  if(ds >= RISCO_DIAS) return `${ds} dias sem treinar`;
   // Queda ≥50%: treinava (base ≥2×/4sem no trimestre anterior) e caiu pela metade ou mais.
   if(a.freq4!=null && a.base4!=null && a.base4>=2 && a.freq4 <= a.base4*0.5)
     return `queda de frequência (${a.freq4}× vs ${a.base4}×/4 sem)`;
@@ -10083,27 +10087,86 @@ function profRelatorios(){
 
 /* Relatórios · Risco de abandono — buckets Kanri-style com score por dias sem treinar.
    Score = dias sem (proxy honesto; sem inventar fórmula composta). */
+// v611: helpers p/ card de retencao enriquecido (ultima aula, turma, financeiro,
+// progresso do grau, lesao). Todos os dados ja existem — lesoes vem de _relData.
+// v614: "Sex 11/Set" (capitalizado, sem "última"), progresso sempre que meta>0.
+const _RISCO_MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const _RISCO_DOW   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function _riscoUltimaLbl(a){
+  const ds = a.diasSem||0;
+  if(ds >= 999) return null;   // nunca treinou → nao mostra "ultima"
+  if(ds === 0) return 'Hoje';
+  const dt = new Date(HOJE_ISO+'T12:00:00'); dt.setDate(dt.getDate() - ds);
+  return `${_RISCO_DOW[dt.getDay()]} ${String(dt.getDate()).padStart(2,'0')}/${_RISCO_MESES[dt.getMonth()]}`;
+}
+// v614: lesao ativa/recente (90d) por user_id. Usa _relData.lesoes (ja da academia).
+function _riscoLesaoLbl(a){
+  if(!_relData || !_relData.lesoes) return null;
+  const uid = a.id; if(!uid) return null;
+  const doAluno = _relData.lesoes.filter(l=> l.user_id === uid);
+  if(!doAluno.length) return null;
+  const ativa = doAluno.find(l=> l.status==='ativa' || l.status==='recuperando');
+  if(ativa) return { txt: `Lesão · ${ativa.parte||'—'}`, cls: 'red' };
+  // resolvida nos ultimos 90d
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+  const cutISO = cutoff.toISOString().slice(0,10);
+  const recente = doAluno.find(l=> l.data && l.data >= cutISO);
+  if(recente) return { txt: `Lesão recente · ${recente.parte||'—'}`, cls: 'gold' };
+  return null;
+}
+function _riscoTurmaLbl(a){
+  // v613: so' o nome da turma. Antes chutava horario (sessao com menor .hora),
+  // que dava sempre "06:00" pra todo mundo matriculado em ADULTO — o aluno nao
+  // treina especificamente naquela sessao, ele e' matriculado na turma inteira.
+  const ids = a.turmas||[]; if(!ids.length) return null;
+  const map = new Map((_turmasArr()||[]).map(t=>[t.id,t]));
+  const turmas = ids.map(id=>map.get(id)).filter(Boolean);
+  if(!turmas.length) return null;
+  const primeira = turmas[0].nome;
+  return turmas.length > 1 ? `${primeira} +${turmas.length-1}` : primeira;
+}
+function _riscoFinChip(a){
+  const st = a.pago;
+  if(st === 'late') return { cls:'red',  txt:'Vencido' };
+  if(st === 'soon') return { cls:'gold', txt:'A vencer' };
+  if(st === 'ok')   return { cls:'green', txt:'Em dia' };
+  return null;   // sem dado financeiro → nao mostra
+}
+
+_dlgRegister('riscoFiltro', (elm)=>{
+  const id = elm.dataset.v;
+  DB._riscoFiltro = (DB._riscoFiltro === id) ? null : id;   // 2o click desfaz
+  render(); window.scrollTo({ top: 0, behavior:'smooth' });
+});
+
 function _relRisco(w, secTitle, note){
+  _loadRelData();   // v614: precisa das lesoes da academia
   const alunos = _profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono'));
   const buckets = { critico:[], em_risco:[], atencao:[], engajado:[] };
   alunos.forEach(a=> buckets[_riscoNivel(a)].push(a));
 
-  // 4 tiles (contagem por nível) — ordem invertida (Engajados→Crítico) pra deixar
-  // o acionável perto do dedo: quem tem 7-14 dias sem vir é o mais recuperável.
+  // 4 tiles clicaveis (contagem por nivel). v611: sem borda unilateral (era
+  // `box-shadow:inset 4px 0 0`) — cor agora fica so' no numero/label. Click
+  // filtra a lista abaixo mostrando SO' aquele bucket; 2o click volta pra todos.
+  const filtro = DB._riscoFiltro || null;
   const grid = el('<div class="stat-grid block" style="margin-top:12px"></div>');
   RISCO_NIVEIS.slice().reverse().forEach(([id,lbl,rng])=>{
-    grid.appendChild(el(`<div class="stat-card risco-tile risco-${id}"><div class="sv">${buckets[id].length}</div>
-      <div class="sl">${lbl}</div><div class="risco-rng">${rng}</div></div>`));
+    const on = filtro === id;
+    const tile = el(`<button class="stat-card risco-tile risco-${id}${on?' on':''}" type="button">
+      <div class="sv">${buckets[id].length}</div>
+      <div class="sl">${lbl}</div>
+      <div class="risco-rng">${rng}</div>
+    </button>`);
+    tile.setAttribute('data-click','riscoFiltro'); tile.setAttribute('data-v', id);
+    tile.setAttribute('aria-pressed', on ? 'true' : 'false');
+    grid.appendChild(tile);
   });
   w.appendChild(grid);
 
-  // Listas por bucket (só as acionáveis: atenção → em risco → crítico).
-  // Sort ASCENDENTE dentro do bucket (menos dias primeiro): mesma lógica dos
-  // tiles — mais fácil recuperar quem tem 7d sem vir do que quem tem 13d.
-  // Crítico: 999 é sentinela de "nunca treinou" (supabase.js:848) — vai pro
-  // fim mesmo assim, senão os "999" poluiam o INÍCIO no ordenamento ascendente.
-  ['atencao','em_risco','critico'].forEach(id=>{
-    const arr = buckets[id].sort((a,b)=>{
+  // Se ha filtro, so' aquela secao. Senao, as 3 acionaveis (atencao/em_risco/critico).
+  const secoes = filtro ? [filtro] : ['atencao','em_risco','critico'];
+  secoes.forEach(id=>{
+    const arr = (buckets[id]||[]).sort((a,b)=>{
       const da=a.diasSem||0, db=b.diasSem||0;
       if(id==='critico'){
         const sa=da>=999, sb=db>=999;
@@ -10117,14 +10180,39 @@ function _relRisco(w, secTitle, note){
     const list = el(`<div class="list block risco-list risco-${id}-list"></div>`);
     arr.forEach(a=>{
       const wa = _waLink(a) ? true : false;
-      const row = el(`<div class="risco-row" role="button" tabindex="0" style="cursor:pointer">
+      const ds = a.diasSem||0;
+      const semHist = ds >= 999;
+      // v614: progresso SEMPRE quando meta>0 (consistencia visual).
+      const meta = _metaAulasFaixa(a.faixa);
+      const noGrau = a.aulasNoGrau;
+      const grauLbl = (meta > 0 && typeof noGrau === 'number')
+        ? `${noGrau}/${meta} · ${(a.graus||0)+1}º grau` : null;
+      const fin = _riscoFinChip(a);
+      const turma = _riscoTurmaLbl(a);
+      const ult = _riscoUltimaLbl(a);
+      const lesao = _riscoLesaoLbl(a);
+      // v614: bits em texto — "Sex 11/Set" sem "última", "9d" simples.
+      // v614b: belt vira texto no inicio da meta line (belt pill quebrava em 2 linhas
+      // e espremia o nome que tinha que ellipsar). Nome ganha a linha inteira.
+      const beltNm = BELTS[a.faixa]?.nome || a.faixa || '';
+      const beltTx = beltNm + (a.graus ? ` · ${a.graus}º` : '');
+      const bits = [];
+      if(beltTx) bits.push(safeTxt(beltTx));
+      if(turma) bits.push(safeTxt(turma));
+      if(ult)   bits.push(safeTxt(ult));
+      if(!semHist) bits.push(`<b class="rr-days">${ds}d</b>`);
+      if(grauLbl) bits.push(safeTxt(grauLbl));
+      const chipFin = fin ? `<span class="rr-fin ${fin.cls}">${fin.txt}</span>`
+                          : (semHist ? `<span class="rr-fin gray">Sem hist.</span>` : '');
+      const chipLes = lesao ? `<span class="rr-fin ${lesao.cls}" title="${safeAttr(lesao.txt)}" aria-label="${safeAttr(lesao.txt)}">🩹</span>` : '';
+      const row = el(`<div class="risco-row" role="button" tabindex="0">
         ${avatarAluno(a)}
         <div class="risco-mid">
-          <div class="nm">${safeTxt(_nomeInst(a))}</div>
-          <div class="meta">${beltPill(a.faixa,a.graus)} <span class="risco-motivo">${safeTxt(_riscoMotivo(a)||((a.diasSem||0)+'d sem treinar'))}</span></div>
+          <div class="rr-nm">${safeTxt(_nomeInst(a))}</div>
+          <div class="rr-meta-line"><span class="rr-txt">${bits.join(' · ')}</span></div>
         </div>
-        <div class="risco-score">${a.diasSem||0}<small>d</small></div>
-        ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}">💬 WhatsApp</button>`:''}
+        <div class="rr-right">${chipLes}${chipFin}</div>
+        ${wa?`<button class="risco-wa" aria-label="WhatsApp ${safeAttr(_nomeInst(a))}" title="WhatsApp">💬</button>`:''}
       </div>`);
       const waBtn = row.querySelector('.risco-wa');
       if(waBtn){ waBtn.setAttribute('data-click','alunoWhats'); waBtn.setAttribute('data-id', a.id||a.nm); }
@@ -10779,11 +10867,19 @@ function _relTecnicas(w, secTitle, note, alunoRow){
 function _regrasFaixaSheet(){
   const FAIXAS=['branca','azul','roxa','marrom','preta'];
   const cfg=(DB.academyConfig&&DB.academyConfig.metaAulas)||{};
+  // v607: pct atual do threshold "proximo a graduar" (default 80%).
+  const proxCur = (DB.academyConfig && typeof DB.academyConfig.proximosPct === 'number'
+    && DB.academyConfig.proximosPct > 0 && DB.academyConfig.proximosPct < 1)
+    ? Math.round(DB.academyConfig.proximosPct * 100) : 80;
   const sh=el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Meta de aulas por faixa</div>
     <div class="sheet-desc">Aulas desde a última graduação para o eixo "aulas" do semáforo. Vazio = padrão (${PROF_METAS.META_GRAU}).</div>
     <div id="rf-rows"></div>
+    <div class="sheet-desc" style="margin-top:14px">Aluno vira "próximo a graduar" ao atingir esta % da meta.</div>
+    <div class="est-row"><span class="est-t">Próximo a graduar</span>
+      <input class="inp" id="rf-prox" type="number" min="50" max="99" inputmode="numeric"
+        placeholder="80" value="${proxCur}" style="width:90px;text-align:center"> <span style="color:var(--muted);margin-left:4px">%</span></div>
     <button class="btn-save" id="rf-save" style="margin-top:14px">Salvar regras</button>
     <button class="sheet-cancel">Cancelar</button></div></div>`);
   const rows=sh.querySelector('#rf-rows');
@@ -10800,7 +10896,11 @@ function _regrasFaixaSheet(){
     const metaAulas=Object.assign({}, _acadCfg().metaAulas);
     sh.querySelectorAll('.rf-inp').forEach(i=>{ const v=parseInt(i.value);
       if(v>0) metaAulas[i.dataset.f]=v; else delete metaAulas[i.dataset.f]; });
-    _salvarAcademyConfig({metaAulas}).then(()=>toast('Regras salvas ✔'))
+    const patch = { metaAulas };
+    const proxN = parseInt(sh.querySelector('#rf-prox').value);
+    if(proxN >= 50 && proxN <= 99) patch.proximosPct = proxN / 100;
+    else patch.proximosPct = 0.8;   // fora do range volta ao default
+    _salvarAcademyConfig(patch).then(()=>toast('Regras salvas ✔'))
       .catch(()=>toast('Não salvou na nuvem — o banco precisa da migration 0003'));
     sh.remove(); render();
   };
@@ -10971,6 +11071,12 @@ function _produtoVendasSheet(nomeProd){
 let _finTab = 'cobrancas';
 let _finPlanos = null, _finContratos = null, _finDespesas = null;
 let _finCobrancas = null, _finCategorias = null, _finRec = null;
+// v617 (0058): nome pra exibir na linha de cobrança. Fallback pra `cliente_avulso`
+// quando venda foi feita sem aluno cadastrado (0058 aceita user_id NULL).
+function _cobNome(c){
+  const p = c && c.profiles || {};
+  return p.nome_completo || p.apelido || c && c.cliente_avulso || 'aluno';
+}
 let _finMatriculas = null, _finTurmasMap = null;   // v504: cache pra tabela Cobranças rica
 let _finRenderingInProgress = false;   // v507: guard anti-loop de renderBg
 // v542: gate POR CHAVE (era um _finTs global que o seletivo queimava — ver
@@ -11825,7 +11931,8 @@ function _finRenderCobrancas(body){
     if(_finCobF.venc==='7d'      && !in7d(c.venc)) return false;
     if(_finCobF.venc==='atraso'  && !isVenc(c)) return false;
     if(bBusca){
-      const p = c.profiles||{}; const bag=((p.nome_completo||'')+' '+(p.apelido||'')).toLowerCase();
+      // v617: cliente_avulso na bag pra busca achar venda de cliente sem cadastro.
+      const p = c.profiles||{}; const bag=((p.nome_completo||'')+' '+(p.apelido||'')+' '+(c.cliente_avulso||'')).toLowerCase();
       if(!bag.includes(bBusca)) return false;
     }
     return true;
@@ -11842,7 +11949,7 @@ function _finRenderCobrancas(body){
     const m = matrByUser[c.user_id];
     return (m && m.planos) ? m.planos.nome : 'mensalidade';
   };
-  const nomeDe = c => { const p=c.profiles||{}; return (p.nome_completo||p.apelido||'').toLowerCase(); };
+  const nomeDe = c => _cobNome(c).toLowerCase();   // v617: reusa fallback avulso
   const dir = _finCobF.sortDir==='desc' ? -1 : 1;
   const nulLast = (v) => v==null || v==='' ? 1 : 0;
   const cmpBy = {
@@ -11902,7 +12009,7 @@ function _finRenderCobrancas(body){
   const tbody = table.querySelector('tbody');
   const buildRow = (c) => {
     const p = c.profiles || {};
-    const nomeCompleto = p.nome_completo || p.apelido || 'aluno';
+    const nomeCompleto = _cobNome(c);   // v617: fallback avulso
     const cor = c.status==='pago' ? 'var(--good)' : (isVenc(c) ? 'var(--red)' : 'var(--ink)');
     const forma = c.forma_pagamento ? (FORMA_LBL[c.forma_pagamento]||c.forma_pagamento) : '';
     const matr = matrByUser[c.user_id];
@@ -12138,8 +12245,7 @@ function _finCobBulkFormaSheet(alvos, onDone){
 
 _dlgRegister('finCobExcluir', async (el) => {
   const c = _finCobPorId(el); if(!c) return;
-  const p = c.profiles || {};
-  const nome = p.nome_completo || p.apelido || 'aluno';
+  const nome = _cobNome(c);   // v617
   const removerLocal = ()=>{
     const idx = (_finCobrancas||[]).findIndex(x => String(x.id) === String(c.id));
     if(idx >= 0) _finCobrancas.splice(idx, 1);
@@ -12880,9 +12986,8 @@ function _finCategoriaEditSheet(c, onDone){
 // Cobrança — marcar paga / isenta / cancelada
 // v509: aceita onDone(patch) callback pra optimistic update no chamador
 function _finCobrancaSheet(c, onDone){
-  const p = c.profiles || {};
-  // v585: regra ERP — nome completo primeiro.
-  const nome = p.nome_completo || p.apelido || 'aluno';
+  // v585: regra ERP — nome completo primeiro. v617: fallback avulso.
+  const nome = _cobNome(c);
   const vencTxt = c.venc ? (c.venc.slice(8,10)+'/'+c.venc.slice(5,7)+'/'+c.venc.slice(0,4)) : '—';
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Cobrança de ${safeAttr(nome)}">
     <div class="sheet-grip"></div>
@@ -15066,8 +15171,12 @@ function _gradeHorarios(turmas){
   });
   wrap.appendChild(table);
   // ---------- MOBILE: horas em cima, dias na esquerda ----------
+  // v605: colunas de HORA com largura fixa (72px) — antes minmax(0,1fr) espremia
+  // "17:30" e "ADULTO 16+" a ilegivel no viewport 375px. Grade agora e' larga o
+  // suficiente pra chip caber, e `.grade-wrap` overflow-x:auto deixa rolar
+  // horizontalmente. Coluna dos DIAS vira sticky no CSS pra nao perder referencia.
   const tableM = el('<div class="grade grade-mobile"></div>');
-  tableM.style.gridTemplateColumns = `44px repeat(${horas.length}, minmax(0,1fr))`;
+  tableM.style.gridTemplateColumns = `44px repeat(${horas.length}, 72px)`;
   tableM.appendChild(el('<div class="g-h g-corner"></div>'));
   horas.forEach((h,i)=> tableM.appendChild(el(`<div class="g-h${i%2===1?' g-zebra':''}">${safeTxt(h)}</div>`)));
   dias.forEach(([d,lbl])=>{
@@ -15544,7 +15653,11 @@ _dlgRegister('gradAbrirFicha', (elm) => {
 });
 
 function _gradAptosSection(w){
-  const PROXIMOS_PCT = 0.8;   // >= 80% da meta = "quase la" (v397). Ajustavel aqui.
+  // v607: threshold "proximo a graduar" agora vem de academyConfig.proximosPct
+  // (fallback 0.8). Editavel no sheet "Meta de aulas por faixa" no Painel do professor.
+  const PROXIMOS_PCT = (DB.academyConfig && typeof DB.academyConfig.proximosPct === 'number'
+    && DB.academyConfig.proximosPct > 0 && DB.academyConfig.proximosPct < 1)
+    ? DB.academyConfig.proximosPct : 0.8;
   const cand = _profAlunosArr().map(a=>({a, s:_prontidaoGrad(a)}));
   const _pct = e => e.meta > 0 ? e.tem / e.meta : 0;
   // Aptos (>=100%) e Próximos (80-99%) — mutex por eixo, mas um aluno pode estar em
