@@ -58,8 +58,33 @@
     console.error('[supabase.js] biblioteca @supabase/supabase-js não carregada — adapter inativo.');
     return;
   }
+  // v646: storage customizado pra suportar "Manter conectado".
+  // Marcado (padrão): tokens em localStorage — sessão sobrevive fechar/abrir browser.
+  // Desmarcado: sessionStorage — tokens morrem ao fechar a aba, exigindo login novo.
+  // Legado (chave ausente): mantém comportamento antigo (localStorage) pra nao
+  // deslogar quem ja estava logado quando o feature entrou.
+  const _authStorage = {
+    getItem: (k) => {
+      try {
+        const remember = global.localStorage.getItem('yama.remember');
+        const store = remember === '0' ? global.sessionStorage : global.localStorage;
+        return store.getItem(k);
+      } catch (_) { return null; }
+    },
+    setItem: (k, v) => {
+      try {
+        const remember = global.localStorage.getItem('yama.remember');
+        const store = remember === '0' ? global.sessionStorage : global.localStorage;
+        store.setItem(k, v);
+      } catch (_) {}
+    },
+    removeItem: (k) => {
+      try { global.localStorage.removeItem(k); } catch (_) {}
+      try { global.sessionStorage.removeItem(k); } catch (_) {}
+    },
+  };
   const SB = global.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: _authStorage },
   });
   global.SB = SB;
 

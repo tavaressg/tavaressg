@@ -5790,6 +5790,13 @@ function renderAuth(){
   form.appendChild(pwEl);
   // v552: migrado pra event delegation (ver _TELAS_MORPH). Os campos são lidos
   // por id no momento do clique, não por closure.
+  // v646: "Manter conectado". Marcado (padrão) = sessão persiste entre reinícios do browser.
+  // Desmarcado = tokens em sessionStorage, morre ao fechar a aba. Lido no click de Entrar.
+  const remLast = (()=>{ try{ return localStorage.getItem('yama.remember') !== '0'; }catch(_){ return true; } })();
+  form.appendChild(el(`<label class="auth-remember">
+    <input type="checkbox" id="a-remember" ${remLast?'checked':''}>
+    <span>Manter conectado neste aparelho</span>
+  </label>`));
   form.appendChild(el('<button class="btn-register auth-btn" data-click="authEntrar">Entrar</button>'));
   form.appendChild(el('<div class="auth-note">Use o e-mail e a senha entregues pela academia. Caso não lembre, seu professor pode gerar uma nova a qualquer momento.</div>'));
   v.appendChild(form);
@@ -5801,9 +5808,13 @@ function renderAuth(){
 _dlgRegister('authEntrar', async (el) => {
   const em = document.getElementById('a-email');
   const pw = document.getElementById('a-pw');
+  const rem = document.getElementById('a-remember');
   const e = em ? em.value.trim() : '';
   const p = pw ? pw.value : '';
   if(!e || !p){ toast('Preencha e-mail e senha'); return; }
+  // v646: grava a preferência ANTES de signIn — o storage customizado do supabase-js
+  // le essa flag no primeiro setItem do token pra decidir onde persistir.
+  try { localStorage.setItem('yama.remember', (rem && rem.checked===false) ? '0' : '1'); } catch(_){}
   el.disabled = true; el.textContent = 'Entrando…';
   try{
     const { user } = await sbAuth.signIn(e, p);
