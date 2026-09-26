@@ -5791,7 +5791,7 @@ function renderAuth(){
   // v552: migrado pra event delegation (ver _TELAS_MORPH). Os campos são lidos
   // por id no momento do clique, não por closure.
   form.appendChild(el('<button class="btn-register auth-btn" data-click="authEntrar">Entrar</button>'));
-  form.appendChild(el('<div class="auth-note">🥋 Use o e-mail e a senha entregues pela academia. Esqueceu a senha? Fale com o professor — ele reseta pelo painel. Você troca a senha no primeiro acesso.</div>'));
+  form.appendChild(el('<div class="auth-note">Use o e-mail e a senha entregues pela academia. Caso não lembre, seu professor pode gerar uma nova a qualquer momento.</div>'));
   v.appendChild(form);
   return v;
 }
@@ -16915,15 +16915,15 @@ function _dadosAcademiaSheet(){
 /* v436 — reset de senha de UM aluno. Duas etapas de propósito: a primeira tela avisa o
    que isso significa (quem sabe a senha entra na conta e vê o diário — dado que a RLS
    nega ao professor), a segunda mostra a senha UMA vez. Não guardamos a senha em lugar
-   nenhum: some ao fechar a sheet. Preferir sempre "Esqueceu a senha?" quando o e-mail
-   do aluno funcionar — lá o professor nunca conhece a senha. */
+   nenhum: some ao fechar a sheet. v643: passou a ser o ÚNICO caminho de reset — o
+   fluxo por e-mail ("Esqueceu a senha?") foi removido; o professor gera aqui e passa. */
 function _resetarSenhaSheet(a){
   const nome = _nomeInst(a);
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Redefinir senha">
     <div class="sheet-grip"></div>
     <div class="sheet-title">Redefinir a senha de ${safeTxt(nome)}?</div>
     <div class="sheet-desc">Uma senha nova e aleatória será gerada. A senha atual do aluno <b>deixa de funcionar na hora</b>, e ele terá que criar uma senha própria no primeiro acesso.</div>
-    <div class="auth-note" style="margin:10px 0 4px">⚠️ Enquanto o aluno não trocar, <b>quem souber essa senha consegue entrar na conta dele</b> e ver o diário (treinos, notas, lesões). Use só quando não der pra enviar o link por e-mail. A ação fica registrada.</div>
+    <div class="auth-note" style="margin:10px 0 4px">⚠️ Enquanto o aluno não trocar, <b>quem souber essa senha consegue entrar na conta dele</b> e ver o diário (treinos, notas, lesões). A ação fica registrada.</div>
     <button class="btn-save" id="rs-go" style="margin-top:12px">Gerar nova senha</button>
     <button class="sheet-cancel" id="rs-close">Cancelar</button>
   </div></div>`);
