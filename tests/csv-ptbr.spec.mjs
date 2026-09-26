@@ -49,7 +49,7 @@ const sandbox = {
 new Function(...Object.keys(sandbox), corpoExp + '\nreturn _finExportCSV;')(...Object.values(sandbox))(
   {
     meses: Array.from({ length: 12 }, (_, i) => ({ receita: 1000 + i, despesa: 250.5, saldo: 749.5 + i })),
-    receitasPorCategoria: { 'Mensalidade': 12000, 'Venda; loja': 340.25 },
+    receitasPorTipo: { 'Mensalidade': 12000, 'Venda; loja': 340.25 },
     despesasPorCategoria: { 'Aluguel': 9000 },
   },
   2026

@@ -5406,7 +5406,9 @@ function _imgProduto(url, w){
   if(!url || typeof url !== 'string') return url;
   const t = url.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
   if(t === url) return url;   // não é URL do Supabase (seed local, etc)
-  return t + (t.includes('?')?'&':'?') + 'width=' + (w||600) + '&quality=80';
+  // resize=contain: encaixa dentro do width SEM cortar. Default 'cover' cropava as
+  // laterais da camiseta. quality=80 mantém compressão. `width` age como limite maior.
+  return t + (t.includes('?')?'&':'?') + 'width=' + (w||600) + '&quality=80&resize=contain';
 }
 
 /* Reduz uma foto no cliente antes do upload — 1200px no lado maior, JPEG
@@ -5438,7 +5440,7 @@ function _prodImgNode(url){
   const img = new Image();
   img.alt=''; img.decoding='async'; img.loading='lazy';
   if(!_prodImgOK.has(url)) img.setAttribute('data-fallback','remove');
-  img.addEventListener('load', ()=> _prodImgOK.add(url), { once:true });
+  img.onload = ()=> _prodImgOK.add(url);
   img.src = _imgProduto(url, 600);
   return img;
 }
@@ -5458,39 +5460,39 @@ function _buildHeroGallery(heroEl, p){
   if(!heroEl) return;
   const candidatas = [p.img, ...(Array.isArray(p.imgs) ? p.imgs : [])].filter(Boolean);
   if(candidatas.length <= 1) return;   // 0 ou 1 foto → foto única já renderizada, nada a fazer
-  let done = 0; const ok = new Array(candidatas.length).fill(null);
-  const finalize = ()=>{
-    const urls = ok.filter(Boolean);
-    if(urls.length <= 1) return;   // só 1 (ou 0) foto válida → mantém a foto única
-    const slides = urls.map((u,i)=>`<img src="${safeAttr(_imgProduto(u, 900))}" alt="" loading="${i===0?'eager':'lazy'}">`).join('');
-    const dots   = urls.map((_,i)=>`<span class="${i===0?'on':''}"></span>`).join('');
-    heroEl.querySelectorAll('img').forEach(x=>x.remove());   // tira a foto única
-    heroEl.classList.add('has-carousel','has-img');
-    const frag = document.createElement('div');
-    frag.innerHTML = `<div class="hero-slides">${slides}</div><div class="hero-dots">${dots}</div>`;
-    while(frag.firstChild) heroEl.appendChild(frag.firstChild);
-    const slidesEl = heroEl.querySelector('.hero-slides');
-    // v459: força alinhamento inicial no slide 0 — iOS PWA às vezes deixa scroll
-    // fora do snap quando conteúdo é montado dinamicamente. Sem isso o carrossel
-    // pode nascer em posição intermediária (bug do print: dot 2 aceso, foto meio a meio).
-    requestAnimationFrame(()=>{ slidesEl.scrollTo({ left: 0, behavior: 'auto' }); });
-    // v459: dot só reflete slide quando scroll está "quase snapped" (tolerância 10%).
-    // Evita flip prematuro do dot no meio do gesto — Math.round(0.5)=1 antes do snap
-    // completar acendia o dot 2 com só metade da foto 2 visível.
-    slidesEl.addEventListener('scroll', ()=>{
-      const raw = slidesEl.scrollLeft / (slidesEl.clientWidth||1);
-      const i = Math.round(raw);
-      if (Math.abs(raw - i) < 0.1){
-        heroEl.querySelectorAll('.hero-dots span').forEach((d,j)=> d.classList.toggle('on', j===i));
+  // v641: monta o carrossel na hora, sem probe. A probe antes de montar somava
+  // 1-2s de espera (aguardava TODAS terminarem). Agora cada <img> se auto-remove
+  // via onerror se a URL falhar — o dot correspondente sai junto. Zero delay em
+  // fotos válidas, zero dot-fantasma em URLs quebradas.
+  const slides = candidatas.map((u,i)=>`<img src="${safeAttr(_imgProduto(u, 900))}" alt="" data-slide-i="${i}" loading="${i===0?'eager':'lazy'}">`).join('');
+  const dots   = candidatas.map((_,i)=>`<span class="${i===0?'on':''}" data-dot-i="${i}"></span>`).join('');
+  heroEl.querySelectorAll('img').forEach(x=>x.remove());
+  heroEl.classList.add('has-carousel','has-img');
+  const frag = document.createElement('div');
+  frag.innerHTML = `<div class="hero-slides">${slides}</div><div class="hero-dots">${dots}</div>`;
+  while(frag.firstChild) heroEl.appendChild(frag.firstChild);
+  const slidesEl = heroEl.querySelector('.hero-slides');
+  // Se qualquer <img> falhar, remove seu slide + dot correspondente (índice bate).
+  heroEl.querySelectorAll('.hero-slides img').forEach(img => {
+    img.onerror = () => {
+      const i = img.getAttribute('data-slide-i');
+      img.remove();
+      const dot = heroEl.querySelector(`.hero-dots [data-dot-i="${i}"]`);
+      if (dot) dot.remove();
+      // Se sobrar 1 ou 0 slides, sai do modo carrossel
+      if (heroEl.querySelectorAll('.hero-slides img').length <= 1) {
+        heroEl.classList.remove('has-carousel');
       }
-    }, { passive:true });
-  };
-  candidatas.forEach((u,i)=>{
-    const im = new Image();
-    im.onload  = ()=>{ ok[i]=u; if(++done===candidatas.length) finalize(); };
-    im.onerror = ()=>{ if(++done===candidatas.length) finalize(); };
-    im.src = _imgProduto(u, 200);   // probe pequena (só pra saber se existe)
+    };
   });
+  requestAnimationFrame(()=>{ slidesEl.scrollTo({ left: 0, behavior: 'auto' }); });
+  slidesEl.onscroll = () => {
+    const raw = slidesEl.scrollLeft / (slidesEl.clientWidth||1);
+    const i = Math.round(raw);
+    if (Math.abs(raw - i) < 0.1){
+      heroEl.querySelectorAll('.hero-dots span').forEach((d,j)=> d.classList.toggle('on', j===i));
+    }
+  };
 }
 // Ícone "galeria" no card da grade: só aparece se ≥1 foto EXTRA realmente carregar (probe).
 // Evita prometer galeria em produto cujas fotos extras ainda não subiram ao host.
@@ -11980,90 +11982,96 @@ function _finDashPizzas(resumo){
   box.appendChild(_finDashPizza('Despesa por tipo', resumo.despesasPorCategoria, ['#e5392f','#f97316','#f59e0b','#dc2626','#9333ea']));
   return box;
 }
+// State fora do closure: WeakMap por card. Necessário pra passar no morph guard
+// (nenhum .onclick=/addEventListener na cadeia do dashboard) — handlers via
+// _dlgRegister vivem fora da cadeia.
+const _finpzState = new WeakMap();
 function _finDashPizza(titulo, dados, cores, drillMap){
   const card = el('<div class="block finpz" style="padding:12px;perspective:900px"></div>');
   const stage = el('<div class="finpz-stage"></div>');
   card.appendChild(stage);
-  let curTitulo = titulo, curDados = dados, drilled = null, animating = false;
-  const paint = () => {
-    stage.innerHTML = '';
-    // Header: botão "Voltar" grande e acessível quando em drill
-    if (drilled) {
-      const head = el(`<div class="finpz-head">
-        <button class="finpz-back" aria-label="Voltar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
-          <span>Voltar</span>
-        </button>
-        <div class="finpz-title">${safeTxt(curTitulo)}</div>
-      </div>`);
-      head.querySelector('button').onclick = () => flip(() => { drilled=null; curTitulo=titulo; curDados=dados; });
-      stage.appendChild(head);
-    } else {
-      stage.appendChild(el(`<div class="finpz-title">${safeTxt(curTitulo)}</div>`));
-    }
-    const entries = Object.entries(curDados||{}).sort((a,b)=>b[1]-a[1]);
-    if(!entries.length){ stage.appendChild(el('<div style="color:var(--muted);font-size:12px;padding:8px 0">Sem dados</div>')); return; }
-    const total = entries.reduce((s,[,v])=>s+v,0) || 1;
-    const R=40, CX=50, CY=50;
-    let ang = -Math.PI/2;
-    const paths = entries.map(([nome, v], i)=>{
-      const frac = v/total;
-      const a2 = ang + frac*Math.PI*2;
-      const large = frac > 0.5 ? 1 : 0;
-      const x1 = CX + R*Math.cos(ang), y1 = CY + R*Math.sin(ang);
-      const x2 = CX + R*Math.cos(a2),  y2 = CY + R*Math.sin(a2);
-      const d = `M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
-      ang = a2;
-      const drillable = !drilled && drillMap && drillMap[nome];
-      return `<path d="${d}" fill="${cores[i%cores.length]}" ${drillable?'style="cursor:pointer" data-drill="'+safeAttr(nome)+'"':''}/>`;
-    }).join('');
-    const svg = `<svg viewBox="0 0 100 100" style="width:100%;max-width:120px;height:auto;display:block;margin:0 auto">${paths}<circle cx="50" cy="50" r="18" fill="var(--card,#fff)" style="pointer-events:none"/></svg>`;
-    stage.insertAdjacentHTML('beforeend', svg);
-    const leg = el('<div style="margin-top:8px"></div>');
-    entries.slice(0,5).forEach(([nome, v], i)=>{
-      const pct = Math.round(v/total*100);
-      const drillable = !drilled && drillMap && drillMap[nome];
-      const row = el(`<div class="finpz-legrow${drillable?' finpz-drillable':''}" ${drillable?'title="Ver detalhes"':''}>
-        <span class="finpz-dot" style="background:${cores[i%cores.length]}"></span>
-        <span class="finpz-lbl">${safeTxt(nome)}${drillable?' ›':''}</span>
-        <span class="finpz-pct">${pct}%</span>
-      </div>`);
-      if(drillable) row.onclick = () => flip(() => { drilled=nome; curTitulo=drillMap[nome].label; curDados=drillMap[nome].dados; });
-      leg.appendChild(row);
-    });
-    stage.appendChild(leg);
-    if(!drilled && drillMap){
-      stage.querySelectorAll('path[data-drill]').forEach(p => {
-        p.addEventListener('click', () => {
-          const k = p.getAttribute('data-drill');
-          if(drillMap[k]) flip(() => { drilled=k; curTitulo=drillMap[k].label; curDados=drillMap[k].dados; });
-        });
-      });
-    }
-  };
-  // Flip 3D: rotateY 0 → 90 → swap state + repaint → -90 → 0. Duração total ~380ms.
-  const flip = (mutate) => {
-    if (animating) { mutate(); paint(); return; }
-    animating = true;
-    stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
-    stage.style.transform = 'rotateY(90deg)';
-    stage.style.opacity = '0';
-    setTimeout(() => {
-      mutate();
-      paint();
-      stage.style.transition = 'none';
-      stage.style.transform = 'rotateY(-90deg)';
-      requestAnimationFrame(() => {
-        stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
-        stage.style.transform = 'rotateY(0deg)';
-        stage.style.opacity = '1';
-        setTimeout(() => { animating = false; }, 210);
-      });
-    }, 200);
-  };
-  paint();
+  _finpzState.set(card, {
+    stage, titulo, dados, cores, drillMap: drillMap||{},
+    curTitulo: titulo, curDados: dados, drilled: null, animating: false,
+  });
+  _finpzPaint(card);
   return card;
 }
+function _finpzPaint(card){
+  const st = _finpzState.get(card); if (!st) return;
+  st.stage.innerHTML = '';
+  if (st.drilled){
+    st.stage.appendChild(el(`<div class="finpz-head">
+      <button class="finpz-back" data-click="finpzBack" aria-label="Voltar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        <span>Voltar</span>
+      </button>
+      <div class="finpz-title">${safeTxt(st.curTitulo)}</div>
+    </div>`));
+  } else {
+    st.stage.appendChild(el(`<div class="finpz-title">${safeTxt(st.curTitulo)}</div>`));
+  }
+  const entries = Object.entries(st.curDados||{}).sort((a,b)=>b[1]-a[1]);
+  if(!entries.length){ st.stage.appendChild(el('<div style="color:var(--muted);font-size:12px;padding:8px 0">Sem dados</div>')); return; }
+  const total = entries.reduce((s,[,v])=>s+v,0) || 1;
+  const R=40, CX=50, CY=50;
+  let ang = -Math.PI/2;
+  const paths = entries.map(([nome, v], i)=>{
+    const frac = v/total;
+    const a2 = ang + frac*Math.PI*2;
+    const large = frac > 0.5 ? 1 : 0;
+    const x1 = CX + R*Math.cos(ang), y1 = CY + R*Math.sin(ang);
+    const x2 = CX + R*Math.cos(a2),  y2 = CY + R*Math.sin(a2);
+    const d = `M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+    ang = a2;
+    const drillable = !st.drilled && st.drillMap[nome];
+    return `<path d="${d}" fill="${st.cores[i%st.cores.length]}" ${drillable?'style="cursor:pointer" data-click="finpzDrill" data-key="'+safeAttr(nome)+'"':''}/>`;
+  }).join('');
+  st.stage.insertAdjacentHTML('beforeend', `<svg viewBox="0 0 100 100" style="width:100%;max-width:120px;height:auto;display:block;margin:0 auto">${paths}<circle cx="50" cy="50" r="18" fill="var(--card,#fff)" style="pointer-events:none"/></svg>`);
+  const leg = el('<div style="margin-top:8px"></div>');
+  entries.slice(0,5).forEach(([nome, v], i)=>{
+    const pct = Math.round(v/total*100);
+    const drillable = !st.drilled && st.drillMap[nome];
+    leg.appendChild(el(`<div class="finpz-legrow${drillable?' finpz-drillable':''}" ${drillable?'data-click="finpzDrill" data-key="'+safeAttr(nome)+'" title="Ver detalhes"':''}>
+      <span class="finpz-dot" style="background:${st.cores[i%st.cores.length]}"></span>
+      <span class="finpz-lbl">${safeTxt(nome)}${drillable?' ›':''}</span>
+      <span class="finpz-pct">${pct}%</span>
+    </div>`));
+  });
+  st.stage.appendChild(leg);
+}
+// Flip 3D fora da cadeia do dashboard — só é chamado de handlers _dlgRegister.
+function _finpzFlip(card, mutate){
+  const st = _finpzState.get(card); if (!st) return;
+  if (st.animating) { mutate(st); _finpzPaint(card); return; }
+  st.animating = true;
+  st.stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
+  st.stage.style.transform = 'rotateY(90deg)';
+  st.stage.style.opacity = '0';
+  setTimeout(() => {
+    mutate(st);
+    _finpzPaint(card);
+    st.stage.style.transition = 'none';
+    st.stage.style.transform = 'rotateY(-90deg)';
+    requestAnimationFrame(() => {
+      st.stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
+      st.stage.style.transform = 'rotateY(0deg)';
+      st.stage.style.opacity = '1';
+      setTimeout(() => { st.animating = false; }, 210);
+    });
+  }, 200);
+}
+_dlgRegister('finpzBack', (elm) => {
+  const card = elm.closest('.finpz'); if (!card) return;
+  _finpzFlip(card, (st) => { st.drilled = null; st.curTitulo = st.titulo; st.curDados = st.dados; });
+});
+_dlgRegister('finpzDrill', (elm) => {
+  const card = elm.closest('.finpz'); if (!card) return;
+  const key = elm.getAttribute('data-key');
+  const st = _finpzState.get(card);
+  if (!st || !st.drillMap[key]) return;
+  _finpzFlip(card, (s) => { s.drilled = key; s.curTitulo = s.drillMap[key].label; s.curDados = s.drillMap[key].dados; });
+});
 
 // Tabela inadimplentes detalhada
 function _finDashInadTabela(inad){
