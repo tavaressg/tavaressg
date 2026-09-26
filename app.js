@@ -17372,18 +17372,16 @@ function _auditUsoPintar(){
 /* v651: Auditoria de logins do Supabase — Edge Function auditoria-logins.
    Só o dono vê. Lista entradas/saídas/falhas com email, IP, timestamp. */
 let _auditLoginsState = { filtro:'todos', rows:null, loading:false, erro:null };
+// v652/0065: tipos normalizados no drena (login_events.tipo)
 const _AUTH_ACOES = {
-  login: '✅ Login OK',
-  logout: '🚪 Logout',
-  user_signedup: '➕ Signup',
-  user_recovery_requested: '🔑 Reset requisitado',
-  user_repeated_signup: '⚠️ Signup duplicado',
-  user_confirmation_requested: '📧 Confirmação pedida',
-  token_refreshed: '🔄 Token refresh',
-  user_updated_password: '🔒 Senha trocada',
-  factor_challenged: '📱 MFA challenge',
-  factor_verified: '📱 MFA OK',
-  user_invited: '📨 Convidado',
+  login:           '✅ Login',
+  logout:          '🚪 Logout',
+  recovery:        '🔑 Reset de senha requisitado',
+  password_change: '🔒 Senha trocada',
+  reauth:          '🔁 Reautenticação',
+  mfa_challenge:   '📱 MFA challenge',
+  mfa_verified:    '📱 MFA verificado',
+  signup:          '➕ Signup',
 };
 _dlgRegister('auditLoginsVoltar', () => { DB.auditLoginsOpen = false; render(); window.scrollTo(0,0); });
 _dlgRegister('auditLoginsChip', (elm) => {
@@ -17431,7 +17429,7 @@ function _auditLoginsPintar(){
   const body = document.getElementById('alg-body'); if (!body) return;
   const chips = document.getElementById('alg-chips'); if (chips) {
     const chip = (lbl,v)=>`<button class="et-chip ${_auditLoginsState.filtro===v?'on':''}" data-click="auditLoginsChip" data-v="${v}">${lbl}</button>`;
-    chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('Logouts','logout') + chip('Reset pedido','user_recovery_requested') + chip('Senha trocada','user_updated_password');
+    chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('Logouts','logout') + chip('Reset pedido','recovery') + chip('Senha trocada','password_change') + chip('MFA','mfa_verified');
   }
   const cnt = document.getElementById('alg-count');
   if (cnt) cnt.textContent = _auditLoginsState.rows ? `${_auditLoginsState.rows.length} evento${_auditLoginsState.rows.length===1?'':'s'}` : '';
