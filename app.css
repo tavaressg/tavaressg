@@ -1788,9 +1788,24 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* ===== Relatórios: barras de distribuição ===== */
 .bar-row{display:flex;align-items:center;gap:10px;padding:7px 0}
 .bar-row .bar-lbl{font-size:12.5px;font-weight:700;color:var(--ink);width:64px;flex:none}
+.bar-row .bar-lbl-w{width:116px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bar-row .bar-track{flex:1;height:10px;background:var(--field);border-radius:99px;overflow:hidden}
 .bar-row .bar-fill{display:block;height:100%;border-radius:99px}
 .bar-row .bar-n{font-size:13px;font-weight:800;color:var(--ink);width:22px;text-align:right;flex:none}
+.bar-row .bar-n-w{width:140px;font-size:12px}
+.bar-row .bar-sub{font-style:normal;font-weight:600;color:var(--muted);font-size:11px}
+/* Distribuição de faixas — pílulas de faixa etária + cabeçalho de grupo */
+.dist-et{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:4px 0 10px}
+.dist-et-pill{background:var(--field);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+.dist-et-pill b{font-size:17px;font-weight:800;color:var(--ink);line-height:1}
+.dist-et-pill span{font-size:11px;color:var(--muted);font-weight:700}
+.dist-et-pill i{font-size:11px;font-style:normal;color:var(--red);font-weight:800}
+.dist-grp-h{display:flex;justify-content:space-between;align-items:baseline;margin:10px 0 2px;padding-top:8px;border-top:1px solid var(--line);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--muted)}
+.dist-grp-h b{color:var(--ink);font-size:13px;letter-spacing:0}
+@media (max-width:520px){
+  .dist-et{grid-template-columns:repeat(2,1fr)}
+  .bar-row .bar-lbl-w{width:96px}
+}
 .alert-row.good{background:var(--green-tint)}
 
 /* ===== Onboarding minimalista (conta provisionada pelo professor) ===== */
@@ -2056,20 +2071,47 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .xls-tbl th,.xls-tbl td{padding:8px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
 .xls-tbl thead th{position:sticky;top:0;background:var(--field);font-size:11px;font-weight:800;
   text-transform:uppercase;letter-spacing:.3px;color:var(--muted);z-index:2}
+.xls-tbl thead th.xls-th{cursor:pointer;user-select:none}
+.xls-tbl thead th.xls-th:hover{color:var(--ink)}
+.xls-tbl thead th.xls-th.on{color:var(--red)}
 .xls-tbl tbody tr{cursor:pointer}
 .xls-tbl tbody tr:hover{background:var(--hover)}
 .xls-tbl td.xls-act{padding:4px 8px}
+/* Financeiro · Pizza interativa com drill-down 3D */
+.finpz{overflow:hidden}
+.finpz-stage{transform-style:preserve-3d;will-change:transform,opacity}
+.finpz-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.finpz-title{font-weight:700;font-size:12.5px;color:var(--ink);flex:1;margin-bottom:8px}
+.finpz-head .finpz-title{margin-bottom:0}
+.finpz-back{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:1px solid var(--line);background:var(--field);color:var(--ink);font-weight:700;font-size:11.5px;border-radius:99px;cursor:pointer;transition:background 120ms,transform 120ms}
+.finpz-back:hover{background:var(--card);transform:translateX(-1px)}
+.finpz-back:active{transform:scale(.95)}
+.finpz-legrow{display:flex;align-items:center;font-size:11px;padding:3px 4px;margin:0 -4px;border-radius:6px;transition:background 120ms}
+.finpz-legrow.finpz-drillable{cursor:pointer}
+.finpz-legrow.finpz-drillable:hover{background:var(--field)}
+.finpz-legrow.finpz-drillable .finpz-lbl{color:var(--red);font-weight:700}
+.finpz-dot{width:8px;height:8px;border-radius:2px;margin-right:6px;flex-shrink:0}
+.finpz-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.finpz-pct{color:var(--muted);margin-left:4px}
+.finpz svg path[data-drill]{transition:filter 120ms}
+.finpz svg path[data-drill]:hover{filter:brightness(1.08)}
+/* Cobertura do catálogo · lista de técnicas no idioma da Retenção (bar-rows) */
+.bar-row.bar-row-tec{padding:10px 4px;gap:12px;align-items:center}
+.bar-row .bar-lbl-tec{width:200px;flex:none;line-height:1.25}
+.bar-row .bar-n-tec{width:auto;min-width:160px;text-align:right;white-space:nowrap;font-size:13px}
+@media (max-width:520px){
+  .bar-row .bar-lbl-tec{width:130px}
+  .bar-row .bar-n-tec{min-width:110px;font-size:12px}
+}
 
 /* ---- Loja Yama · ticker: emoji só quando não tem foto ---- */
 .ld-img .ld-emoji{position:relative;z-index:1}
 .ld-img.has-img .ld-emoji{display:none}
 
 /* ---- Loja Yama · ticker rolante contínuo (aba Mais) ---- */
-.ld-ticker{overflow-x:auto;overflow-y:hidden;position:relative;margin:6px -12px 0;padding:4px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);cursor:grab;user-select:none;-webkit-user-select:none}
+.ld-ticker{overflow:hidden;position:relative;margin:6px -12px 0;padding:4px 0;mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:pan-y}
 .ld-ticker:active{cursor:grabbing}
-.ld-ticker::-webkit-scrollbar{display:none}
-.ld-ticker::-webkit-scrollbar{display:none}
-.ld-track{display:flex;gap:12px;width:max-content;padding:0 12px}
+.ld-track{display:flex;gap:12px;width:max-content;padding:0 12px;will-change:transform;transform:translate3d(0,0,0)}
 .ld-track-single{width:100%;justify-content:center}
 /* upload de fotos do produto (form do professor) */
 .pf-fotos{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}

@@ -390,6 +390,16 @@
           isProfessor: prof.data.role === 'professor' || prof.data.role === 'dono',
           provisionedByProf: true,  // conta criada pela academia → onboarding minimal + faixa/grau read-only
         });
+        // Restaura o "Modo professor" e a aba entre reloads (per-user, local). Sem isso,
+        // F5 na gestão jogava o professor de volta pra visão de aluno / Painel.
+        if (d.eu.isProfessor) {
+          try {
+            const saved = localStorage.getItem('yama.role.' + (prof.data.id || ''));
+            if (saved === 'professor' || saved === 'aluno') d.role = saved;
+            const savedNav = localStorage.getItem('yama.navProf.' + (prof.data.id || ''));
+            if (savedNav) d.navProf = savedNav;
+          } catch (_) {}
+        }
         // Cutover: substitui o SEED (Prof. Ricardo Maciel / Yama) pelos dados reais.
         // Sem isso o cabeçalho da gestão saudava com o nome fictício do mock.
         d.professor = Object.assign({}, d.professor, {
@@ -1406,7 +1416,9 @@
       const dir = (typeof prodId === 'string' && prodId.length >= 32) ? prodId : 'novo';
       const path = `${acad}/${dir}/${Date.now()}.jpg`;
       const { error } = await SB.storage.from('produtos').upload(path, blob, {
-        contentType: blob.type || 'image/jpeg', upsert: false, cacheControl: '86400',
+        // path tem timestamp único (v25) → nunca conflita, então cache pode ser imutável.
+        // Segunda visita: foto vem do disco do browser, zero rede.
+        contentType: blob.type || 'image/jpeg', upsert: false, cacheControl: '31536000, immutable',
       });
       if (error) throw error;
       const { data } = SB.storage.from('produtos').getPublicUrl(path);
@@ -1926,30 +1938,45 @@
     getFinResumoAnual: wrap(async (ano) => {
       const desde = ano + '-01-01';
       const ate   = ano + '-12-31';
-      const [cobs, desps, cats] = await Promise.all([
-        SB.from('mensalidades').select('mes,valor,status,venc,data_pagamento,categoria_id')
+      const [cobs, desps, cats, alunoPlano] = await Promise.all([
+        SB.from('mensalidades').select('mes,valor,status,venc,data_pagamento,categoria_id,avulsa,pedido_id,user_id')
           .gte('venc', desde).lte('venc', ate),
         SB.from('despesas').select('data_lancamento,valor,status,data_pagamento,categoria_id')
           .gte('data_lancamento', desde).lte('data_lancamento', ate),
         SB.from('categorias_financeiro').select('id,nome,tipo'),
+        // Fase 2 correta: plano vem da MATRÍCULA (aluno_plano, 1 por aluno), não de
+        // contratos (que só existe pra fidelidade anual). Antes só 1% dos alunos batia.
+        SB.from('aluno_plano').select('user_id,planos(nome)'),
       ]);
+      const planoByUser = {};
+      (alunoPlano.data||[]).forEach(ap => { planoByUser[ap.user_id] = ap.planos?.nome; });
       const catNome = {}; (cats.data||[]).forEach(c => { catNome[c.id] = c.nome; });
-      // 12 meses inicializados
       const meses = Array.from({length:12}, (_,i)=> ({
         mes: (i+1).toString().padStart(2,'0'),
         receita: 0, despesa: 0, saldo: 0,
       }));
-      const recPorCat = {}, despPorCat = {};
-      const bump = (obj, cat, v) => {
-        const k = catNome[cat] || '(sem categoria)';
-        obj[k] = (obj[k]||0) + v;
-      };
+      // Fase 1: TIPO vem do schema (avulsa flag + tabela), não do categoria_id.
+      // `receitasPorCategoria` fica no retorno pra compat com consumidores antigos.
+      const recPorTipo = {}, recPorPlano = {}, despPorCat = {};
+      const bumpTipo = (k, v) => { recPorTipo[k] = (recPorTipo[k]||0) + v; };
       (cobs.data||[]).forEach(c => {
         if (c.status === 'pago' && c.data_pagamento) {
           const m = parseInt(c.data_pagamento.slice(5,7));
           const v = Number(c.valor)||0;
           if (m>=1 && m<=12) meses[m-1].receita += v;
-          bump(recPorCat, c.categoria_id, v);
+          if (c.pedido_id) {
+            // Fonte da verdade da venda: pedido_id (mesmo critério da UI em finCobrancas).
+            bumpTipo('Loja', v);
+          } else if (!c.avulsa) {
+            bumpTipo('Mensalidade', v);
+            // Fase 2: plano do ALUNO (matrícula), não do contrato.
+            const plano = planoByUser[c.user_id];
+            const chave = plano || '(sem plano)';
+            recPorPlano[chave] = (recPorPlano[chave]||0) + v;
+          } else {
+            const catNm = catNome[c.categoria_id];
+            bumpTipo(catNm || 'Avulso', v);
+          }
         }
       });
       (desps.data||[]).forEach(d => {
@@ -1957,11 +1984,12 @@
           const m = parseInt(d.data_pagamento.slice(5,7));
           const v = Number(d.valor)||0;
           if (m>=1 && m<=12) meses[m-1].despesa += v;
-          bump(despPorCat, d.categoria_id, v);
+          const k = catNome[d.categoria_id] || '(sem categoria)';
+          despPorCat[k] = (despPorCat[k]||0) + v;
         }
       });
       meses.forEach(m => { m.saldo = m.receita - m.despesa; });
-      return { meses, receitasPorCategoria: recPorCat, despesasPorCategoria: despPorCat };
+      return { meses, receitasPorTipo: recPorTipo, receitasPorPlano: recPorPlano, despesasPorCategoria: despPorCat };
     }),
 
     // Inadimplentes agregado por aluno (últimos N meses). Retorna nome + N cobranças

@@ -1355,8 +1355,8 @@ function _perfilCacheSetMini(dataUrl){
 }
 function _perfilCacheLimpar(uid){
   try{
-    if(uid){ localStorage.removeItem(_perfilCacheKey(uid)); return; }
-    Object.keys(localStorage).filter(k=> k.indexOf('yama.perfil.') === 0).forEach(k=> localStorage.removeItem(k));
+    if(uid){ localStorage.removeItem(_perfilCacheKey(uid)); localStorage.removeItem('yama.role.'+uid); localStorage.removeItem('yama.navProf.'+uid); return; }
+    Object.keys(localStorage).filter(k=> k.indexOf('yama.perfil.') === 0 || k.indexOf('yama.role.') === 0 || k.indexOf('yama.navProf.') === 0).forEach(k=> localStorage.removeItem(k));
   }catch(_){}
 }
 function _setSyncDot(ok){
@@ -2713,7 +2713,7 @@ function fecharRetro(){ DB.retroOpen=false; render(); }
 function renderRetro(){
   const r = DEMO ? DB.retro : retroStats();
   const v = el(`<div class="view"></div>`);
-  v.innerHTML = `<div class="flow-head"><div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharRetro">‹</div>
+  v.innerHTML = `<div class="flow-head"><div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharRetro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Seu ano no Jiu-Jitsu</div><div class="s">${r.ano} · Yama</div></div></div>`;
   const body = el(`<div class="retro-body"></div>`);
   body.appendChild(el(`<div class="retro-hero"><div class="rh-big">${r.treinos}</div><div class="rh-lbl">treinos em ${r.ano}</div></div>`));
@@ -3008,7 +3008,7 @@ function renderTreinoDetalhe(){
   if(!t){ fecharTreino(); return el(`<div class="view"></div>`); }
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharTreino">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharTreino"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">${t.titulo}</div><div class="s">${diaRelativo(t.data)} · ${fmtDataLonga(t.data)}</div></div>
   </div>`;
   const body = el(`<div class="flow-body" style="padding-bottom:40px"></div>`);
@@ -4371,30 +4371,23 @@ function abrirCartaoPerfil(){
    contra um orfao — a vitrine congelava e o rAF nunca terminava. O "segurar pra
    pausar" virou delegacao (pointerdown/up/cancel/leave em document). */
 let _ldTickerOn = false, _ldHeld = false;
+let _ldOffset = 0;   // px acumulado (subpixel) — aplicado via transform, aceita float
 function _lojaTickerStart(){
   if (_ldTickerOn) return;
   _ldTickerOn = true;
-  // v602: BUG antigo (v449 em diante). `ticker.scrollLeft += 0.4` nao movia NADA —
-  // o browser trunca scrollLeft fracionario pra inteiro (setar 0.4 ficava em 0),
-  // entao cada frame lia 0, somava 0.4, escrevia 0.4, browser truncava pra 0.
-  // Loop rodou "certinho" sem mover 1 pixel. Fix: acumulador em ponto flutuante,
-  // aplica no scrollLeft so' quando cruza o pixel inteiro. Ritmo alvo ~24px/s.
+  // v636: `scrollLeft` só aceita int → 0.4px/frame virava "move 1px a cada 2.5 frames"
+  // em ritmo irregular (a travadinha visível). transform3d aceita subpixel e roda no
+  // compositor GPU. Track duplicada resolve o loop: quando cruza metade, reseta.
   const PX_POR_FRAME = 0.4;
-  let acc = 0;
-  const step = () => {
+  const step = (ts) => {
     const ticker = document.getElementById('ld-ticker');
-    if (!ticker || !ticker.isConnected) { _ldTickerOn = false; acc = 0; return; }
+    if (!ticker || !ticker.isConnected) { _ldTickerOn = false; _ldOffset = 0; return; }
     const track = ticker.querySelector('.ld-track');
     if (track && !_ldHeld) {
-      acc += PX_POR_FRAME;
-      const px = Math.floor(acc);
-      if (px >= 1) {
-        acc -= px;
-        const half = track.scrollWidth / 2;
-        let next = ticker.scrollLeft + px;
-        if (next >= half) next -= half;   // loop infinito: volta pro comeco (track e' duplicada)
-        ticker.scrollLeft = next;
-      }
+      _ldOffset += PX_POR_FRAME;
+      const half = track.scrollWidth / 2;
+      if (half > 0 && _ldOffset >= half) _ldOffset -= half;
+      track.style.transform = `translate3d(${-_ldOffset}px,0,0)`;
     }
     requestAnimationFrame(step);
   };
@@ -4402,23 +4395,27 @@ function _lojaTickerStart(){
 }
 function _lojaTickerInstall(){
   const dentro = (ev) => ev.target && ev.target.closest && ev.target.closest('#ld-ticker');
-  // v597: click-and-drag no DESKTOP (mouse). Toque no mobile mantem o scroll nativo
-  // do overflow-x:auto — nao interceptamos pointerType!=='mouse' pra nao competir
-  // com o momentum touch. O rAF do auto-scroll ja pausa via _ldHeld enquanto arrasta.
-  let dragX = 0, dragScroll = 0, dragging = false, ticker = null, moved = 0, suppressClick = false;
+  // v636: drag agora mexe em `_ldOffset` (transform), não em scrollLeft. Habilita
+  // touch também — sem native scroll (ticker é overflow:hidden), o dedo controla
+  // o offset. rAF do auto-scroll pausa via _ldHeld enquanto arrasta.
+  let dragX = 0, dragOff = 0, dragging = false, ticker = null, moved = 0, suppressClick = false;
   document.addEventListener('pointerdown', (ev) => {
     if (!dentro(ev)) return;
     _ldHeld = true;
-    if (ev.pointerType === 'mouse'){
-      ticker = document.getElementById('ld-ticker'); if(!ticker) return;
-      dragging = true; dragX = ev.clientX; dragScroll = ticker.scrollLeft; moved = 0;
-      ticker.style.cursor = 'grabbing';
-    }
+    ticker = document.getElementById('ld-ticker'); if(!ticker) return;
+    dragging = true; dragX = ev.clientX; dragOff = _ldOffset; moved = 0;
+    if (ev.pointerType === 'mouse') ticker.style.cursor = 'grabbing';
   }, { passive:true });
   document.addEventListener('pointermove', (ev) => {
     if (!dragging || !ticker) return;
     const dx = ev.clientX - dragX;
-    ticker.scrollLeft = dragScroll - dx;
+    const track = ticker.querySelector('.ld-track');
+    if (!track) return;
+    const half = track.scrollWidth / 2;
+    let next = dragOff - dx;
+    if (half > 0) { if (next < 0) next += half; if (next >= half) next -= half; }
+    _ldOffset = next;
+    track.style.transform = `translate3d(${-_ldOffset}px,0,0)`;
     moved = Math.max(moved, Math.abs(dx));
   }, { passive:true });
   const soltar = () => {
@@ -4666,7 +4663,7 @@ function alunoPerfil(){
     // Usa <img> HTML direto (não o cache _prodImgNode) porque o cache tem 1 nó por URL e
     // appendChild MOVE o nó — clonar cada ocorrência mantém as fotos nos dois passes.
     const _mkCard = (p)=>{
-      const imgHTML = p.img ? `<img src="${safeAttr(p.img)}" alt="" loading="lazy" data-fallback="remove">` : '';
+      const imgHTML = p.img ? `<img src="${safeAttr(_imgProduto(p.img, 500))}" alt="" loading="lazy" data-fallback="remove">` : '';
       const card = el(`<div class="ld-card">
         <div class="ld-img${p.img?' has-img':''}" style="background:${safeAttr(p.cor)}">${imgHTML}<span class="ld-emoji">${safeTxt(p.emoji)}</span></div>
         <div class="ld-nm">${safeTxt(p.nome)}</div><div class="ld-pr">${moneyBR(p.preco)}</div></div>`);
@@ -5279,7 +5276,7 @@ async function presencaScan(){
 function _renderPhase1(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeFlow">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeFlow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Check-in</div>
       <div class="s">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div></div>
   </div>`;
@@ -5310,7 +5307,7 @@ function _renderPhase1(){
 function _renderPhase2(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeFlow">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeFlow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Registrar treino</div>
       <div class="s">${diasSem[hoje.getDay()]}, ${fmtData(hoje)}</div></div>
   </div>`;
@@ -5351,7 +5348,7 @@ function renderMeusPedidos(){
   _loadMeusPedidos();
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeMeusPedidos">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeMeusPedidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Meus pedidos</div><div class="s">Loja Yama</div></div>
   </div>`;
   const body = el('<div class="list" style="padding:16px 20px"></div>');
@@ -5388,7 +5385,7 @@ function carrinhoTotal(forma){
    imagem falhar, o listener global data-fallback remove o <img> e o emoji reaparece.
    Cards/miniaturas usam só a principal. Detalhe (hero) tem carrossel via _buildHeroGallery. */
 function _prodImgHTML(p){
-  return p.img ? `<img src="${safeAttr(p.img)}" alt="" loading="lazy" data-fallback="remove">` : '';
+  return p.img ? `<img src="${safeAttr(_imgProduto(p.img, 600))}" alt="" loading="lazy" data-fallback="remove">` : '';
 }
 /* Anti-flicker (v211): render() recria o DOM inteiro, então um <img> string nasce vazio e
    repinta (mostra o emoji atrás por 1 frame) a cada re-render do pai. Solução: cachear o
@@ -5401,6 +5398,40 @@ function _prodImgHTML(p){
 // decodificada via cache HTTP. URL ja provada dispensa o data-fallback (evita reintento
 // e desacopla do listener global). URL 404 vira decisao de dados: cai no emoji na
 // primeira tentativa e nunca mais tenta.
+/* Supabase Image Transformation: reescreve a URL do bucket `produtos` para o
+   endpoint /render/image, que entrega a foto redimensionada e recomprimida no
+   servidor. Retroativo — resolve as fotos velhas de 3-5MB sem reprocessar nada.
+   Ficha e ticker chamam com widths diferentes (card 600, hero 900). */
+function _imgProduto(url, w){
+  if(!url || typeof url !== 'string') return url;
+  const t = url.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+  if(t === url) return url;   // não é URL do Supabase (seed local, etc)
+  return t + (t.includes('?')?'&':'?') + 'width=' + (w||600) + '&quality=80';
+}
+
+/* Reduz uma foto no cliente antes do upload — 1200px no lado maior, JPEG
+   quality 0.85. Uma foto de 3MB do celular vira ~250KB. Se falhar (formato
+   estranho, canvas tainted), sobe o arquivo original — melhor lento que sem foto. */
+function _resizeProdutoFoto(file, maxSide, quality){
+  return new Promise(resolve=>{
+    if(!file || !file.type || !file.type.startsWith('image/')) return resolve(file);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      const W=img.naturalWidth, H=img.naturalHeight;
+      if(!W || !H || Math.max(W,H) <= (maxSide||1200)) return resolve(file);
+      const s = (maxSide||1200)/Math.max(W,H);
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(W*s); cv.height = Math.round(H*s);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      cv.toBlob(b => resolve(b || file), 'image/jpeg', quality||0.85);
+    };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 const _prodImgOK = new Set();
 function _prodImgNode(url){
   if(!url) return null;
@@ -5408,7 +5439,7 @@ function _prodImgNode(url){
   img.alt=''; img.decoding='async'; img.loading='lazy';
   if(!_prodImgOK.has(url)) img.setAttribute('data-fallback','remove');
   img.addEventListener('load', ()=> _prodImgOK.add(url), { once:true });
-  img.src = url;
+  img.src = _imgProduto(url, 600);
   return img;
 }
 function _mountProdImg(container, p){
@@ -5431,7 +5462,7 @@ function _buildHeroGallery(heroEl, p){
   const finalize = ()=>{
     const urls = ok.filter(Boolean);
     if(urls.length <= 1) return;   // só 1 (ou 0) foto válida → mantém a foto única
-    const slides = urls.map((u,i)=>`<img src="${safeAttr(u)}" alt="" loading="${i===0?'eager':'lazy'}">`).join('');
+    const slides = urls.map((u,i)=>`<img src="${safeAttr(_imgProduto(u, 900))}" alt="" loading="${i===0?'eager':'lazy'}">`).join('');
     const dots   = urls.map((_,i)=>`<span class="${i===0?'on':''}"></span>`).join('');
     heroEl.querySelectorAll('img').forEach(x=>x.remove());   // tira a foto única
     heroEl.classList.add('has-carousel','has-img');
@@ -5458,7 +5489,7 @@ function _buildHeroGallery(heroEl, p){
     const im = new Image();
     im.onload  = ()=>{ ok[i]=u; if(++done===candidatas.length) finalize(); };
     im.onerror = ()=>{ if(++done===candidatas.length) finalize(); };
-    im.src = u;
+    im.src = _imgProduto(u, 200);   // probe pequena (só pra saber se existe)
   });
 }
 // Ícone "galeria" no card da grade: só aparece se ≥1 foto EXTRA realmente carregar (probe).
@@ -5478,7 +5509,7 @@ function _revealGalleryIcon(imgEl, p){
       imgEl.appendChild(s);
     };
     im.onerror = ()=>{ i++; tryNext(); };
-    im.src = extras[i];
+    im.src = _imgProduto(extras[i], 200);   // probe pequena
   };
   tryNext();
 }
@@ -5486,7 +5517,7 @@ function _revealGalleryIcon(imgEl, p){
 function renderLoja(){
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeLoja">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="closeLoja"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Loja Yama</div><div class="s">Retire na recepção · sem frete</div></div>
     <div class="cart-btn" data-click="abrirCarrinho">🛍️${carrinhoQtd()?`<span class="cart-badge">${carrinhoQtd()}</span>`:''}</div>
   </div>`;
@@ -8238,7 +8269,7 @@ function renderCadastroAluno(){
   const STEPS=['Dados do aluno','Endereço','Responsável','Plano e turmas'];
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">Cadastrar aluno</div><div class="s">Ficha cadastral · Gestão</div></div>
   </div>`;
   const body = el(`<div class="flow-body cad-wide" style="padding:0 20px 40px"></div>`);
@@ -9518,6 +9549,11 @@ function _profAlunosArr(){ return (_profData?.alunos)||[]; }
 function _distFaixas(){
   const d={}; _profAlunosArr().forEach(a=>{ d[a.faixa]=(d[a.faixa]||0)+1; }); return d;
 }
+function _distEtaria(){
+  const d={}; FAIXA_ETARIA_OPCOES.forEach(k=>d[k]=0);
+  _profAlunosArr().forEach(a=>{ const k=_faixaEtariaLbl(a.nascimento); if(k) d[k]++; });
+  return d;
+}
 function _freqMedia(){
   const a=_profAlunosArr(); if(!a.length) return 0;
   return Math.round(a.reduce((s,x)=>s+(x.freq||0),0)/a.length);
@@ -9966,6 +10002,46 @@ function _presencaPorTipo(){
   });
   return Object.entries(m).sort((a,b)=>b[1]-a[1]);
 }
+/* Agrega por faixa etária: checkins totais, aulas distintas (data+turma+hora), média/aula.
+   Faixa etária vem do aluno (via user_id → nascimento). */
+function _presencaPorEtariaAgg(){
+  if(!_relData) return [];
+  const byId={}; _profAlunosArr().forEach(a=>{ byId[a.id]=a; });
+  const m={}; FAIXA_ETARIA_OPCOES.forEach(k=>{ m[k]={lbl:k, checkins:0, aulas:new Set()}; });
+  _relData.checkins.forEach(c=>{
+    const a = byId[c.user_id]; if(!a) return;
+    const et = _faixaEtariaLbl(a.nascimento); if(!et || !m[et]) return;
+    m[et].checkins++;
+    const chave = (c.data||'') + '|' + (c.turma_id||'') + '|' + (c.aulaHora||c.hora||'');
+    m[et].aulas.add(chave);
+  });
+  return FAIXA_ETARIA_OPCOES.map(k=>({
+    lbl:m[k].lbl, checkins:m[k].checkins, aulas:m[k].aulas.size,
+    media: m[k].aulas.size ? Math.round(m[k].checkins/m[k].aulas.size*10)/10 : 0,
+  })).filter(o=>o.checkins>0);
+}
+/* Agrega por turma: checkins totais, aulas distintas (por data), média/aula. */
+function _presencaPorTurmaAgg(){
+  if(!_relData) return [];
+  const m={};
+  _relData.checkins.forEach(c=>{
+    const turma = c.turmaNome || 'Sem turma';
+    const varia = (c.tipo && c.tipo !== 'Aula') ? ' · '+c.tipo : '';
+    const k = turma + varia;
+    const o = m[k] || (m[k] = {lbl:k, checkins:0, datas:new Set()});
+    o.checkins++;
+    if(c.data) o.datas.add(c.data);
+  });
+  return Object.values(m).map(o=>({
+    lbl:o.lbl, checkins:o.checkins, aulas:o.datas.size,
+    media: o.datas.size ? Math.round(o.checkins/o.datas.size*10)/10 : 0,
+  })).sort((a,b)=> b.media-a.media || b.checkins-a.checkins);
+}
+function _mediana(arr){
+  if(!arr.length) return 0;
+  const s=arr.slice().sort((a,b)=>a-b), m=s.length>>1;
+  return s.length%2 ? s[m] : Math.round(((s[m-1]+s[m])/2)*10)/10;
+}
 
 /* ---- Retenção: coortes por mês de entrada + retenção por faixa + aniversariantes ---- */
 function _coortesEntrada(){
@@ -9997,12 +10073,25 @@ function _tecAgg(){
   const porTec={}, porUser={};
   const cats={}; CAT_ORDER.forEach(c=>{ cats[c]={dominada:0,treinando:0,aprendendo:0}; });
   _relData.progresso.forEach(p=>{
-    const t=porTec[p.tecnica_id]||(porTec[p.tecnica_id]={treinos:0,alunos:0});
-    t.treinos+=p.treinos||0; t.alunos++;
+    if(!(p.treinos>0)) return;   // stubs (treinos=0) não contam como aluno praticando
+    const t=porTec[p.tecnica_id]||(porTec[p.tecnica_id]={treinos:0,users:new Set(),acertos:[]});
+    t.treinos+=p.treinos; t.users.add(p.user_id);
+    // acerto_pct: taxa agregada dos últimos 30d salva por pushProgress (já vem por RLS
+    // tecprog_prof_read). null quando o aluno não registrou tentativas/acertos no período.
+    if(typeof p.acerto_pct === 'number') t.acertos.push(p.acerto_pct);
     const u=porUser[p.user_id]||(porUser[p.user_id]={n:0,treinos:0});
-    u.n++; u.treinos+=p.treinos||0;
+    u.n++; u.treinos+=p.treinos;
     const tec=tecByKey(p.tecnica_id); const c=tec&&tec.cat;
     if(c && cats[c]){ const nv=_nivelDeProg(p); if(cats[c][nv]!=null) cats[c][nv]++; }
+  });
+  Object.values(porTec).forEach(t=>{
+    t.alunos = t.users.size;
+    // k-anonymity=2: taxa de acerto só aparece se ≥2 alunos registraram
+    if(t.acertos.length >= 2){
+      t.acertoMedia = Math.round(t.acertos.reduce((s,x)=>s+x,0) / t.acertos.length);
+      t.acertoN = t.acertos.length;
+    }
+    delete t.users; delete t.acertos;
   });
   return { porTec, porUser, cats };
 }
@@ -10244,6 +10333,18 @@ function _xlsFiltrados(){
   }
   return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
 }
+function _xlsOrdenar(arr){
+  const s = DB.alunosFiltro.sort;
+  if(!s || !_xlsCols[s.i]) return arr.sort((a,b)=>String(a.nm||'').localeCompare(String(b.nm||'')));
+  const fn = _xlsCols[s.i][1];
+  const cmp = (a,b)=>{
+    const va = fn(a), vb = fn(b);
+    const na = Number(va), nb = Number(vb);
+    const bothNum = va!=='' && vb!=='' && !isNaN(na) && !isNaN(nb);
+    return bothNum ? na-nb : String(va).localeCompare(String(vb), 'pt', {numeric:true, sensitivity:'base'});
+  };
+  return arr.sort((a,b)=> s.dir * cmp(a,b));
+}
 function _xlsPintar(chipsAlvo, tabelaAlvo, contaAlvo){
   const chips = chipsAlvo || document.getElementById('xls-filters');
   const table = tabelaAlvo || document.getElementById('xls-tbl');
@@ -10260,8 +10361,13 @@ function _xlsPintar(chipsAlvo, tabelaAlvo, contaAlvo){
     chip('Todos','risco','todos') +
     '<span class="xls-sep"></span>' +
     chip('Status: Todos','status','todos') + chip('Ativos','status','ativo') + chip('Inativos','status','inativo');
-  const rows = _xlsFiltrados();
-  const head = '<thead><tr>'+_xlsCols.map(([lbl])=>`<th>${lbl}</th>`).join('')+'<th>Ação</th></tr></thead>';
+  const rows = _xlsOrdenar(_xlsFiltrados());
+  const s = F.sort;
+  const head = '<thead><tr>'+_xlsCols.map(([lbl],i)=>{
+    const on = s && s.i===i;
+    const seta = on ? (s.dir>0?' ▲':' ▼') : '';
+    return `<th class="xls-th${on?' on':''}" data-click="xlsSort" data-i="${i}">${safeTxt(lbl)}${seta}</th>`;
+  }).join('')+'<th>Ação</th></tr></thead>';
   const body = '<tbody>'+rows.map(a=>{
     const chave = safeAttr(a.id||a.nm);
     const cells = _xlsCols.map(([,fn])=>`<td>${safeTxt(String(fn(a)))}</td>`).join('');
@@ -10273,8 +10379,15 @@ function _xlsPintar(chipsAlvo, tabelaAlvo, contaAlvo){
 }
 _dlgRegister('xlsChip',   (elm) => { DB.alunosFiltro[elm.dataset.campo] = elm.dataset.v; _xlsPintar(); });
 _dlgRegister('xlsBusca',  (elm) => { DB.alunosFiltro.busca = elm.value.trim().toLowerCase(); _xlsPintar(); });
-_dlgRegister('xlsExport', () => _xlsExportCSV(_xlsFiltrados()));
+_dlgRegister('xlsExport', () => _xlsExportCSV(_xlsOrdenar(_xlsFiltrados())));
+_dlgRegister('xlsSort',   (elm) => {
+  const i = +elm.dataset.i;
+  const s = DB.alunosFiltro.sort;
+  DB.alunosFiltro.sort = (s && s.i===i) ? { i, dir: -s.dir } : { i, dir: 1 };
+  _xlsPintar();
+});
 
+_dlgRegister('covCat', (elm) => { DB.relDetalhe = 'cobCat:' + elm.dataset.cat; render(); window.scrollTo(0,0); });
 _dlgRegister('relTab',     (elm) => { DB.relTab = elm.dataset.v; render(); });
 _dlgRegister('relDetalhe', (elm) => _irRelDetalhe(elm.dataset.v));
 _dlgRegister('relVoltar',  () => { DB.relDetalhe = null; render(); window.scrollTo(0,0); });
@@ -10552,28 +10665,59 @@ function _relVisao(w, secTitle, note){
   </div>`));
 
   w.appendChild(_secTitleLink('Distribuição de faixas','faixas'));
-  const dist=_distFaixas(); const max=Math.max(1,...Object.values(dist));
+  const dist=_distFaixas();
+  const distEt=_distEtaria();
+  const totAl=_profAlunosArr().length||1;
+  const KIDS = new Set(['cinza_branca','cinza','cinza_preta','amarela_branca','amarela','amarela_preta','laranja_branca','laranja','laranja_preta','verde_branca','verde','verde_preta']);
   const distWrap=el('<div class="list block panel-link" role="button" tabindex="0" aria-label="Abrir relatório de faixas"></div>');
-  Object.keys(BELTS).filter(f=>dist[f]).forEach(f=>{
-    const n=dist[f], pct=Math.round(n/max*100);
-    distWrap.appendChild(el(`<div class="bar-row"><span class="bar-lbl">${BELTS[f].nome}</span>
-      <div class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${BELTS[f].cor||'var(--red)'}"></span></div>
-      <span class="bar-n">${n}</span></div>`));
+  // Faixa etária — visão de topo, chips com contagem
+  const etRow=el('<div class="dist-et"></div>');
+  FAIXA_ETARIA_OPCOES.forEach(k=>{
+    const n=distEt[k]||0, pct=Math.round(n/totAl*100);
+    etRow.appendChild(el(`<div class="dist-et-pill"><b>${n}</b><span>${safeTxt(k)}</span><i>${pct}%</i></div>`));
+  });
+  distWrap.appendChild(etRow);
+  // Faixas — separadas Adulto / Infanto-juvenil, cada grupo escalado ao próprio máximo
+  const grupos=[
+    ['Adulto', BELT_ORDEM.filter(f=>!KIDS.has(f) && dist[f])],
+    ['Infanto-juvenil', BELT_ORDEM.filter(f=>KIDS.has(f) && dist[f])],
+  ];
+  grupos.forEach(([titulo, faixas])=>{
+    if(!faixas.length) return;
+    const tot=faixas.reduce((s,f)=>s+dist[f],0);
+    const maxG=Math.max(...faixas.map(f=>dist[f]));
+    distWrap.appendChild(el(`<div class="dist-grp-h"><span>${titulo}</span><b>${tot}</b></div>`));
+    faixas.forEach(f=>{
+      const n=dist[f], w=Math.round(n/maxG*100), pct=Math.round(n/tot*100);
+      distWrap.appendChild(el(`<div class="bar-row"><span class="bar-lbl bar-lbl-w">${BELTS[f].nome}</span>
+        <div class="bar-track"><span class="bar-fill" style="width:${w}%;background:${BELTS[f].cor||'var(--red)'}"></span></div>
+        <span class="bar-n bar-n-w">${n} · ${pct}%</span></div>`));
+    });
   });
   distWrap.setAttribute('data-click','relDetalhe'); distWrap.setAttribute('data-v','faixas');
   w.appendChild(distWrap);
 
-  // Presença por turma/sessão (§7.1-A). Derivado do JOIN via aula_id (0025).
-  w.appendChild(_secTitleLink('Presença por turma (120 dias)','tipoAula'));
-  const tipos=_presencaPorTipo();
-  if(!tipos.length) w.appendChild(note('Sem check-ins com tipo de aula ainda. O tipo passa a ser gravado automaticamente quando o aluno faz check-in numa sessão da grade (No-Gi, Avançado, Livre…).'));
+  // Presença por faixa etária (120 dias). Deriva de user_id → nascimento.
+  w.appendChild(_secTitleLink('Presença por faixa etária (120 dias)','tipoAula'));
+  const etAgg=_presencaPorEtariaAgg();
+  if(!etAgg.length) w.appendChild(note('Sem check-ins com data de nascimento cadastrada.'));
   else {
-    const maxT=Math.max(1,...tipos.map(([,n])=>n));
-    const tw=el('<div class="list block panel-link" role="button" tabindex="0" aria-label="Abrir relatório de presença por tipo"></div>');
-    tipos.forEach(([tipo,n])=>{
-      tw.appendChild(el(`<div class="bar-row"><span class="bar-lbl">${safeTxt(tipo)}</span>
-        <div class="bar-track"><span class="bar-fill" style="width:${Math.round(n/maxT*100)}%;background:var(--blue,#2f6fe5)"></span></div>
-        <span class="bar-n">${n}</span></div>`));
+    const totalCk = etAgg.reduce((s,o)=>s+o.checkins,0);
+    const totalAulas = etAgg.reduce((s,o)=>s+o.aulas,0);
+    const mediaGeral = totalAulas ? Math.round(totalCk/totalAulas*10)/10 : 0;
+    const medianaMed = _mediana(etAgg.map(o=>o.media));
+    const maxT=Math.max(1,...etAgg.map(o=>o.media));
+    const tw=el('<div class="list block panel-link" role="button" tabindex="0" aria-label="Abrir relatório de presença por faixa etária"></div>');
+    tw.appendChild(el(`<div class="dist-et" style="grid-template-columns:repeat(3,1fr)">
+      <div class="dist-et-pill"><b>${totalCk}</b><span>Check-ins</span><i>120 dias</i></div>
+      <div class="dist-et-pill"><b>${mediaGeral}</b><span>Média/aula</span><i>geral</i></div>
+      <div class="dist-et-pill"><b>${medianaMed}</b><span>Mediana</span><i>entre faixas</i></div>
+    </div>`));
+    etAgg.forEach(o=>{
+      const w1=Math.round(o.media/maxT*100);
+      tw.appendChild(el(`<div class="bar-row"><span class="bar-lbl bar-lbl-w">${safeTxt(o.lbl)}</span>
+        <div class="bar-track"><span class="bar-fill" style="width:${w1}%;background:var(--blue,#2f6fe5)"></span></div>
+        <span class="bar-n bar-n-w">${o.media}<i class="bar-sub"> · ${o.checkins} presenças</i></span></div>`));
     });
     tw.setAttribute('data-click','relDetalhe'); tw.setAttribute('data-v','tipoAula');
     w.appendChild(tw);
@@ -10652,7 +10796,60 @@ function _relDetalhe(w, tipo, secTitle, note){
   if(tipo==='tipoAula') return _relDetTipoAula(w, secTitle, note);
   if(tipo==='ocupacao') return _relDetOcupacao(w, secTitle, note);
   if(tipo==='lesoes')   return _relDetLesoes(w, secTitle, note);
+  if(tipo && tipo.startsWith('cobCat:')) return _relDetCobCat(w, tipo.slice(7), secTitle, note);
 }
+function _relDetCobCat(w, cat){
+  const agg = _tecAgg() || {porTec:{}};
+  const tecs = (DB.tecnicas||[]).filter(t => t.id && !t.id.startsWith('usr-') && t.cat===cat);
+  const tocadas = tecs.filter(t=>agg.porTec[t.id]).length;
+  const pct = tecs.length ? Math.round(tocadas/tecs.length*100) : 0;
+  DB.cobFiltro = DB.cobFiltro || 'todas';
+  w.appendChild(el(`<div class="rel-det-h">Catálogo · ${safeTxt(CATS[cat]?.nome||cat)}</div>`));
+  w.appendChild(el(`<div class="stat-grid block" style="margin-top:4px">
+    <div class="stat-card"><div class="sv">${tecs.length}</div><div class="sl">No catálogo</div></div>
+    <div class="stat-card"><div class="sv" style="color:#2fa86a">${tocadas}</div><div class="sl">Tocadas</div></div>
+    <div class="stat-card"><div class="sv" style="color:${tocadas?'var(--ink)':'var(--red)'}">${tecs.length-tocadas}</div><div class="sl">Sem registro</div></div>
+    <div class="stat-card"><div class="sv">${pct}%</div><div class="sl">Cobertura</div></div>
+  </div>`));
+  // Chips: Todas / Tocadas / Sem registro
+  const chip = (lbl,v)=>`<button class="et-chip ${DB.cobFiltro===v?'on':''}" data-click="cobFiltro" data-v="${v}">${lbl}</button>`;
+  w.appendChild(el(`<div style="padding:8px 20px 4px;display:flex;gap:6px;flex-wrap:wrap">${chip('Todas','todas')}${chip('Tocadas','tocadas')}${chip('Sem registro','sem')}</div>`));
+  let rows = tecs.slice().sort((a,b)=>{
+    const na = agg.porTec[a.id]?.alunos||0, nb = agg.porTec[b.id]?.alunos||0;
+    return nb-na || String(a.jp||'').localeCompare(String(b.jp||''));
+  });
+  if(DB.cobFiltro==='tocadas') rows = rows.filter(t=>agg.porTec[t.id]);
+  if(DB.cobFiltro==='sem')     rows = rows.filter(t=>!agg.porTec[t.id]);
+  if(!rows.length){ w.appendChild(el('<div class="empty-line" style="margin:20px">Sem técnicas neste filtro.</div>')); return; }
+  const list = el('<div class="list block"></div>');
+  rows.forEach(t=>{
+    const info = agg.porTec[t.id];
+    const nAcademia = _profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono')).length || 1;
+    // Barra 1: adoção (% de alunos da academia que praticaram)
+    const adocao = info ? Math.round(info.alunos/nAcademia*100) : 0;
+    // Cor da barra: cinza se sem registro, senão gradient por acerto (se houver)
+    const corBarra = !info ? 'var(--line)'
+      : (info.acertoMedia==null ? 'var(--blue,#2f6fe5)'
+        : info.acertoMedia<40 ? 'var(--red)'
+        : info.acertoMedia<70 ? '#c98a2f' : '#2fa86a');
+    // Direita: acerto (se houver) OU nº alunos·treinos OU "sem registro"
+    let direita;
+    if(info && info.acertoMedia!=null){
+      direita = `<b style="color:${corBarra}">${info.acertoMedia}%</b> <span style="color:var(--muted);font-size:11px">acerto · ${info.alunos}</span>`;
+    } else if(info){
+      direita = `<b>${info.alunos}</b> <span style="color:var(--muted);font-size:11px">aluno${info.alunos>1?'s':''} · ${info.treinos} treino${info.treinos>1?'s':''}</span>`;
+    } else {
+      direita = '<span style="color:var(--muted);font-size:11px">— sem registro</span>';
+    }
+    const pt = (t.pt && t.pt.toLowerCase() !== (t.jp||'').toLowerCase()) ? `<div style="font-size:11px;color:var(--muted);font-weight:500;margin-top:1px">${safeTxt(t.pt)}</div>` : '';
+    const nm = `<span class="bar-lbl bar-lbl-tec"><b style="color:${info?'var(--ink)':'var(--muted)'}">${safeTxt(t.jp||t.id)}</b>${pt}</span>`;
+    list.appendChild(el(`<div class="bar-row bar-row-tec">${nm}
+      <div class="bar-track"><span class="bar-fill" style="width:${Math.max(adocao,info?4:0)}%;background:${corBarra}"></span></div>
+      <span class="bar-n bar-n-tec">${direita}</span></div>`));
+  });
+  w.appendChild(list);
+}
+_dlgRegister('cobFiltro', (elm) => { DB.cobFiltro = elm.dataset.v; render(); });
 function _relDetFaixas(w, secTitle, note){
   w.appendChild(el(`<div class="rel-det-h">Distribuição de faixas</div>`));
   const alunos=_profAlunosArr().filter(a=>!(a.role==='professor'||a.role==='dono'));
@@ -10812,6 +11009,35 @@ function _relTecnicas(w, secTitle, note, alunoRow){
     <div class="stat-card"><div class="sv">${tecs}</div><div class="sl">Técnicas praticadas</div></div>
     <div class="stat-card"><div class="sv">${treinosTot}</div><div class="sl">Treinos de técnica</div></div>
   </div>`));
+
+  // Cobertura do catálogo — quanto do repertório oficial + BJJ a academia já tocou.
+  // Custom (usr-*) fica de fora — não é catálogo compartilhado.
+  const catalogo = (DB.tecnicas||[]).filter(t=>t.id && !t.id.startsWith('usr-'));
+  const totCat={}, hitCat={};
+  CAT_ORDER.forEach(c=>{ totCat[c]=0; hitCat[c]=0; });
+  catalogo.forEach(t=>{ if(totCat[t.cat]!=null) totCat[t.cat]++; });
+  Object.keys(agg.porTec).forEach(id=>{
+    const t=tecByKey(id); if(t && totCat[t.cat]!=null) hitCat[t.cat]++;
+  });
+  const totCatalogo=catalogo.length, hitTotal=Object.keys(agg.porTec).length;
+  const pctTotal=totCatalogo ? Math.round(hitTotal/totCatalogo*100) : 0;
+  w.appendChild(secTitle('Cobertura do catálogo'));
+  const cov=el('<div class="list block"></div>');
+  cov.appendChild(el(`<div class="dist-et" style="grid-template-columns:repeat(3,1fr)">
+    <div class="dist-et-pill"><b>${hitTotal}/${totCatalogo}</b><span>Técnicas tocadas</span><i>${pctTotal}%</i></div>
+    <div class="dist-et-pill"><b>${CAT_ORDER.filter(c=>hitCat[c]>0).length}</b><span>Categorias ativas</span><i>de ${CAT_ORDER.length}</i></div>
+    <div class="dist-et-pill"><b>${CAT_ORDER.filter(c=>totCat[c]>0 && hitCat[c]===0).length}</b><span>Categorias zeradas</span><i>gap</i></div>
+  </div>`));
+  CAT_ORDER.forEach(c=>{
+    const tot=totCat[c], hit=hitCat[c]; if(!tot) return;
+    const pct=Math.round(hit/tot*100);
+    const cor = hit===0 ? 'var(--red)' : (pct<30 ? '#c98a2f' : '#2fa86a');
+    cov.appendChild(el(`<div class="bar-row bar-click" role="button" tabindex="0" data-click="covCat" data-cat="${safeAttr(c)}" style="cursor:pointer">
+      <span class="bar-lbl bar-lbl-w">${safeTxt(CATS[c].nome)}</span>
+      <div class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${cor}"></span></div>
+      <span class="bar-n bar-n-w">${hit}/${tot}<i class="bar-sub"> · ${pct}%</i></span></div>`));
+  });
+  w.appendChild(cov);
 
   // Domínio por categoria (agregado)
   w.appendChild(secTitle('Domínio por categoria'));
@@ -11648,7 +11874,7 @@ function _finExportCSV(resumo, ano){
   });
   linhas.push('');
   linhas.push('Receita por tipo');
-  Object.entries(resumo.receitasPorCategoria).sort((a,b)=>b[1]-a[1])
+  Object.entries(resumo.receitasPorTipo).sort((a,b)=>b[1]-a[1])
     .forEach(([k,v])=> linhas.push(txt(k)+';'+_csvNum(v)));
   linhas.push('');
   linhas.push('Despesa por tipo');
@@ -11689,7 +11915,7 @@ function _finExportPDF(resumo, ano){
   doc.setFont(undefined,'bold'); doc.text('Detalhamento por categoria', 20, y); y += 8;
   doc.setFont(undefined,'normal');
   doc.text('Receitas:', 20, y); y += 6;
-  Object.entries(resumo.receitasPorCategoria).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+  Object.entries(resumo.receitasPorTipo).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
     doc.text('  '+k, 25, y); doc.text(moneyBR(v), 180, y, {align:'right'}); y += 6;
     if(y>270){ doc.addPage(); y=20; }
   });
@@ -11742,44 +11968,100 @@ function _finDashChartAnual(resumo, ano){
   return card;
 }
 
-// Duas pizzas — Receita e Despesa por categoria (SVG puro)
+// Pizzas — Receita/Despesa por tipo. Receita tem drill-down interno em "Mensalidade" → plano.
 function _finDashPizzas(resumo){
-  const wrap = el('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 12px 12px"></div>');
-  wrap.appendChild(_finDashPizza('Receita por tipo', resumo.receitasPorCategoria, ['#22a06b','#0d9488','#3b82f6','#8b5cf6','#f59e0b']));
-  wrap.appendChild(_finDashPizza('Despesa por tipo', resumo.despesasPorCategoria, ['#e5392f','#f97316','#f59e0b','#dc2626','#9333ea']));
-  return wrap;
+  const box = el('<div style="margin:0 12px 12px;display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>');
+  const drill = {};
+  const planos = resumo.receitasPorPlano || {};
+  if (Object.keys(planos).length > 0) {
+    drill.Mensalidade = { label:'Mensalidades por plano', dados: planos };
+  }
+  box.appendChild(_finDashPizza('Receita por tipo', resumo.receitasPorTipo, ['#22a06b','#0d9488','#3b82f6','#8b5cf6','#f59e0b','#ec4899','#14b8a6'], drill));
+  box.appendChild(_finDashPizza('Despesa por tipo', resumo.despesasPorCategoria, ['#e5392f','#f97316','#f59e0b','#dc2626','#9333ea']));
+  return box;
 }
-function _finDashPizza(titulo, dados, cores){
-  const card = el('<div class="block" style="padding:12px"></div>');
-  card.appendChild(el(`<div style="font-weight:700;font-size:12.5px;margin-bottom:8px">${safeTxt(titulo)}</div>`));
-  const entries = Object.entries(dados||{}).sort((a,b)=>b[1]-a[1]);
-  if(!entries.length){ card.appendChild(el('<div style="color:var(--muted);font-size:12px;padding:8px 0">Sem dados</div>')); return card; }
-  const total = entries.reduce((s,[,v])=>s+v,0) || 1;
-  const R = 40, CX = 50, CY = 50;
-  let ang = -Math.PI/2;
-  const paths = entries.map(([nome, v], i)=>{
-    const frac = v/total;
-    const a2 = ang + frac*Math.PI*2;
-    const large = frac > 0.5 ? 1 : 0;
-    const x1 = CX + R*Math.cos(ang), y1 = CY + R*Math.sin(ang);
-    const x2 = CX + R*Math.cos(a2),  y2 = CY + R*Math.sin(a2);
-    const path = `M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
-    ang = a2;
-    return `<path d="${path}" fill="${cores[i%cores.length]}"/>`;
-  }).join('');
-  const svg = `<svg viewBox="0 0 100 100" style="width:100%;max-width:120px;height:auto;display:block;margin:0 auto">${paths}<circle cx="50" cy="50" r="18" fill="var(--card,#fff)"/></svg>`;
-  card.insertAdjacentHTML('beforeend', svg);
-  // Legenda: top 5
-  const leg = el('<div style="margin-top:8px"></div>');
-  entries.slice(0,5).forEach(([nome, v], i)=>{
-    const pct = Math.round(v/total*100);
-    leg.appendChild(el(`<div style="display:flex;align-items:center;font-size:11px;margin-bottom:2px">
-      <span style="width:8px;height:8px;background:${cores[i%cores.length]};border-radius:2px;margin-right:6px;flex-shrink:0"></span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${safeTxt(nome)}</span>
-      <span style="color:var(--muted);margin-left:4px">${pct}%</span>
-    </div>`));
-  });
-  card.appendChild(leg);
+function _finDashPizza(titulo, dados, cores, drillMap){
+  const card = el('<div class="block finpz" style="padding:12px;perspective:900px"></div>');
+  const stage = el('<div class="finpz-stage"></div>');
+  card.appendChild(stage);
+  let curTitulo = titulo, curDados = dados, drilled = null, animating = false;
+  const paint = () => {
+    stage.innerHTML = '';
+    // Header: botão "Voltar" grande e acessível quando em drill
+    if (drilled) {
+      const head = el(`<div class="finpz-head">
+        <button class="finpz-back" aria-label="Voltar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+          <span>Voltar</span>
+        </button>
+        <div class="finpz-title">${safeTxt(curTitulo)}</div>
+      </div>`);
+      head.querySelector('button').onclick = () => flip(() => { drilled=null; curTitulo=titulo; curDados=dados; });
+      stage.appendChild(head);
+    } else {
+      stage.appendChild(el(`<div class="finpz-title">${safeTxt(curTitulo)}</div>`));
+    }
+    const entries = Object.entries(curDados||{}).sort((a,b)=>b[1]-a[1]);
+    if(!entries.length){ stage.appendChild(el('<div style="color:var(--muted);font-size:12px;padding:8px 0">Sem dados</div>')); return; }
+    const total = entries.reduce((s,[,v])=>s+v,0) || 1;
+    const R=40, CX=50, CY=50;
+    let ang = -Math.PI/2;
+    const paths = entries.map(([nome, v], i)=>{
+      const frac = v/total;
+      const a2 = ang + frac*Math.PI*2;
+      const large = frac > 0.5 ? 1 : 0;
+      const x1 = CX + R*Math.cos(ang), y1 = CY + R*Math.sin(ang);
+      const x2 = CX + R*Math.cos(a2),  y2 = CY + R*Math.sin(a2);
+      const d = `M${CX},${CY} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+      ang = a2;
+      const drillable = !drilled && drillMap && drillMap[nome];
+      return `<path d="${d}" fill="${cores[i%cores.length]}" ${drillable?'style="cursor:pointer" data-drill="'+safeAttr(nome)+'"':''}/>`;
+    }).join('');
+    const svg = `<svg viewBox="0 0 100 100" style="width:100%;max-width:120px;height:auto;display:block;margin:0 auto">${paths}<circle cx="50" cy="50" r="18" fill="var(--card,#fff)" style="pointer-events:none"/></svg>`;
+    stage.insertAdjacentHTML('beforeend', svg);
+    const leg = el('<div style="margin-top:8px"></div>');
+    entries.slice(0,5).forEach(([nome, v], i)=>{
+      const pct = Math.round(v/total*100);
+      const drillable = !drilled && drillMap && drillMap[nome];
+      const row = el(`<div class="finpz-legrow${drillable?' finpz-drillable':''}" ${drillable?'title="Ver detalhes"':''}>
+        <span class="finpz-dot" style="background:${cores[i%cores.length]}"></span>
+        <span class="finpz-lbl">${safeTxt(nome)}${drillable?' ›':''}</span>
+        <span class="finpz-pct">${pct}%</span>
+      </div>`);
+      if(drillable) row.onclick = () => flip(() => { drilled=nome; curTitulo=drillMap[nome].label; curDados=drillMap[nome].dados; });
+      leg.appendChild(row);
+    });
+    stage.appendChild(leg);
+    if(!drilled && drillMap){
+      stage.querySelectorAll('path[data-drill]').forEach(p => {
+        p.addEventListener('click', () => {
+          const k = p.getAttribute('data-drill');
+          if(drillMap[k]) flip(() => { drilled=k; curTitulo=drillMap[k].label; curDados=drillMap[k].dados; });
+        });
+      });
+    }
+  };
+  // Flip 3D: rotateY 0 → 90 → swap state + repaint → -90 → 0. Duração total ~380ms.
+  const flip = (mutate) => {
+    if (animating) { mutate(); paint(); return; }
+    animating = true;
+    stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
+    stage.style.transform = 'rotateY(90deg)';
+    stage.style.opacity = '0';
+    setTimeout(() => {
+      mutate();
+      paint();
+      stage.style.transition = 'none';
+      stage.style.transform = 'rotateY(-90deg)';
+      requestAnimationFrame(() => {
+        stage.style.transition = 'transform 190ms cubic-bezier(.4,0,.2,1),opacity 190ms';
+        stage.style.transform = 'rotateY(0deg)';
+        stage.style.opacity = '1';
+        setTimeout(() => { animating = false; }, 210);
+      });
+    }, 200);
+  };
+  paint();
   return card;
 }
 
@@ -14753,7 +15035,7 @@ function renderProdutoForm(){
   const tryBack=()=>{ dirty ? _confirmDescartar(back) : back(); };
   const v = el(`<div class="view prof-page"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar">‹</div>
+    <div class="back" role="button" tabindex="0" aria-label="Voltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
     <div class="ft"><div class="t">${novo?'Novo produto':'Editar produto'}</div>
       <div class="s">Loja · Gestão</div></div>
   </div>`;
@@ -14824,7 +15106,8 @@ function renderProdutoForm(){
     uploading += files.length; paintFotos();
     for(const f of files){
       try{
-        const url = await sbProf.uploadProdutoFoto(f, p?p.id:null);
+        const blob = await _resizeProdutoFoto(f);   // resize no cliente: 3MB → ~250KB
+        const url = await sbProf.uploadProdutoFoto(blob, p?p.id:null);
         if(url){ fotos.push(url); dirty=true; }
       }catch(e){ toast('Erro no upload: '+(e.message||e)); }
       finally{ uploading--; paintFotos(); }
@@ -16022,14 +16305,20 @@ function _navRestore(state){
 }
 window.addEventListener('popstate', e => _navRestore(e.state));
 
-function setRole(r){ _navPush(); DB.role=r; DB.flow=null; render(); window.scrollTo(0,0); }
+function setRole(r){
+  _navPush(); DB.role=r; DB.flow=null;
+  try { if(DB.sbUser?.id) localStorage.setItem('yama.role.'+DB.sbUser.id, r); } catch(_){}
+  render(); window.scrollTo(0,0);
+}
 function goAluno(id){ _navPush(); DB.navAluno=id; render(); window.scrollTo(0,0); }
+const _NAV_PROF_PERSIST = new Set(['painel','alunos','turmas','graduacao','relatorios','financeiro','videos','loja','yama','perfil']);
 function goProf(id){
   _navPush();
   // Ao trocar de menu, fecha telas em foco (ficha do aluno, cadastro, import etc).
   DB.navProf=id; DB.alunoAberto=null; DB._alunoTab=null;
   DB.produtoFormOpen=false; DB.cadastroAlunoOpen=false;
   DB.importAlunosOpen=null; DB.acessoAlunosOpen=false;
+  try { if(DB.sbUser?.id && _NAV_PROF_PERSIST.has(id)) localStorage.setItem('yama.navProf.'+DB.sbUser.id, id); } catch(_){}
   render(); window.scrollTo(0,0);
 }
 function _isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
