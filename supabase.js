@@ -947,10 +947,28 @@
 
     // Trilha administrativa (admin_audit, 0008) — quem fez o quê na gestão.
     // RLS (admin_audit_prof_read) limita à academia do caller; append-only.
-    getAuditoria: wrap(async () => {
-      const { data } = await SB.from('admin_audit')
-        .select('actor_nome, action, alvo_nome, detail, criado_em')
-        .order('criado_em', { ascending: false }).limit(50);
+    // v648/0060: coluna `escopo` diferencia mutação ('admin') de leitura ('leitura').
+    getAuditoria: wrap(async (p) => {
+      let q = SB.from('admin_audit')
+        .select('actor_nome, action, alvo_nome, detail, criado_em, escopo')
+        .order('criado_em', { ascending: false }).limit(p?.limit || 100);
+      if (p?.escopo) q = q.eq('escopo', p.escopo);
+      const { data } = await q;
+      return data || [];
+    }),
+    // v648/0060: registra LEITURA de dado sensível (ficha, cobranças, contratos, exports).
+    // Fire-and-forget: nunca bloqueia a UI, nunca joga erro visível.
+    logLeitura: (acao, alvoId, alvoNome, detail) => {
+      SB.rpc('log_leitura', {
+        p_acao: String(acao || '').slice(0, 60),
+        p_alvo: alvoId || null,
+        p_alvo_nome: alvoNome || null,
+        p_detail: detail || {},
+      }).then(()=>{}, ()=>{});
+    },
+    // v648/0060: agregado de uso pra dashboard "📊 Uso do app". k-anonymity ≥ 3.
+    getUsoAgregado: wrap(async (dias) => {
+      const { data } = await SB.rpc('uso_agregado', { p_dias: Math.min(180, Math.max(1, dias||30)) });
       return data || [];
     }),
 
@@ -2323,10 +2341,24 @@
     },
   };
 
+  // v648/0060: log de navegação (analytics). Disponível pra qualquer papel; a RPC
+  // deriva academy_id/role da profiles.id do caller. Fire-and-forget, nunca bloqueia.
+  const sbAnalytics = {
+    logUso: (tela, telaDe, durouMs) => {
+      if (!tela) return;
+      SB.rpc('log_uso', {
+        p_tela: String(tela).slice(0, 60),
+        p_tela_de: telaDe ? String(telaDe).slice(0, 60) : null,
+        p_durou_ms: (typeof durouMs === 'number' && durouMs >= 0) ? Math.min(3600000, durouMs|0) : null,
+      }).then(()=>{}, ()=>{});
+    },
+  };
+
   global.sbAuth = sbAuth;
   global.sbSync = sbSync;
   global.sbProf = sbProf;
   global.sbVideos = sbVideos;
   global.sbPush = sbPush;
   global.sbRealtime = sbRealtime;
+  global.sbAnalytics = sbAnalytics;
 })(window);

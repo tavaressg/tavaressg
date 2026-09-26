@@ -1784,6 +1784,10 @@ function rsAddFoco(){
 /* ============================================================
    ROTEADOR
    ============================================================ */
+// v648/0060: estado do analytics de navegação — quando a tela atual entrou em
+// foco e qual foi a anterior. Usado pra medir tempo em cada tela e rastrear o
+// fluxo. Fica top-level porque morphdom preservaria closure velha.
+let _logUsoTs = null, _logUsoDe = null;
 function _viewKey(){
   if (DB.authOpen) return 'auth';   // v427: sem isto o login herdava a chave da tela pós-login
   if (DB.trocarSenhaOpen) return 'trocarSenha';
@@ -1904,6 +1908,15 @@ function render(){
   _dlgInstall();                        // v528: garante router event-delegation ativo (idempotente)
   const curView = _viewKey();
   const sameView = root.dataset.view === curView;
+  // v648/0060: analytics de navegação. Loga a tela que ficou pra trás com quanto
+  // tempo ela ficou em foco. Fire-and-forget — nunca bloqueia. Backend deriva
+  // academy_id/role da profiles do caller; sessão anônima (sem sbUser) pula.
+  if (!sameView && !DEMO && typeof sbAnalytics !== 'undefined' && DB.sbUser) {
+    const anterior = root.dataset.view || null;
+    const durou = _logUsoTs ? (Date.now() - _logUsoTs) : null;
+    if (anterior) sbAnalytics.logUso(anterior, _logUsoDe, durou);
+    _logUsoDe = anterior; _logUsoTs = Date.now();
+  }
   if (!sameView) _closeAllSheets();
   // memoriza scrollY da view atual antes de trocar
   if (root.dataset.view && root.dataset.view !== curView && typeof _scrollMem !== 'undefined') _scrollMem[root.dataset.view] = window.scrollY;
@@ -9452,7 +9465,13 @@ function _tempoRelativo(iso){
   return `há ${y} ${y<=1?'ano':'anos'}`;
 }
 // Atalho: todo o app chama _profAlunoSheet(a) — agora navega para a tela cheia.
-function _profAlunoSheet(a){ _navPush(); DB.alunoAberto=a; render(); window.scrollTo(0,0); }
+function _profAlunoSheet(a){
+  _navPush(); DB.alunoAberto=a; render(); window.scrollTo(0,0);
+  // v648/0060: log de leitura (LGPD). Fire-and-forget.
+  if (!DEMO && typeof sbProf !== 'undefined' && sbProf.logLeitura && a && !a._self) {
+    sbProf.logLeitura('abrir_ficha', a.id, _nomeInst(a), { role: a.role || 'aluno' });
+  }
+}
 
 /* Promover aluno → professor (só dono). Preserva a conta/histórico; muda o papel
    no servidor via Edge Function promote-professor (gated is_dono). */
@@ -10616,6 +10635,10 @@ function profVideosOnboard(){
 /* Exporta as linhas visíveis do "Alunos (Excel)" pra .xlsx (vendor/xlsx.min.js). */
 function _xlsExportCSV(rows){
   if(typeof XLSX==='undefined'){ toast('Excel: biblioteca ainda carregando'); return; }
+  // v648/0060: log de leitura — export do roster de alunos.
+  if (!DEMO && typeof sbProf !== 'undefined' && sbProf.logLeitura) {
+    sbProf.logLeitura('export_xlsx', null, null, { formato:'xlsx', escopo:'alunos_roster', linhas: rows.length });
+  }
   const cols = ['Nome','E-mail','Telefone','Nascimento','Idade','Faixa etária','Faixa','Turmas','Últ. presença','Dias sem','Nível risco','Status','Pgto','Cidade','Bairro','UF','Responsável','Tel. resp.','Data início'];
   const aoa = [cols];
   _loadTurmas(); const turmaMap={}; (typeof _turmasArr==='function'?_turmasArr():[]).forEach(t=>{ turmaMap[t.id]=t.nome; });
@@ -11856,6 +11879,10 @@ _dlgRegister('finDashExportPDF', () => {
 function _csvNum(v){ return Number(v||0).toFixed(2).replace('.', ','); }
 
 function _finExportCSV(resumo, ano){
+  // v648/0060: log de leitura (export de relatório com dado da academia).
+  if (typeof DEMO !== 'undefined' && !DEMO && typeof sbProf !== 'undefined' && sbProf.logLeitura) {
+    sbProf.logLeitura('export_csv', null, null, { formato:'csv', ano, escopo:'financeiro_anual' });
+  }
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   // Campo de texto entre aspas: nome de categoria pode conter `;`
   const txt = (s)=> '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
@@ -11880,6 +11907,9 @@ function _finExportCSV(resumo, ano){
 }
 function _finExportPDF(resumo, ano){
   if(typeof window.jspdf === 'undefined'){ toast('PDF indisponível — recarregue o app'); return; }
+  if (!DEMO && typeof sbProf !== 'undefined' && sbProf.logLeitura) {
+    sbProf.logLeitura('export_pdf', null, null, { formato:'pdf', ano, escopo:'financeiro_anual' });
+  }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -16854,6 +16884,10 @@ function profYama(){
       ['aviso',  '🔔 Aviso de check-in', 'Quem tem ativo · disparar teste · regras do push'],
       ['wa',     '💬 Mensagens WhatsApp', '8 textos prontos pra usar no botão WhatsApp do aluno'],
     ]],
+    ['Auditoria', [
+      ['auditLog', '📜 Log de acesso', 'Quem abriu ficha de qual aluno · exports recentes · reset de senha'],
+      ['auditUso', '📊 Uso do app', 'Telas mais e menos usadas · segmentado por perfil (últimos 30d)'],
+    ]],
     ['Conta', [
       ['perfil', '👤 Meu perfil', 'Seu perfil pessoal (o professor também é aluno)'],
     ]],
@@ -16878,14 +16912,16 @@ function profYama(){
    permite a tela entrar em _PROF_MORPH: o `data-click` sobrevive ao diff,
    uma closure colada no no' nao. */
 const _YAMA_ACOES = {
-  dados:  () => _dadosAcademiaSheet(),
-  senha:  () => _senhaPadraoSheet(),
-  acesso: () => { DB.acessoAlunosOpen = true; render(); window.scrollTo(0,0); },
-  qr:     () => _qrTokenSheet(),
-  pixQr:  () => _pixQrSheet(),
-  aviso:  () => _avisoCheckinSheet(),
-  wa:     () => _waTemplatesSheet(),
-  perfil: () => { DB.navProf = 'perfil'; render(); },
+  dados:    () => _dadosAcademiaSheet(),
+  senha:    () => _senhaPadraoSheet(),
+  acesso:   () => { DB.acessoAlunosOpen = true; render(); window.scrollTo(0,0); },
+  qr:       () => _qrTokenSheet(),
+  pixQr:    () => _pixQrSheet(),
+  aviso:    () => _avisoCheckinSheet(),
+  wa:       () => _waTemplatesSheet(),
+  auditLog: () => _auditoriaLogSheet(),
+  auditUso: () => _auditoriaUsoSheet(),
+  perfil:   () => { DB.navProf = 'perfil'; render(); },
 };
 _dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
 
@@ -17157,6 +17193,113 @@ function _avisoCheckinSheet(){
 // v376: editor dos 8 templates de WhatsApp. Persiste em academies.config.waTemplates
 // (JSONB, sem migration — reusa o merge remoto+patch do v359).
 // Placeholder: {nome} → _waNome(a) na hora do envio (_waResolve).
+/* v648/0060: sheet do log de acesso (LGPD).
+   Mostra as últimas leituras/mutações sensíveis registradas em admin_audit.
+   Usa getAuditoria({escopo:'leitura'|'admin'|null}) com filtro por chip. */
+function _auditoriaLogSheet(){
+  let filtro = 'todos';
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">📜 Log de acesso</div>
+    <div class="sheet-desc">Últimas ações registradas — leituras de dado sensível e mutações administrativas. Retention: 180 dias em <code>usage_events</code>; <code>admin_audit</code> não expira (decisão do dono).</div>
+    <div id="al-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
+    <div id="al-list" class="list block" style="max-height:60vh;overflow:auto"></div>
+    <button class="sheet-cancel" id="al-close">Fechar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#al-close').onclick = close;
+  const chips = sheet.querySelector('#al-chips'), list = sheet.querySelector('#al-list');
+  const chip = (lbl,v)=>`<button class="et-chip ${filtro===v?'on':''}" data-v="${v}">${lbl}</button>`;
+  const pintar = async ()=>{
+    chips.innerHTML = chip('Todos','todos') + chip('Leituras (LGPD)','leitura') + chip('Mutações','admin');
+    chips.querySelectorAll('button').forEach(b => b.onclick = ()=>{ filtro = b.dataset.v; pintar(); });
+    list.innerHTML = '<div class="empty-line">Carregando…</div>';
+    try{
+      const rows = await sbProf.getAuditoria({ escopo: filtro==='todos'?null:filtro, limit: 100 });
+      if(!rows.length){ list.innerHTML = '<div class="empty-line">Nenhum registro no filtro atual.</div>'; return; }
+      list.innerHTML = rows.map(r => {
+        const dt = new Date(r.criado_em);
+        const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+        const escopoTag = r.escopo === 'leitura' ? '<span style="color:#c98a2f;font-weight:700">👁 leitura</span>' : '<span style="color:var(--muted);font-weight:700">⚙ mutação</span>';
+        const alvo = r.alvo_nome ? ` → <b>${safeTxt(r.alvo_nome)}</b>` : '';
+        const detStr = r.detail && Object.keys(r.detail).length ? ` · <span style="color:var(--muted);font-size:11px">${safeTxt(JSON.stringify(r.detail))}</span>` : '';
+        return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;padding:8px 12px">
+          <div style="width:100%;display:flex;justify-content:space-between;align-items:baseline">
+            <span>${escopoTag} · <b>${safeTxt(r.actor_nome||'—')}</b> · ${safeTxt(r.action)}${alvo}</span>
+            <span style="color:var(--muted);font-size:11px">${quando}</span>
+          </div>
+          ${detStr ? `<div>${detStr}</div>` : ''}
+        </div>`;
+      }).join('');
+    }catch(e){ list.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}</div>`; }
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  pintar();
+}
+
+/* v648/0060: sheet do dashboard de uso do app.
+   Agregado k-anonymity=3 por (tela, role) nos últimos 30 dias.
+   Detecta telas mortas (menos abertas) e mais usadas. */
+function _auditoriaUsoSheet(){
+  let periodo = 30;
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">📊 Uso do app</div>
+    <div class="sheet-desc">Telas mais e menos abertas na academia. Só aparecem quando ≥ 3 usuários distintos as abriram (privacidade). Retention: 180 dias.</div>
+    <div id="au-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
+    <div id="au-body" style="max-height:60vh;overflow:auto"></div>
+    <button class="sheet-cancel" id="au-close">Fechar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#au-close').onclick = close;
+  const chips = sheet.querySelector('#au-chips'), body = sheet.querySelector('#au-body');
+  const chip = (lbl,v)=>`<button class="et-chip ${periodo===v?'on':''}" data-v="${v}">${lbl}</button>`;
+  const pintar = async ()=>{
+    chips.innerHTML = chip('7d',7) + chip('30d',30) + chip('90d',90) + chip('180d',180);
+    chips.querySelectorAll('button').forEach(b => b.onclick = ()=>{ periodo = +b.dataset.v; pintar(); });
+    body.innerHTML = '<div class="empty-line">Carregando…</div>';
+    try{
+      const rows = await sbProf.getUsoAgregado(periodo);
+      if(!rows.length){
+        body.innerHTML = '<div class="empty-line">Sem dados suficientes ainda. O log começa a acumular a partir desta versão.</div>';
+        return;
+      }
+      // Grupos por role
+      const byRole = { aluno:[], professor:[], dono:[] };
+      rows.forEach(r => { (byRole[r.role]||byRole.aluno).push(r); });
+      const secao = (titulo, list) => {
+        if(!list.length) return '';
+        const max = Math.max(1, ...list.map(x=>x.aberturas));
+        const top5 = list.slice(0, 10);
+        const menores = list.slice(-5).filter(x => !top5.includes(x));
+        const linha = (r) => {
+          const w = Math.round(r.aberturas/max*100);
+          const nomeAmigavel = _ROUTE_NOMES[r.tela] || r.tela;
+          return `<div class="bar-row"><span class="bar-lbl bar-lbl-w">${safeTxt(nomeAmigavel)}</span>
+            <div class="bar-track"><span class="bar-fill" style="width:${w}%;background:var(--blue,#2f6fe5)"></span></div>
+            <span class="bar-n bar-n-w"><b>${r.aberturas}</b> <span style="color:var(--muted);font-size:11px">· ${r.usuarios} pessoas</span></span></div>`;
+        };
+        let s = `<div class="sec-title" style="margin:14px 20px 8px">${titulo} · top ${top5.length}</div>
+          <div class="list block">${top5.map(linha).join('')}</div>`;
+        if (menores.length) {
+          s += `<div class="sec-title" style="margin:14px 20px 8px;color:var(--muted)">Menos abertas em ${titulo.toLowerCase()}</div>
+            <div class="list block" style="opacity:.7">${menores.map(linha).join('')}</div>`;
+        }
+        return s;
+      };
+      body.innerHTML =
+        secao('Aluno', byRole.aluno) +
+        secao('Professor', byRole.professor) +
+        secao('Dono', byRole.dono) +
+        `<div class="empty-line" style="margin:12px 20px;font-size:11px;color:var(--muted)">Telas com menos de 3 pessoas abrindo não aparecem — protege a privacidade individual.</div>`;
+    }catch(e){ body.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}</div>`; }
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+  pintar();
+}
+
 function _waTemplatesSheet(){
   const tpls = _waTpls();
   const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
