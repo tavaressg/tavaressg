@@ -1791,6 +1791,7 @@ let _logUsoTs = null, _logUsoDe = null;
 function _viewKey(){
   if (DB.auditLogOpen) return 'prof:auditLog';
   if (DB.auditUsoOpen) return 'prof:auditUso';
+  if (DB.auditLoginsOpen) return 'prof:auditLogins';
   if (DB.authOpen) return 'auth';   // v427: sem isto o login herdava a chave da tela pós-login
   if (DB.trocarSenhaOpen) return 'trocarSenha';
   if (DB.onboardingOpen) return 'onb';
@@ -1814,7 +1815,7 @@ const _ROUTE_NOMES = {
   'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
   'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
   'prof:financeiro':'Financeiro','prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
-  'prof:auditLog':'Log de acesso','prof:auditUso':'Uso do app',
+  'prof:auditLog':'Log de acesso','prof:auditUso':'Uso do app','prof:auditLogins':'Auditoria de logins',
   'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
   'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
 };
@@ -6189,6 +6190,7 @@ function renderProfessor(){
   if (DB.acessoAlunosOpen){ body.appendChild(profAcessoAlunos()); v.appendChild(body); return v; }   // modo foco
   if (DB.auditLogOpen){ body.appendChild(profAuditoriaLog()); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   if (DB.auditUsoOpen){ body.appendChild(profAuditoriaUso()); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.auditLoginsOpen){ body.appendChild(profAuditoriaLogins()); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   const nav = DB.navProf;
   if (nav==='painel')    body.appendChild(profPainel());
   if (nav==='alunos')    body.appendChild(profAlunos());
@@ -16350,7 +16352,7 @@ function goProf(id){
   DB.navProf=id; DB.alunoAberto=null; DB._alunoTab=null;
   DB.produtoFormOpen=false; DB.cadastroAlunoOpen=false;
   DB.importAlunosOpen=null; DB.acessoAlunosOpen=false;
-  DB.auditLogOpen=false; DB.auditUsoOpen=false;
+  DB.auditLogOpen=false; DB.auditUsoOpen=false; DB.auditLoginsOpen=false;
   try { if(DB.sbUser?.id && _NAV_PROF_PERSIST.has(id)) localStorage.setItem('yama.navProf.'+DB.sbUser.id, id); } catch(_){}
   render(); window.scrollTo(0,0);
 }
@@ -16893,6 +16895,7 @@ function profYama(){
     ['Auditoria', [
       ['auditLog', '📜 Log de acesso', 'Quem abriu ficha de qual aluno · exports recentes · reset de senha'],
       ['auditUso', '📊 Uso do app', 'Telas mais e menos usadas · segmentado por perfil (últimos 30d)'],
+      ...(DB.eu && DB.eu.role === 'dono' ? [['auditLogins', '🔐 Auditoria de logins', 'Entradas, saídas e tentativas — só o dono vê (auth do Supabase)']] : []),
     ]],
     ['Conta', [
       ['perfil', '👤 Meu perfil', 'Seu perfil pessoal (o professor também é aluno)'],
@@ -16927,6 +16930,7 @@ const _YAMA_ACOES = {
   wa:       () => _waTemplatesSheet(),
   auditLog: () => { DB.auditLogOpen = true; render(); window.scrollTo(0,0); },
   auditUso: () => { DB.auditUsoOpen = true; render(); window.scrollTo(0,0); },
+  auditLogins: () => { DB.auditLoginsOpen = true; render(); window.scrollTo(0,0); },
   perfil:   () => { DB.navProf = 'perfil'; render(); },
 };
 _dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
@@ -17365,6 +17369,111 @@ function _auditUsoPintar(){
   };
   body.innerHTML = secao('Aluno', byRole.aluno) + secao('Professor', byRole.professor) + secao('Dono', byRole.dono);
 }
+/* v651: Auditoria de logins do Supabase — Edge Function auditoria-logins.
+   Só o dono vê. Lista entradas/saídas/falhas com email, IP, timestamp. */
+let _auditLoginsState = { filtro:'todos', rows:null, loading:false, erro:null };
+const _AUTH_ACOES = {
+  login: '✅ Login OK',
+  logout: '🚪 Logout',
+  user_signedup: '➕ Signup',
+  user_recovery_requested: '🔑 Reset requisitado',
+  user_repeated_signup: '⚠️ Signup duplicado',
+  user_confirmation_requested: '📧 Confirmação pedida',
+  token_refreshed: '🔄 Token refresh',
+  user_updated_password: '🔒 Senha trocada',
+  factor_challenged: '📱 MFA challenge',
+  factor_verified: '📱 MFA OK',
+  user_invited: '📨 Convidado',
+};
+_dlgRegister('auditLoginsVoltar', () => { DB.auditLoginsOpen = false; render(); window.scrollTo(0,0); });
+_dlgRegister('auditLoginsChip', (elm) => {
+  _auditLoginsState.filtro = elm.dataset.v;
+  _auditLoginsState.rows = null;
+  _auditLoginsCarregar();
+  _auditLoginsPintar();
+});
+_dlgRegister('auditLoginsExportar', () => {
+  const rows = _auditLoginsState.rows || [];
+  if (!rows.length) { toast('Sem linhas pra exportar'); return; }
+  const linhas = ['Quando;Ação;Usuário;E-mail;IP;Tipo'];
+  const txt = (s) => '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
+  rows.forEach(r => {
+    linhas.push([
+      txt(new Date(r.criado_em).toLocaleString('pt-BR')),
+      txt(_AUTH_ACOES[r.acao] || r.acao),
+      txt(r.actor_nome || ''),
+      txt(r.actor_email || ''),
+      txt(r.ip || ''),
+      txt(r.log_type || ''),
+    ].join(';'));
+  });
+  const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `auditoria-logins-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+});
+function _auditLoginsCarregar(){
+  if (_auditLoginsState.loading) return;
+  _auditLoginsState.loading = true; _auditLoginsState.erro = null;
+  const acao = _auditLoginsState.filtro==='todos' ? null : _auditLoginsState.filtro;
+  sbProf.getLoginsAudit({ limit: 200, acao })
+    .then(rows => { _auditLoginsState.rows = rows || []; })
+    .catch(e => {
+      _auditLoginsState.rows = [];
+      const msg = e && e.message ? e.message : String(e);
+      _auditLoginsState.erro = msg === 'forbidden_dono_only' ? 'Só o dono da academia acessa.' : msg;
+    })
+    .finally(() => { _auditLoginsState.loading = false; _auditLoginsPintar(); });   // morph-ok: _auditLoginsPintar resolve #alg-body no DOM vivo
+}
+function _auditLoginsPintar(){
+  const body = document.getElementById('alg-body'); if (!body) return;
+  const chips = document.getElementById('alg-chips'); if (chips) {
+    const chip = (lbl,v)=>`<button class="et-chip ${_auditLoginsState.filtro===v?'on':''}" data-click="auditLoginsChip" data-v="${v}">${lbl}</button>`;
+    chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('Logouts','logout') + chip('Reset pedido','user_recovery_requested') + chip('Senha trocada','user_updated_password');
+  }
+  const cnt = document.getElementById('alg-count');
+  if (cnt) cnt.textContent = _auditLoginsState.rows ? `${_auditLoginsState.rows.length} evento${_auditLoginsState.rows.length===1?'':'s'}` : '';
+  if (_auditLoginsState.loading || _auditLoginsState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
+  if (_auditLoginsState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">${safeTxt(_auditLoginsState.erro)}</div>`; return; }
+  if (!_auditLoginsState.rows.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum evento no filtro atual.</div>'; return; }
+  const head = '<thead><tr><th style="width:150px">Quando</th><th style="width:180px">Ação</th><th>Usuário</th><th>E-mail</th><th style="width:130px">IP</th></tr></thead>';
+  const rowsHtml = _auditLoginsState.rows.map(r => {
+    const dt = new Date(r.criado_em);
+    const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const acaoLbl = _AUTH_ACOES[r.acao] || r.acao;
+    return `<tr>
+      <td style="color:var(--muted);white-space:nowrap">${quando}</td>
+      <td><b>${safeTxt(acaoLbl)}</b></td>
+      <td>${safeTxt(r.actor_nome || '—')}</td>
+      <td style="color:var(--muted);font-size:12px">${safeTxt(r.actor_email || '—')}</td>
+      <td style="color:var(--muted);font-family:ui-monospace,monospace;font-size:11px">${safeTxt(r.ip || '—')}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="xls-wrap"><div class="xls-scroll"><table class="xls-tbl cob-tbl">${head}<tbody>${rowsHtml}</tbody></table></div></div>`;
+}
+function profAuditoriaLogins(){
+  const v = el('<div class="view"></div>');
+  v.innerHTML = `<div class="topbar">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="auditLoginsVoltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <div class="tb-title">🔐 Auditoria de logins</div>
+  </div>
+  <div class="rel-det-h" style="margin-top:0">Entradas e saídas na academia</div>
+  <div class="hello" style="padding-top:0">
+    <div class="greet">Eventos do Supabase Auth: login, logout, reset de senha, MFA. Só o dono acessa esta tela — dados incluem email e IP.</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 20px 8px">
+    <div id="alg-chips" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+    <span id="alg-count" style="font-size:12px;color:var(--muted);font-weight:700"></span>
+    <button class="btn-cad ghost" data-click="auditLoginsExportar">↓ Exportar CSV</button>
+  </div>
+  <div id="alg-body"></div>`;
+  _auditLoginsState = { filtro: _auditLoginsState.filtro || 'todos', rows: null, loading: false, erro: null };
+  setTimeout(() => { _auditLoginsPintar(); _auditLoginsCarregar(); }, 0);   // morph-ok
+  return v;
+}
+
 function profAuditoriaUso(){
   const v = el('<div class="view"></div>');
   v.innerHTML = `<div class="topbar">

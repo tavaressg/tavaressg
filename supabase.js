@@ -971,6 +971,21 @@
       const { data } = await SB.rpc('uso_agregado', { p_dias: Math.min(180, Math.max(1, dias||30)) });
       return data || [];
     }),
+    // v651: auditoria de logins da academia (só dono). Edge Function le
+    // auth.audit_log_entries com service_role e filtra pela academia.
+    getLoginsAudit: wrap(async (opts) => {
+      const { data, error } = await SB.functions.invoke('auditoria-logins', {
+        body: { limit: opts?.limit || 100, acao: opts?.acao || null },
+      });
+      if (error) {
+        let code = null;
+        try { const b = await error.context.json(); code = b && (b.detail || b.error); }
+        catch(_){}
+        if (code) { const e = new Error(code); e.code = code; throw e; }
+        throw error;
+      }
+      return (data && data.rows) || [];
+    }),
 
     // Observabilidade: últimos erros de app (client_errors, 24h) — sheet do alerta no
     // painel do professor. RLS (client_errors_prof_read) limita à academia do caller.
