@@ -17217,32 +17217,79 @@ function _auditLogCarregar(){
     .catch(e => { _auditLogState.erro = e.message || String(e); _auditLogState.rows = []; })
     .finally(() => { _auditLogState.loading = false; _auditLogPintar(); });   // morph-ok: _auditLogPintar resolve #al-body no DOM vivo
 }
+// v650: exporta CSV do log filtrado
+_dlgRegister('auditLogExportar', () => {
+  const rows = _auditLogState.rows || [];
+  if (!rows.length) { toast('Sem linhas pra exportar'); return; }
+  const linhas = ['Quando;Escopo;Actor;Ação;Alvo;Detalhes'];
+  const txt = (s) => '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
+  rows.forEach(r => {
+    const dt = new Date(r.criado_em).toLocaleString('pt-BR');
+    linhas.push([
+      txt(dt),
+      txt(r.escopo || ''),
+      txt(r.actor_nome || ''),
+      txt(r.action || ''),
+      txt(r.alvo_nome || ''),
+      txt(r.detail ? JSON.stringify(r.detail) : ''),
+    ].join(';'));
+  });
+  const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `log-acesso-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+  if (typeof sbProf !== 'undefined' && sbProf.logLeitura) sbProf.logLeitura('export_csv', null, null, { escopo:'admin_audit', linhas: rows.length });
+});
 function _auditLogPintar(){
   const body = document.getElementById('al-body'); if (!body) return;
   const chips = document.getElementById('al-chips'); if (chips) {
     const chip = (lbl,v)=>`<button class="et-chip ${_auditLogState.filtro===v?'on':''}" data-click="auditLogChip" data-v="${v}">${lbl}</button>`;
     chips.innerHTML = chip('Todos','todos') + chip('Leituras (LGPD)','leitura') + chip('Mutações','admin');
   }
+  const cnt = document.getElementById('al-count');
+  if (cnt) cnt.textContent = _auditLogState.rows ? `${_auditLogState.rows.length} registro${_auditLogState.rows.length===1?'':'s'}` : '';
   if (_auditLogState.loading || _auditLogState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
   if (_auditLogState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">Erro: ${safeTxt(_auditLogState.erro)}</div>`; return; }
   if (!_auditLogState.rows.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum registro no filtro atual.</div>'; return; }
-  body.innerHTML = '<div class="list block">' + _auditLogState.rows.map(r => {
+  const head = '<thead><tr><th style="width:130px">Quando</th><th style="width:110px">Escopo</th><th>Actor</th><th>Ação</th><th>Alvo</th><th>Detalhes</th></tr></thead>';
+  const rowsHtml = _auditLogState.rows.map(r => {
     const dt = new Date(r.criado_em);
-    const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
     const escopoTag = r.escopo === 'leitura'
-      ? '<span style="color:#c98a2f;font-weight:800;font-size:11px">👁 LEITURA</span>'
-      : '<span style="color:var(--muted);font-weight:800;font-size:11px">⚙ MUTAÇÃO</span>';
-    const alvo = r.alvo_nome ? ` → <b>${safeTxt(r.alvo_nome)}</b>` : '';
-    const detStr = r.detail && Object.keys(r.detail).length
-      ? `<div style="color:var(--muted);font-size:11px;margin-top:2px;font-family:ui-monospace,monospace">${safeTxt(JSON.stringify(r.detail))}</div>` : '';
-    return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;padding:10px 14px">
-      <div style="width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-        <span>${escopoTag} · <b>${safeTxt(r.actor_nome||'—')}</b> · <span style="color:var(--muted)">${safeTxt(r.action)}</span>${alvo}</span>
-        <span style="color:var(--muted);font-size:11px;white-space:nowrap">${quando}</span>
-      </div>
-      ${detStr}
-    </div>`;
-  }).join('') + '</div>';
+      ? '<span style="color:#c98a2f;font-weight:800">👁 leitura</span>'
+      : '<span style="color:var(--muted);font-weight:800">⚙ mutação</span>';
+    // Detalhes legíveis: se tem `mudancas` (v650/0062), renderiza como pares "campo: de → para"
+    let det = '<span style="color:var(--line)">—</span>';
+    if (r.detail && Object.keys(r.detail).length) {
+      const partes = [];
+      if (r.detail.mudancas && typeof r.detail.mudancas === 'object') {
+        Object.entries(r.detail.mudancas).forEach(([campo, mv]) => {
+          const de = mv && 'de' in mv ? mv.de : '';
+          const para = mv && 'para' in mv ? mv.para : '';
+          partes.push(`<b>${safeTxt(campo)}</b>: <span style="color:var(--muted)">${safeTxt(String(de))} →</span> <span>${safeTxt(String(para))}</span>`);
+        });
+      }
+      if (r.detail.campos && Array.isArray(r.detail.campos) && r.detail.campos.length && !r.detail.mudancas) {
+        partes.push('<span style="color:var(--muted)">Campos: ' + r.detail.campos.map(safeTxt).join(', ') + '</span>');
+      }
+      Object.entries(r.detail).forEach(([k,v]) => {
+        if (k === 'mudancas' || k === 'campos') return;
+        partes.push(`<span style="color:var(--muted)">${safeTxt(k)}:</span> ${safeTxt(String(v))}`);
+      });
+      det = partes.join(' · ') || `<span style="font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)">${safeTxt(JSON.stringify(r.detail))}</span>`;
+    }
+    return `<tr>
+      <td style="color:var(--muted);white-space:nowrap">${quando}</td>
+      <td>${escopoTag}</td>
+      <td><b>${safeTxt(r.actor_nome || '—')}</b></td>
+      <td><span style="color:var(--muted)">${safeTxt(r.action || '')}</span></td>
+      <td>${r.alvo_nome ? `<b>${safeTxt(r.alvo_nome)}</b>` : '<span style="color:var(--line)">—</span>'}</td>
+      <td>${det}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="xls-wrap"><div class="xls-scroll"><table class="xls-tbl cob-tbl">${head}<tbody>${rowsHtml}</tbody></table></div></div>`;
 }
 function profAuditoriaLog(){
   const v = el('<div class="view"></div>');
@@ -17254,7 +17301,11 @@ function profAuditoriaLog(){
   <div class="hello" style="padding-top:0">
     <div class="greet">Últimas ações registradas — leituras de dado sensível e mutações administrativas. Retention: 180 dias em <code>usage_events</code>; <code>admin_audit</code> não expira.</div>
   </div>
-  <div id="al-chips" style="display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 8px"></div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 20px 8px">
+    <div id="al-chips" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
+    <span id="al-count" style="font-size:12px;color:var(--muted);font-weight:700"></span>
+    <button class="btn-cad ghost" data-click="auditLogExportar">↓ Exportar CSV</button>
+  </div>
   <div id="al-body"></div>`;
   _auditLogState = { filtro: _auditLogState.filtro || 'todos', rows: null, loading: false, erro: null };
   setTimeout(() => { _auditLogPintar(); _auditLogCarregar(); }, 0);   // morph-ok: painters resolvem #al-* no DOM vivo
