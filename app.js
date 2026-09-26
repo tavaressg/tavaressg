@@ -1789,6 +1789,8 @@ function rsAddFoco(){
 // fluxo. Fica top-level porque morphdom preservaria closure velha.
 let _logUsoTs = null, _logUsoDe = null;
 function _viewKey(){
+  if (DB.auditLogOpen) return 'prof:auditLog';
+  if (DB.auditUsoOpen) return 'prof:auditUso';
   if (DB.authOpen) return 'auth';   // v427: sem isto o login herdava a chave da tela pós-login
   if (DB.trocarSenhaOpen) return 'trocarSenha';
   if (DB.onboardingOpen) return 'onb';
@@ -1812,6 +1814,7 @@ const _ROUTE_NOMES = {
   'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
   'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
   'prof:financeiro':'Financeiro','prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
+  'prof:auditLog':'Log de acesso','prof:auditUso':'Uso do app',
   'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
   'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
 };
@@ -6184,6 +6187,8 @@ function renderProfessor(){
   if (DB.turmaEditOpen){ body.appendChild(profTurmaEdit(DB.turmaEditOpen==='new'?null:DB.turmaEditOpen)); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   if (DB.importAlunosOpen){ body.appendChild(profImportAlunos()); v.appendChild(body); return v; }   // modo foco
   if (DB.acessoAlunosOpen){ body.appendChild(profAcessoAlunos()); v.appendChild(body); return v; }   // modo foco
+  if (DB.auditLogOpen){ body.appendChild(profAuditoriaLog()); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
+  if (DB.auditUsoOpen){ body.appendChild(profAuditoriaUso()); v.appendChild(body); v.appendChild(tabbarProf()); return v; }
   const nav = DB.navProf;
   if (nav==='painel')    body.appendChild(profPainel());
   if (nav==='alunos')    body.appendChild(profAlunos());
@@ -16345,6 +16350,7 @@ function goProf(id){
   DB.navProf=id; DB.alunoAberto=null; DB._alunoTab=null;
   DB.produtoFormOpen=false; DB.cadastroAlunoOpen=false;
   DB.importAlunosOpen=null; DB.acessoAlunosOpen=false;
+  DB.auditLogOpen=false; DB.auditUsoOpen=false;
   try { if(DB.sbUser?.id && _NAV_PROF_PERSIST.has(id)) localStorage.setItem('yama.navProf.'+DB.sbUser.id, id); } catch(_){}
   render(); window.scrollTo(0,0);
 }
@@ -16919,8 +16925,8 @@ const _YAMA_ACOES = {
   pixQr:    () => _pixQrSheet(),
   aviso:    () => _avisoCheckinSheet(),
   wa:       () => _waTemplatesSheet(),
-  auditLog: () => _auditoriaLogSheet(),
-  auditUso: () => _auditoriaUsoSheet(),
+  auditLog: () => { DB.auditLogOpen = true; render(); window.scrollTo(0,0); },
+  auditUso: () => { DB.auditUsoOpen = true; render(); window.scrollTo(0,0); },
   perfil:   () => { DB.navProf = 'perfil'; render(); },
 };
 _dlgRegister('yamaRow', (elm) => { const fn = _YAMA_ACOES[elm.dataset.acao]; if (fn) fn(); });
@@ -17193,111 +17199,136 @@ function _avisoCheckinSheet(){
 // v376: editor dos 8 templates de WhatsApp. Persiste em academies.config.waTemplates
 // (JSONB, sem migration — reusa o merge remoto+patch do v359).
 // Placeholder: {nome} → _waNome(a) na hora do envio (_waResolve).
-/* v648/0060: sheet do log de acesso (LGPD).
-   Mostra as últimas leituras/mutações sensíveis registradas em admin_audit.
-   Usa getAuditoria({escopo:'leitura'|'admin'|null}) com filtro por chip. */
-function _auditoriaLogSheet(){
-  let filtro = 'todos';
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">📜 Log de acesso</div>
-    <div class="sheet-desc">Últimas ações registradas — leituras de dado sensível e mutações administrativas. Retention: 180 dias em <code>usage_events</code>; <code>admin_audit</code> não expira (decisão do dono).</div>
-    <div id="al-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
-    <div id="al-list" class="list block" style="max-height:60vh;overflow:auto"></div>
-    <button class="sheet-cancel" id="al-close">Fechar</button>
-  </div></div>`);
-  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#al-close').onclick = close;
-  const chips = sheet.querySelector('#al-chips'), list = sheet.querySelector('#al-list');
-  const chip = (lbl,v)=>`<button class="et-chip ${filtro===v?'on':''}" data-v="${v}">${lbl}</button>`;
-  const pintar = async ()=>{
+/* v649: Log de acesso em tela cheia (padrão ERP dos relatórios).
+   State em top-level (_auditLogState) pra morph-safety. */
+let _auditLogState = { filtro:'todos', rows:null, loading:false, erro:null };
+_dlgRegister('auditLogVoltar', () => { DB.auditLogOpen = false; render(); window.scrollTo(0,0); });
+_dlgRegister('auditLogChip', (elm) => {
+  _auditLogState.filtro = elm.dataset.v;
+  _auditLogState.rows = null;
+  _auditLogCarregar();
+  _auditLogPintar();
+});
+function _auditLogCarregar(){
+  if (_auditLogState.loading) return;
+  _auditLogState.loading = true; _auditLogState.erro = null;
+  sbProf.getAuditoria({ escopo: _auditLogState.filtro==='todos'?null:_auditLogState.filtro, limit: 200 })
+    .then(rows => { _auditLogState.rows = rows || []; })
+    .catch(e => { _auditLogState.erro = e.message || String(e); _auditLogState.rows = []; })
+    .finally(() => { _auditLogState.loading = false; _auditLogPintar(); });   // morph-ok: _auditLogPintar resolve #al-body no DOM vivo
+}
+function _auditLogPintar(){
+  const body = document.getElementById('al-body'); if (!body) return;
+  const chips = document.getElementById('al-chips'); if (chips) {
+    const chip = (lbl,v)=>`<button class="et-chip ${_auditLogState.filtro===v?'on':''}" data-click="auditLogChip" data-v="${v}">${lbl}</button>`;
     chips.innerHTML = chip('Todos','todos') + chip('Leituras (LGPD)','leitura') + chip('Mutações','admin');
-    chips.querySelectorAll('button').forEach(b => b.onclick = ()=>{ filtro = b.dataset.v; pintar(); });
-    list.innerHTML = '<div class="empty-line">Carregando…</div>';
-    try{
-      const rows = await sbProf.getAuditoria({ escopo: filtro==='todos'?null:filtro, limit: 100 });
-      if(!rows.length){ list.innerHTML = '<div class="empty-line">Nenhum registro no filtro atual.</div>'; return; }
-      list.innerHTML = rows.map(r => {
-        const dt = new Date(r.criado_em);
-        const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-        const escopoTag = r.escopo === 'leitura' ? '<span style="color:#c98a2f;font-weight:700">👁 leitura</span>' : '<span style="color:var(--muted);font-weight:700">⚙ mutação</span>';
-        const alvo = r.alvo_nome ? ` → <b>${safeTxt(r.alvo_nome)}</b>` : '';
-        const detStr = r.detail && Object.keys(r.detail).length ? ` · <span style="color:var(--muted);font-size:11px">${safeTxt(JSON.stringify(r.detail))}</span>` : '';
-        return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;padding:8px 12px">
-          <div style="width:100%;display:flex;justify-content:space-between;align-items:baseline">
-            <span>${escopoTag} · <b>${safeTxt(r.actor_nome||'—')}</b> · ${safeTxt(r.action)}${alvo}</span>
-            <span style="color:var(--muted);font-size:11px">${quando}</span>
-          </div>
-          ${detStr ? `<div>${detStr}</div>` : ''}
-        </div>`;
-      }).join('');
-    }catch(e){ list.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}</div>`; }
-  };
-  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
-  pintar();
+  }
+  if (_auditLogState.loading || _auditLogState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
+  if (_auditLogState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">Erro: ${safeTxt(_auditLogState.erro)}</div>`; return; }
+  if (!_auditLogState.rows.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum registro no filtro atual.</div>'; return; }
+  body.innerHTML = '<div class="list block">' + _auditLogState.rows.map(r => {
+    const dt = new Date(r.criado_em);
+    const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    const escopoTag = r.escopo === 'leitura'
+      ? '<span style="color:#c98a2f;font-weight:800;font-size:11px">👁 LEITURA</span>'
+      : '<span style="color:var(--muted);font-weight:800;font-size:11px">⚙ MUTAÇÃO</span>';
+    const alvo = r.alvo_nome ? ` → <b>${safeTxt(r.alvo_nome)}</b>` : '';
+    const detStr = r.detail && Object.keys(r.detail).length
+      ? `<div style="color:var(--muted);font-size:11px;margin-top:2px;font-family:ui-monospace,monospace">${safeTxt(JSON.stringify(r.detail))}</div>` : '';
+    return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;padding:10px 14px">
+      <div style="width:100%;display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <span>${escopoTag} · <b>${safeTxt(r.actor_nome||'—')}</b> · <span style="color:var(--muted)">${safeTxt(r.action)}</span>${alvo}</span>
+        <span style="color:var(--muted);font-size:11px;white-space:nowrap">${quando}</span>
+      </div>
+      ${detStr}
+    </div>`;
+  }).join('') + '</div>';
+}
+function profAuditoriaLog(){
+  const v = el('<div class="view"></div>');
+  v.innerHTML = `<div class="topbar">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="auditLogVoltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <div class="tb-title">📜 Log de acesso</div>
+  </div>
+  <div class="rel-det-h" style="margin-top:0">Trilha de auditoria</div>
+  <div class="hello" style="padding-top:0">
+    <div class="greet">Últimas ações registradas — leituras de dado sensível e mutações administrativas. Retention: 180 dias em <code>usage_events</code>; <code>admin_audit</code> não expira.</div>
+  </div>
+  <div id="al-chips" style="display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 8px"></div>
+  <div id="al-body"></div>`;
+  _auditLogState = { filtro: _auditLogState.filtro || 'todos', rows: null, loading: false, erro: null };
+  setTimeout(() => { _auditLogPintar(); _auditLogCarregar(); }, 0);   // morph-ok: painters resolvem #al-* no DOM vivo
+  return v;
 }
 
-/* v648/0060: sheet do dashboard de uso do app.
-   Agregado k-anonymity=3 por (tela, role) nos últimos 30 dias.
-   Detecta telas mortas (menos abertas) e mais usadas. */
-function _auditoriaUsoSheet(){
-  let periodo = 30;
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">📊 Uso do app</div>
-    <div class="sheet-desc">Telas mais e menos abertas na academia. Só aparecem quando ≥ 3 usuários distintos as abriram (privacidade). Retention: 180 dias.</div>
-    <div id="au-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"></div>
-    <div id="au-body" style="max-height:60vh;overflow:auto"></div>
-    <button class="sheet-cancel" id="au-close">Fechar</button>
-  </div></div>`);
-  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#au-close').onclick = close;
-  const chips = sheet.querySelector('#au-chips'), body = sheet.querySelector('#au-body');
-  const chip = (lbl,v)=>`<button class="et-chip ${periodo===v?'on':''}" data-v="${v}">${lbl}</button>`;
-  const pintar = async ()=>{
+/* v649: Dashboard de uso do app em tela cheia. Agregado k-anonymity>=3. */
+let _auditUsoState = { periodo:30, rows:null, loading:false, erro:null };
+_dlgRegister('auditUsoVoltar', () => { DB.auditUsoOpen = false; render(); window.scrollTo(0,0); });
+_dlgRegister('auditUsoChip', (elm) => {
+  _auditUsoState.periodo = +elm.dataset.v;
+  _auditUsoState.rows = null;
+  _auditUsoCarregar();
+  _auditUsoPintar();
+});
+function _auditUsoCarregar(){
+  if (_auditUsoState.loading) return;
+  _auditUsoState.loading = true; _auditUsoState.erro = null;
+  sbProf.getUsoAgregado(_auditUsoState.periodo)
+    .then(rows => { _auditUsoState.rows = rows || []; })
+    .catch(e => { _auditUsoState.erro = e.message || String(e); _auditUsoState.rows = []; })
+    .finally(() => { _auditUsoState.loading = false; _auditUsoPintar(); });   // morph-ok: _auditUsoPintar resolve #au-body no DOM vivo
+}
+function _auditUsoPintar(){
+  const body = document.getElementById('au-body'); if (!body) return;
+  const chips = document.getElementById('au-chips'); if (chips) {
+    const chip = (lbl,v)=>`<button class="et-chip ${_auditUsoState.periodo===v?'on':''}" data-click="auditUsoChip" data-v="${v}">${lbl}</button>`;
     chips.innerHTML = chip('7d',7) + chip('30d',30) + chip('90d',90) + chip('180d',180);
-    chips.querySelectorAll('button').forEach(b => b.onclick = ()=>{ periodo = +b.dataset.v; pintar(); });
-    body.innerHTML = '<div class="empty-line">Carregando…</div>';
-    try{
-      const rows = await sbProf.getUsoAgregado(periodo);
-      if(!rows.length){
-        body.innerHTML = '<div class="empty-line">Sem dados suficientes ainda. O log começa a acumular a partir desta versão.</div>';
-        return;
-      }
-      // Grupos por role
-      const byRole = { aluno:[], professor:[], dono:[] };
-      rows.forEach(r => { (byRole[r.role]||byRole.aluno).push(r); });
-      const secao = (titulo, list) => {
-        if(!list.length) return '';
-        const max = Math.max(1, ...list.map(x=>x.aberturas));
-        const top5 = list.slice(0, 10);
-        const menores = list.slice(-5).filter(x => !top5.includes(x));
-        const linha = (r) => {
-          const w = Math.round(r.aberturas/max*100);
-          const nomeAmigavel = _ROUTE_NOMES[r.tela] || r.tela;
-          return `<div class="bar-row"><span class="bar-lbl bar-lbl-w">${safeTxt(nomeAmigavel)}</span>
-            <div class="bar-track"><span class="bar-fill" style="width:${w}%;background:var(--blue,#2f6fe5)"></span></div>
-            <span class="bar-n bar-n-w"><b>${r.aberturas}</b> <span style="color:var(--muted);font-size:11px">· ${r.usuarios} pessoas</span></span></div>`;
-        };
-        let s = `<div class="sec-title" style="margin:14px 20px 8px">${titulo} · top ${top5.length}</div>
-          <div class="list block">${top5.map(linha).join('')}</div>`;
-        if (menores.length) {
-          s += `<div class="sec-title" style="margin:14px 20px 8px;color:var(--muted)">Menos abertas em ${titulo.toLowerCase()}</div>
-            <div class="list block" style="opacity:.7">${menores.map(linha).join('')}</div>`;
-        }
-        return s;
-      };
-      body.innerHTML =
-        secao('Aluno', byRole.aluno) +
-        secao('Professor', byRole.professor) +
-        secao('Dono', byRole.dono) +
-        `<div class="empty-line" style="margin:12px 20px;font-size:11px;color:var(--muted)">Telas com menos de 3 pessoas abrindo não aparecem — protege a privacidade individual.</div>`;
-    }catch(e){ body.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}</div>`; }
+  }
+  if (_auditUsoState.loading || _auditUsoState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
+  if (_auditUsoState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">Erro: ${safeTxt(_auditUsoState.erro)}</div>`; return; }
+  if (!_auditUsoState.rows.length){
+    body.innerHTML = '<div class="empty-line" style="padding:20px">Sem dados suficientes ainda. Cada tela só aparece quando ≥ 3 pessoas distintas a abrem.</div>';
+    return;
+  }
+  const byRole = { aluno:[], professor:[], dono:[] };
+  _auditUsoState.rows.forEach(r => { (byRole[r.role]||byRole.aluno).push(r); });
+  const secao = (titulo, arr) => {
+    if(!arr.length) return '';
+    const max = Math.max(1, ...arr.map(x=>x.aberturas));
+    const top = arr.slice(0, 10);
+    const menores = arr.slice(-5).filter(x => !top.includes(x));
+    const linha = (r) => {
+      const w = Math.round(r.aberturas/max*100);
+      const nomeAmigavel = _ROUTE_NOMES[r.tela] || r.tela;
+      return `<div class="bar-row"><span class="bar-lbl bar-lbl-w">${safeTxt(nomeAmigavel)}</span>
+        <div class="bar-track"><span class="bar-fill" style="width:${w}%;background:var(--blue,#2f6fe5)"></span></div>
+        <span class="bar-n bar-n-w"><b>${r.aberturas}</b> <span style="color:var(--muted);font-size:11px">· ${r.usuarios} pessoas</span></span></div>`;
+    };
+    let s = `<div class="sec-title" style="margin:14px 20px 8px">${titulo} · mais abertas</div>
+      <div class="list block">${top.map(linha).join('')}</div>`;
+    if (menores.length) {
+      s += `<div class="sec-title" style="margin:14px 20px 8px;color:var(--muted)">${titulo} · menos abertas</div>
+        <div class="list block" style="opacity:.7">${menores.map(linha).join('')}</div>`;
+    }
+    return s;
   };
-  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
-  pintar();
+  body.innerHTML = secao('Aluno', byRole.aluno) + secao('Professor', byRole.professor) + secao('Dono', byRole.dono);
+}
+function profAuditoriaUso(){
+  const v = el('<div class="view"></div>');
+  v.innerHTML = `<div class="topbar">
+    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="auditUsoVoltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <div class="tb-title">📊 Uso do app</div>
+  </div>
+  <div class="rel-det-h" style="margin-top:0">Telas mais usadas na academia</div>
+  <div class="hello" style="padding-top:0">
+    <div class="greet">Segmentado por perfil (aluno / professor / dono). Só aparecem telas com ≥ 3 usuários distintos — protege a privacidade individual.</div>
+  </div>
+  <div id="au-chips" style="display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 8px"></div>
+  <div id="au-body"></div>`;
+  _auditUsoState = { periodo: _auditUsoState.periodo || 30, rows: null, loading: false, erro: null };
+  setTimeout(() => { _auditUsoPintar(); _auditUsoCarregar(); }, 0);   // morph-ok: painters resolvem #au-* no DOM vivo
+  return v;
 }
 
 function _waTemplatesSheet(){
