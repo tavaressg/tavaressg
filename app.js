@@ -5791,8 +5791,7 @@ function renderAuth(){
   // v552: migrado pra event delegation (ver _TELAS_MORPH). Os campos são lidos
   // por id no momento do clique, não por closure.
   form.appendChild(el('<button class="btn-register auth-btn" data-click="authEntrar">Entrar</button>'));
-  form.appendChild(el('<div class="auth-forgot" data-click="authEsqueciSenha" role="button" tabindex="0">Esqueceu a senha?</div>'));
-  form.appendChild(el('<div class="auth-note">🥋 Use o e-mail e a senha entregues pela academia. Você troca a senha no primeiro acesso.</div>'));
+  form.appendChild(el('<div class="auth-note">🥋 Use o e-mail e a senha entregues pela academia. Esqueceu a senha? Fale com o professor — ele reseta pelo painel. Você troca a senha no primeiro acesso.</div>'));
   v.appendChild(form);
   return v;
 }
@@ -5816,8 +5815,6 @@ _dlgRegister('authEntrar', async (el) => {
     toast(m.includes('Invalid login') ? 'E-mail ou senha incorretos' : 'Erro: '+m);
   }
 });
-_dlgRegister('authEsqueciSenha', () => _authResetPw());
-
 /* v552: troca de senha via delegation. `needCur` sai da PRESENÇA do campo no
    DOM — ele só é renderizado quando a senha atual é exigida —, o que é mais
    fiel do que recalcular a condição e arriscar divergir da tela. */
@@ -5845,28 +5842,6 @@ _dlgRegister('trocarSenhaSalvar', async (el) => {
     try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
   }
 });
-
-function _authResetPw(){
-  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">Recuperar senha</div>
-    <div class="sheet-desc">Informe seu e-mail e enviaremos um link para redefinir a senha.</div>
-    <input class="inp" type="email" id="rp-em" placeholder="seu@email.com">
-    <button class="btn-save" id="rp-send">Enviar link</button>
-    <button class="sheet-cancel" id="rp-cancel">Cancelar</button>
-  </div></div>`);
-  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
-  sheet.onclick = (e)=>{ if(e.target===sheet) close(); };
-  sheet.querySelector('#rp-cancel').onclick = close;
-  sheet.querySelector('#rp-send').onclick = async ()=>{
-    const em = sheet.querySelector('#rp-em').value.trim();
-    if(!em){ toast('Informe o e-mail'); return; }
-    try{ await sbAuth.resetPw(em); close(); toast('E-mail enviado — verifique sua caixa'); }
-    catch(e){ toast(e.message); }
-  };
-  document.body.appendChild(sheet);
-  requestAnimationFrame(()=>sheet.classList.add('open'));
-}
 
 function _sairDaConta(){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">

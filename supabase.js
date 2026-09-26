@@ -144,18 +144,9 @@
       return { session: data.session, user: data.user };
     }),
     signOut: wrap(async () => { _loginPw = null; const { error } = await SB.auth.signOut(); if (error) throw error; }),
-    resetPw: wrap(async (email) => {
-      // v430 BUG: era `location.origin`, que é só esquema+host e NUNCA inclui o caminho.
-      // O app mora em https://tavaressg.github.io/tavaressg/ — o link do e-mail levava a
-      // https://tavaressg.github.io/, que devolve 404 "Site not found" do GitHub Pages.
-      // O aluno clicava, caía no erro, e o evento PASSWORD_RECOVERY nunca chegava no app:
-      // "Esqueci minha senha" não recuperava nada. `pathname` recompõe a URL do app e
-      // funciona igual em produção (subpasta), em localhost e num domínio próprio.
-      // ⚠️ Exige que essa URL esteja em Authentication → URL Configuration → Redirect URLs.
-      const volta = global.location.origin + global.location.pathname;
-      const { error } = await SB.auth.resetPasswordForEmail(email, { redirectTo: volta });
-      if (error) throw error;
-    }),
+    // v643: fluxo de reset por email removido. Reset agora é exclusivamente via
+    // professor (sbProf.resetarSenha). Handler PASSWORD_RECOVERY em app.js segue
+    // vivo pra atender link legado / reset feito pelo painel admin do Supabase.
     onAuthStateChange: (cb) => SB.auth.onAuthStateChange((event, session) => cb(event, session)),
 
     // P1: troca de senha no 1º login.

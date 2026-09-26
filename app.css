@@ -1556,7 +1556,6 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .auth-seg button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
 .auth-form{padding:0 20px 48px;flex:1}
 .auth-btn{width:100%;margin-top:20px}
-.auth-forgot{text-align:center;margin-top:14px;font-size:13.5px;font-weight:700;color:var(--red);cursor:pointer}
 .auth-note{text-align:center;margin-top:14px;font-size:12.5px;color:var(--muted);font-weight:600;line-height:1.5}
 
 /* ---- Loading placeholder ---- */
