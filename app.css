@@ -2154,8 +2154,10 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .pro-switch-btn{display:block;margin:20px auto 12px;padding:11px 22px;background:none;border:1.5px dashed var(--line);
   border-radius:99px;color:var(--muted);font-family:inherit;font-size:13px;font-weight:800;cursor:pointer}
 .pro-switch-btn:hover{color:var(--ink);border-color:var(--ink)}
-.pro-logout{border-color:var(--red-tint);color:var(--red-strong)}
-.pro-logout:hover{color:#fff;background:var(--red-strong);border-color:var(--red-strong)}
+.pro-logout{display:flex;align-items:center;justify-content:center;gap:8px;width:fit-content;margin:20px auto 12px;padding:11px 22px;background:var(--red-tint);border:1px solid transparent;border-radius:99px;color:var(--red-strong);font-family:inherit;font-size:13px;font-weight:800;cursor:pointer;transition:background 150ms,color 150ms,transform 100ms;letter-spacing:.2px}
+.pro-logout svg{flex:none;opacity:.9}
+.pro-logout:hover{background:var(--red-strong);color:#fff}
+.pro-logout:active{transform:scale(.97)}
 .pf-footer{text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin:18px 0 28px}
 
 /* Faixa no cabeçalho do Mais — centralizada abaixo do nome */
