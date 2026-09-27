@@ -4778,6 +4778,21 @@ function alunoPerfil(){
   _bindRow('#row-config', 'perfilConfig');
   w.appendChild(app);
 
+  // v653/0066: MFA/TOTP — só staff (dono e professor). Aluno não vê.
+  if (DB.sbUser && me.isProfessor && !DEMO && typeof sbAuth !== 'undefined' && sbAuth.mfa) {
+    w.appendChild(el(`<div class="sec-title" style="margin-top:12px">Segurança</div>`));
+    const mfaCard = el(`<div class="info-list block">
+      <div class="info-row" role="button" tabindex="0" data-click="mfaAbrir" style="cursor:pointer">
+        <div class="ii">🔐</div>
+        <div class="it"><div class="t">Autenticação em 2 fatores</div><div class="s" id="mfa-status">Verificando…</div></div>
+        <div class="iv">›</div>
+      </div>
+    </div>`);
+    w.appendChild(mfaCard);
+    // Atualiza status assincronamente
+    setTimeout(() => _mfaAtualizarStatus(mfaCard.querySelector('#mfa-status')), 0);
+  }
+
   // Sair — só se autenticado na nuvem (senão não há sessão pra encerrar)
   if(DB.sbUser){
     w.appendChild(el(`<button class="pro-logout" data-click="perfilSair" aria-label="Sair da conta">
@@ -5838,6 +5853,23 @@ _dlgRegister('authEntrar', async (el) => {
   el.disabled = true; el.textContent = 'Entrando…';
   try{
     const { user } = await sbAuth.signIn(e, p);
+    // v653/0066: gate MFA. Se conta tem TOTP, precisa upgrade pra AAL2 antes de
+    // continuar. sbAuth.mfa.aal() retorna { currentLevel:'aal1', nextLevel:'aal2' }
+    // quando factor esta ativo mas sessao so tem senha.
+    try {
+      const aal = await sbAuth.mfa.aal();
+      if (aal.data?.nextLevel === 'aal2' && aal.data?.currentLevel === 'aal1') {
+        el.textContent = 'Aguardando 2FA…';
+        await new Promise(resolve => {
+          _mfaGateSheet(async () => {
+            el.textContent = 'Sincronizando…';
+            await _cloudLogin(user);
+            resolve();
+          });
+        });
+        return;
+      }
+    } catch(_) { /* sem MFA, segue */ }
     el.textContent = 'Sincronizando…';
     await _cloudLogin(user);   // pipeline único: migração legado → pullState → overlay → senha/onboarding
   }catch(err){
@@ -5873,6 +5905,293 @@ _dlgRegister('trocarSenhaSalvar', async (el) => {
     try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
   }
 });
+
+/* v653/0066 — MFA/TOTP: sheets de ativação, gerenciamento e recovery.
+   ADR 0007. Só staff (dono/professor). Códigos de recuperação: 10 por conta,
+   SHA-256 no cliente, plaintext aparece uma vez. */
+
+let _mfaState = { factors: [], hasTotp: false, recoveryCount: 0, loading: false };
+
+async function _mfaCarregarState() {
+  _mfaState.loading = true;
+  try {
+    const factors = await sbAuth.mfa.listFactors();
+    const totp = (factors.data?.totp || []).find(f => f.status === 'verified');
+    _mfaState.factors = factors.data?.totp || [];
+    _mfaState.hasTotp = !!totp;
+    _mfaState.totpFactorId = totp?.id || null;
+    _mfaState.recoveryCount = _mfaState.hasTotp ? await sbAuth.mfa.recoveryCount() : 0;
+  } catch (e) {
+    _mfaState.erro = e.message || String(e);
+  } finally {
+    _mfaState.loading = false;
+  }
+}
+
+async function _mfaAtualizarStatus(el) {
+  if (!el) return;
+  await _mfaCarregarState();
+  if (_mfaState.erro) { el.textContent = 'Erro ao verificar'; return; }
+  if (_mfaState.hasTotp) {
+    const cor = _mfaState.recoveryCount < 3 ? 'var(--red)' : 'var(--muted)';
+    el.innerHTML = `<span style="color:#2fa86a;font-weight:700">✓ Ativo</span> · <span style="color:${cor}">${_mfaState.recoveryCount} códigos de recuperação</span>`;
+  } else {
+    el.textContent = 'Recomendado — protege sua conta';
+  }
+}
+
+_dlgRegister('mfaAbrir', async () => {
+  await _mfaCarregarState();
+  if (_mfaState.hasTotp) _mfaGerenciarSheet();
+  else _mfaAtivarSheet();
+});
+
+// Sheet de ativação: enroll → mostra QR → verifica código → gera recovery codes → mostra
+function _mfaAtivarSheet() {
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog" style="max-height:90vh;overflow-y:auto">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🔐 Ativar autenticação em 2 fatores</div>
+    <div class="sheet-desc">Vamos configurar em 3 passos. Você precisa de um app autenticador no celular (Google Authenticator, Authy, 1Password, etc.).</div>
+    <div id="mfa-body" style="margin-top:12px"></div>
+    <button class="sheet-cancel" id="mfa-cancel" style="margin-top:12px">Cancelar</button>
+  </div></div>`);
+  const close = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260); };
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+  sheet.querySelector('#mfa-cancel').onclick = close;
+  const body = sheet.querySelector('#mfa-body');
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+
+  let enrollData = null, codigos = null, salvou = false;
+
+  const passo1_qr = async () => {
+    body.innerHTML = '<div class="empty-line">Gerando QR code…</div>';
+    try {
+      enrollData = await sbAuth.mfa.enroll();
+    } catch (e) {
+      body.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}. Talvez você já tenha um factor pendente — cancele e tente novamente.</div>`;
+      return;
+    }
+    const qr = enrollData.totp?.qr_code || '';
+    const secret = enrollData.totp?.secret || '';
+    body.innerHTML = `
+      <div style="text-align:center;padding:8px">
+        <div style="font-weight:700;margin-bottom:8px">1. Escaneie o QR code</div>
+        <div style="background:#fff;padding:16px;border-radius:12px;display:inline-block;border:1px solid var(--line)">
+          <img src="${safeAttr(qr)}" alt="QR code" style="width:200px;height:200px;display:block">
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">Se não conseguir escanear, digite manualmente:</div>
+        <div style="font-family:ui-monospace,monospace;font-size:12px;background:var(--field);padding:8px;border-radius:8px;margin-top:4px;word-break:break-all;user-select:all">${safeTxt(secret)}</div>
+      </div>
+      <div style="margin-top:16px">
+        <div style="font-weight:700;margin-bottom:8px">2. Digite o código de 6 dígitos</div>
+        <input class="inp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" id="mfa-code" placeholder="123456" autocomplete="one-time-code" style="text-align:center;font-family:ui-monospace,monospace;font-size:22px;letter-spacing:8px">
+        <button class="btn-save" id="mfa-verify" style="margin-top:8px">Verificar</button>
+        <div id="mfa-erro" style="color:var(--red);font-size:12px;margin-top:6px"></div>
+      </div>`;
+    body.querySelector('#mfa-verify').onclick = passo2_verify;
+    body.querySelector('#mfa-code').focus();
+  };
+
+  const passo2_verify = async () => {
+    const code = body.querySelector('#mfa-code').value.replace(/\D/g,'');
+    const erro = body.querySelector('#mfa-erro');
+    if (code.length !== 6) { erro.textContent = 'Digite os 6 dígitos'; return; }
+    const btn = body.querySelector('#mfa-verify');
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    erro.textContent = '';
+    try {
+      await sbAuth.mfa.challengeAndVerify(enrollData.id, code);
+      codigos = await sbAuth.mfa.generateRecoveryCodes();
+      passo3_codigos();
+    } catch (e) {
+      erro.textContent = 'Código inválido. Tente de novo.';
+      btn.disabled = false; btn.textContent = 'Verificar';
+    }
+  };
+
+  const passo3_codigos = () => {
+    body.innerHTML = `
+      <div style="padding:12px;background:#fef3c7;border-radius:12px;margin-bottom:12px">
+        <div style="font-weight:800;color:#92400e;margin-bottom:4px">⚠️ Salve estes códigos AGORA</div>
+        <div style="font-size:12px;color:#92400e">Cada código pode ser usado <b>uma vez</b> pra entrar se você perder o celular. Não aparecerão de novo. Sem eles + celular = conta perdida.</div>
+      </div>
+      <div id="mfa-codigos" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:14px;font-weight:700;background:var(--field);padding:12px;border-radius:12px">
+        ${codigos.map(c => `<div style="text-align:center;padding:6px;background:var(--card);border-radius:6px;user-select:all">${safeTxt(c)}</div>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button class="btn-save" id="mfa-copiar" style="flex:1">📋 Copiar todos</button>
+        <button class="btn-save ghost" id="mfa-imprimir" style="flex:1">🖨️ Imprimir</button>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;padding:10px;background:var(--field);border-radius:8px;cursor:pointer">
+        <input type="checkbox" id="mfa-confirmo" style="margin-top:2px">
+        <span style="font-size:13px">Confirmo que salvei os 10 códigos num local seguro (gerenciador de senhas, cofre físico ou impressão).</span>
+      </label>
+      <button class="btn-save" id="mfa-finalizar" style="margin-top:12px" disabled>Finalizar</button>`;
+    body.querySelector('#mfa-copiar').onclick = () => {
+      const txt = codigos.join('\n');
+      navigator.clipboard.writeText(txt).then(() => toast('Códigos copiados ✔'), () => toast('Selecione e copie manualmente'));
+    };
+    body.querySelector('#mfa-imprimir').onclick = () => {
+      const w = window.open('', '_blank');
+      w.document.write(`<html><head><title>MFA Recovery Codes · Yama</title></head><body style="font-family:monospace;padding:24px"><h2>Códigos de recuperação — Yama Jiu-Jitsu</h2><p>Guarde num local seguro. Cada código funciona uma vez.</p><pre style="font-size:16px;line-height:2">${codigos.join('\n')}</pre></body></html>`);
+      w.document.close(); w.print();
+    };
+    const chk = body.querySelector('#mfa-confirmo');
+    const btn = body.querySelector('#mfa-finalizar');
+    chk.onchange = () => { btn.disabled = !chk.checked; salvou = chk.checked; };
+    btn.onclick = () => {
+      toast('✅ MFA ativado');
+      close();
+      render();
+    };
+  };
+
+  passo1_qr();
+}
+
+// Sheet de gerenciamento (MFA já ativo)
+function _mfaGerenciarSheet() {
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🔐 Autenticação em 2 fatores</div>
+    <div class="sheet-desc">MFA está ativo na sua conta.</div>
+    <div style="padding:12px;background:var(--field);border-radius:8px;margin:12px 0">
+      <div style="font-size:14px"><b>${_mfaState.recoveryCount}</b> códigos de recuperação restantes</div>
+      ${_mfaState.recoveryCount < 3 ? '<div style="color:var(--red);font-size:11px;font-weight:700;margin-top:4px">⚠️ Poucos códigos — regenere pra ter os 10 de novo.</div>' : ''}
+    </div>
+    <button class="btn-save ghost" id="mfa-regen">🔁 Regenerar códigos de recuperação</button>
+    <button class="btn-save" id="mfa-off" style="background:var(--red);margin-top:8px">🚫 Desativar MFA</button>
+    <button class="sheet-cancel" id="mfa-close" style="margin-top:8px">Fechar</button>
+  </div></div>`);
+  const close = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260); };
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+  sheet.querySelector('#mfa-close').onclick = close;
+  sheet.querySelector('#mfa-regen').onclick = async () => {
+    if (!(await _confirmar({ titulo: 'Regenerar códigos?', desc: 'Os 10 códigos antigos deixam de funcionar. Você precisa salvar os novos.', sim: 'Regenerar', perigo: false }))) return;
+    try {
+      const codigos = await sbAuth.mfa.generateRecoveryCodes();
+      close();
+      _mfaMostrarCodigosSheet(codigos);
+    } catch (e) { toast('Erro: ' + (e.message || '')); }
+  };
+  sheet.querySelector('#mfa-off').onclick = async () => {
+    if (!(await _confirmar({ titulo: 'Desativar MFA?', desc: 'Sua conta volta a proteger só com senha. Não recomendado.', sim: 'Desativar' }))) return;
+    try {
+      await sbAuth.mfa.unenroll(_mfaState.totpFactorId);
+      await sbAuth.mfa.recoveryClear();
+      toast('MFA desativado');
+      close();
+      render();
+    } catch (e) { toast('Erro: ' + (e.message || '')); }
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+}
+
+// Sheet que só mostra códigos gerados (usado pelo regenerar)
+function _mfaMostrarCodigosSheet(codigos) {
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet sheet-lg" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">Novos códigos de recuperação</div>
+    <div style="padding:12px;background:#fef3c7;border-radius:12px;margin-bottom:12px">
+      <div style="font-weight:800;color:#92400e">⚠️ Os antigos deixaram de funcionar</div>
+      <div style="font-size:12px;color:#92400e;margin-top:4px">Salve estes agora. Não aparecerão de novo.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;font-size:14px;font-weight:700;background:var(--field);padding:12px;border-radius:12px">
+      ${codigos.map(c => `<div style="text-align:center;padding:6px;background:var(--card);border-radius:6px;user-select:all">${safeTxt(c)}</div>`).join('')}
+    </div>
+    <button class="btn-save" id="mrc-copiar" style="margin-top:12px">📋 Copiar todos</button>
+    <button class="sheet-cancel" id="mrc-close" style="margin-top:8px">Fechar</button>
+  </div></div>`);
+  const close = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260); };
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+  sheet.querySelector('#mrc-close').onclick = close;
+  sheet.querySelector('#mrc-copiar').onclick = () => {
+    navigator.clipboard.writeText(codigos.join('\n')).then(() => toast('Códigos copiados ✔'));
+  };
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+}
+
+// Sheet do gate AAL2 no login (chamada depois de signIn com sucesso)
+function _mfaGateSheet(onSucesso) {
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🔐 Autenticação em 2 fatores</div>
+    <div class="sheet-desc">Digite o código de 6 dígitos do seu app autenticador.</div>
+    <input class="inp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" id="mfg-code" placeholder="123456" autocomplete="one-time-code" style="text-align:center;font-family:ui-monospace,monospace;font-size:24px;letter-spacing:8px;margin-top:12px">
+    <button class="btn-save" id="mfg-verify" style="margin-top:12px">Entrar</button>
+    <div id="mfg-erro" style="color:var(--red);font-size:12px;margin-top:6px;text-align:center;min-height:16px"></div>
+    <div style="text-align:center;margin-top:12px">
+      <a id="mfg-recovery" style="color:var(--red);font-size:13px;cursor:pointer">Perdi o celular · usar código de recuperação</a>
+    </div>
+  </div></div>`);
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  sheet.querySelector('#mfg-code').focus();
+  const erro = sheet.querySelector('#mfg-erro');
+  const btn = sheet.querySelector('#mfg-verify');
+  btn.onclick = async () => {
+    const code = sheet.querySelector('#mfg-code').value.replace(/\D/g,'');
+    if (code.length !== 6) { erro.textContent = 'Digite os 6 dígitos'; return; }
+    btn.disabled = true; btn.textContent = 'Verificando…'; erro.textContent = '';
+    try {
+      const factors = await sbAuth.mfa.listFactors();
+      const totp = (factors.data?.totp || []).find(f => f.status === 'verified');
+      if (!totp) throw new Error('Nenhum factor TOTP ativo');
+      await sbAuth.mfa.challengeAndVerify(totp.id, code);
+      sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260);
+      onSucesso();
+    } catch (e) {
+      erro.textContent = 'Código inválido';
+      btn.disabled = false; btn.textContent = 'Entrar';
+    }
+  };
+  sheet.querySelector('#mfg-recovery').onclick = () => {
+    sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260);
+    _mfaRecoverySheet(onSucesso);
+  };
+}
+
+// Sheet de recovery — usa código, desativa MFA, força reenroll
+function _mfaRecoverySheet(onSucesso) {
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">🔑 Código de recuperação</div>
+    <div class="sheet-desc">Digite um dos códigos que você salvou quando ativou o MFA. Depois de entrar, você precisa reconfigurar o MFA imediatamente.</div>
+    <input class="inp" type="text" id="mfr-code" placeholder="XXX-XXX-XXX" autocomplete="off" style="text-align:center;font-family:ui-monospace,monospace;font-size:20px;letter-spacing:2px;text-transform:uppercase;margin-top:12px">
+    <button class="btn-save" id="mfr-verify" style="margin-top:12px">Entrar com código</button>
+    <div id="mfr-erro" style="color:var(--red);font-size:12px;margin-top:6px;text-align:center;min-height:16px"></div>
+    <button class="sheet-cancel" id="mfr-close" style="margin-top:8px">Cancelar</button>
+  </div></div>`);
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  const close = () => { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 260); };
+  sheet.querySelector('#mfr-close').onclick = close;
+  sheet.querySelector('#mfr-verify').onclick = async () => {
+    const code = sheet.querySelector('#mfr-code').value;
+    const erro = sheet.querySelector('#mfr-erro');
+    const btn = sheet.querySelector('#mfr-verify');
+    btn.disabled = true; btn.textContent = 'Verificando…'; erro.textContent = '';
+    try {
+      const ok = await sbAuth.mfa.useRecoveryCode(code);
+      if (!ok) { erro.textContent = 'Código inválido'; btn.disabled = false; btn.textContent = 'Entrar com código'; return; }
+      // Sucesso — desativa todos os factors + limpa recovery restantes
+      const factors = await sbAuth.mfa.listFactors();
+      const totps = factors.data?.totp || [];
+      for (const f of totps) { try { await sbAuth.mfa.unenroll(f.id); } catch(_){} }
+      await sbAuth.mfa.recoveryClear();
+      close();
+      toast('✅ MFA desativado. Reative na tela de Perfil.');
+      onSucesso();
+    } catch (e) {
+      const msg = (e.message === 'rate_limited') ? 'Muitas tentativas. Espere uma hora.' : ('Erro: ' + (e.message||''));
+      erro.textContent = msg;
+      btn.disabled = false; btn.textContent = 'Entrar com código';
+    }
+  };
+}
 
 function _sairDaConta(){
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">

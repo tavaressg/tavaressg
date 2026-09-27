@@ -219,6 +219,52 @@
       }),
       // AAL atual: 'aal1' (só senha) vs 'aal2' (senha + TOTP). Use p/ exigir 2FA em ações sensíveis.
       aal: wrap(async () => await SB.auth.mfa.getAuthenticatorAssuranceLevel()),
+
+      // v653/0066: recovery codes. Supabase nao gera nativos — gente cria 10,
+      // hash SHA-256 no cliente, grava so' o hash. Plaintext aparece 1x.
+      // Alfabeto sem chars ambiguos (0/O/I/l/1 fora). ~72 bits de entropia por codigo.
+      _alfabetoRecovery: 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
+      _gerarCodigo: function() {
+        const buf = new Uint32Array(9);
+        crypto.getRandomValues(buf);
+        const ab = this._alfabetoRecovery, out = [];
+        for (let i = 0; i < 9; i++) out.push(ab[buf[i] % ab.length]);
+        return out.slice(0,3).join('') + '-' + out.slice(3,6).join('') + '-' + out.slice(6,9).join('');
+      },
+      _hashSHA256: async function(txt) {
+        const buf = new TextEncoder().encode(txt);
+        const digest = await crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(digest))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+      },
+      // Gera 10 codigos, hasheia, grava hashes via RPC, devolve os plaintexts.
+      // Chamar APENAS apos challengeAndVerify — se falhar, factor fica sem recovery.
+      generateRecoveryCodes: wrap(async function() {
+        const codigos = [];
+        for (let i = 0; i < 10; i++) codigos.push(this._gerarCodigo());
+        const hashes = await Promise.all(codigos.map(c => this._hashSHA256(c.replace(/-/g,''))));
+        const { error } = await SB.rpc('mfa_recovery_salvar', { p_hashes: hashes });
+        if (error) throw error;
+        return codigos;   // plaintexts — SO' aparecem aqui, uma vez.
+      }),
+      useRecoveryCode: wrap(async function(codigo) {
+        // Normaliza: uppercase, tira '-' e espacos.
+        const norm = String(codigo || '').toUpperCase().replace(/[-\s]/g, '');
+        if (!/^[A-Z2-9]{9}$/.test(norm)) return false;
+        const hash = await this._hashSHA256(norm);
+        const { data, error } = await SB.rpc('mfa_recovery_usar', { p_hash: hash });
+        if (error) throw error;
+        return data === true;
+      }),
+      recoveryCount: wrap(async () => {
+        const { data, error } = await SB.rpc('mfa_recovery_restantes');
+        if (error) throw error;
+        return data | 0;
+      }),
+      recoveryClear: wrap(async () => {
+        const { error } = await SB.rpc('mfa_recovery_limpar');
+        if (error) throw error;
+      }),
     },
 
     // LGPD — exclusão COMPLETA da própria conta (cascade no servidor via Edge Function).
