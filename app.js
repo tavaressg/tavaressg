@@ -5852,26 +5852,11 @@ _dlgRegister('authEntrar', async (el) => {
   try { localStorage.setItem('yama.remember', (rem && rem.checked===false) ? '0' : '1'); } catch(_){}
   el.disabled = true; el.textContent = 'Entrando…';
   try{
-    const { user } = await sbAuth.signIn(e, p);
-    // v653/0066: gate MFA. Se conta tem TOTP, precisa upgrade pra AAL2 antes de
-    // continuar. sbAuth.mfa.aal() retorna { currentLevel:'aal1', nextLevel:'aal2' }
-    // quando factor esta ativo mas sessao so tem senha.
-    try {
-      const aal = await sbAuth.mfa.aal();
-      if (aal.data?.nextLevel === 'aal2' && aal.data?.currentLevel === 'aal1') {
-        el.textContent = 'Aguardando 2FA…';
-        await new Promise(resolve => {
-          _mfaGateSheet(async () => {
-            el.textContent = 'Sincronizando…';
-            await _cloudLogin(user);
-            resolve();
-          });
-        });
-        return;
-      }
-    } catch(_) { /* sem MFA, segue */ }
-    el.textContent = 'Sincronizando…';
-    await _cloudLogin(user);   // pipeline único: migração legado → pullState → overlay → senha/onboarding
+    // v656: signIn dispara SIGNED_IN via onAuthStateChange, que agora cuida
+    // do gate MFA + _cloudLogin. Aqui so' aguarda o signIn resolver (ou falhar).
+    await sbAuth.signIn(e, p);
+    el.textContent = 'Aguardando confirmação…';
+    // onAuthStateChange faz o resto (MFA gate se precisar, _cloudLogin).
   }catch(err){
     el.disabled = false; el.textContent = 'Entrar';
     const m = err.message || '';
@@ -19142,10 +19127,25 @@ if (DEMO || TESTMODE) {
         if(typeof sbRealtime !== 'undefined') sbRealtime.desligar(); _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render();
       }
       if(event==='SIGNED_IN' && s && !DB.sbUser){
-        // v654/0067: SIGNED_IN sem sbUser ativo = login real (não INITIAL_SESSION).
-        // INITIAL_SESSION fica de fora — não é login, é reload de página.
-        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) setTimeout(() => sbAnalytics.logAuthEvent('login'), 100);
-        _cloudLogin(s.user);
+        // v656: MFA gate move pra ca (era em authEntrar, mas onAuthStateChange
+        // disparava antes e chamava _cloudLogin, pulando o gate).
+        // Se AAL2 pendente, mostra sheet TOTP; senao segue direto.
+        (async () => {
+          let precisaMfa = false;
+          try {
+            const aal = await sbAuth.mfa.aal();
+            precisaMfa = aal.data?.nextLevel === 'aal2' && aal.data?.currentLevel === 'aal1';
+          } catch (_) {}
+          const seguir = () => {
+            if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) setTimeout(() => sbAnalytics.logAuthEvent('login'), 100);
+            _cloudLogin(s.user);
+          };
+          if (precisaMfa) {
+            _mfaGateSheet(seguir);
+          } else {
+            seguir();
+          }
+        })();
       }
       // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
       if(event==='PASSWORD_RECOVERY'){
