@@ -5967,9 +5967,14 @@ function _mfaAtivarSheet() {
   const passo1_qr = async () => {
     body.innerHTML = '<div class="empty-line">Gerando QR code…</div>';
     try {
+      // v655: limpa factors nao-verificados (pendentes) antes de criar novo,
+      // senao Supabase reclama "friendly name '' already exists".
+      const listRes = await sbAuth.mfa.listFactors();
+      const pendentes = (listRes.data?.all || listRes.data?.totp || []).filter(f => f.status !== 'verified');
+      for (const f of pendentes) { try { await sbAuth.mfa.unenroll(f.id); } catch(_){} }
       enrollData = await sbAuth.mfa.enroll();
     } catch (e) {
-      body.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}. Talvez você já tenha um factor pendente — cancele e tente novamente.</div>`;
+      body.innerHTML = `<div class="empty-line" style="color:var(--red)">Erro: ${safeTxt(e.message||'')}</div>`;
       return;
     }
     const qr = enrollData.totp?.qr_code || '';
