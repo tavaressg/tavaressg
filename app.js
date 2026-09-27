@@ -4790,7 +4790,7 @@ function alunoPerfil(){
     </div>`);
     w.appendChild(mfaCard);
     // Atualiza status assincronamente
-    setTimeout(() => _mfaAtualizarStatus(mfaCard.querySelector('#mfa-status')), 0);
+    setTimeout(_mfaAtualizarStatus, 0);   // morph-ok: pinta no DOM vivo via getElementById
   }
 
   // Sair — só se autenticado na nuvem (senão não há sessão pra encerrar)
@@ -5895,7 +5895,9 @@ _dlgRegister('trocarSenhaSalvar', async (el) => {
    ADR 0007. Só staff (dono/professor). Códigos de recuperação: 10 por conta,
    SHA-256 no cliente, plaintext aparece uma vez. */
 
-let _mfaState = { factors: [], hasTotp: false, recoveryCount: 0, loading: false };
+// v657: state persiste entre renders (evita "Verificando..." em toda re-renderizacao
+// do Perfil). loaded=false na 1a vez; depois usa cache e refresca em background.
+let _mfaState = { factors: [], hasTotp: false, recoveryCount: 0, loading: false, loaded: false };
 
 async function _mfaCarregarState() {
   _mfaState.loading = true;
@@ -5906,6 +5908,8 @@ async function _mfaCarregarState() {
     _mfaState.hasTotp = !!totp;
     _mfaState.totpFactorId = totp?.id || null;
     _mfaState.recoveryCount = _mfaState.hasTotp ? await sbAuth.mfa.recoveryCount() : 0;
+    _mfaState.erro = null;
+    _mfaState.loaded = true;
   } catch (e) {
     _mfaState.erro = e.message || String(e);
   } finally {
@@ -5913,15 +5917,26 @@ async function _mfaCarregarState() {
   }
 }
 
-async function _mfaAtualizarStatus(el) {
+// Pinta o status no DOM VIVO (busca #mfa-status por id — sobrevive a re-renderizacoes).
+function _mfaRenderStatus() {
+  const el = document.getElementById('mfa-status');
   if (!el) return;
-  await _mfaCarregarState();
+  if (!_mfaState.loaded) { el.textContent = 'Verificando…'; return; }
   if (_mfaState.erro) { el.textContent = 'Erro ao verificar'; return; }
   if (_mfaState.hasTotp) {
     const cor = _mfaState.recoveryCount < 3 ? 'var(--red)' : 'var(--muted)';
     el.innerHTML = `<span style="color:#2fa86a;font-weight:700">✓ Ativo</span> · <span style="color:${cor}">${_mfaState.recoveryCount} códigos de recuperação</span>`;
   } else {
     el.textContent = 'Recomendado — protege sua conta';
+  }
+}
+
+async function _mfaAtualizarStatus() {
+  // Se ja carregou, pinta o cache primeiro (sem flicker), depois refresca async.
+  _mfaRenderStatus();
+  if (!_mfaState.loading) {
+    await _mfaCarregarState();
+    _mfaRenderStatus();   // morph-ok: _mfaRenderStatus resolve #mfa-status no DOM vivo
   }
 }
 
