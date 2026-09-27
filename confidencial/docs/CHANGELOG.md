@@ -9,6 +9,223 @@
 
 ## Concluídas ✓
 
+### v648-v657 + migrations 0060-0067 — Auditoria, analytics e MFA em três etapas (2026-09-26/27)
+
+Série grande em duas sessões. Três eixos independentes construídos e
+validados em produção.
+
+**Etapa 1 · Log de leitura + Analytics de uso (2026-09-26)**
+
+Migration **0060** cria a base:
+
+- Coluna `escopo` em `admin_audit` (`admin` para mutação existente,
+  `leitura` para o que a gente passa a registrar agora).
+- Nova tabela `usage_events` (user_id, academy_id, role, tela, tela_de,
+  durou_ms, criado_em) com RLS default-deny e cleanup por `pg_cron` em 180d.
+- RPCs `log_leitura(acao, alvo, alvo_nome, detail)` — só professor —
+  e `log_uso(tela, tela_de, durou_ms)` — self-insert.
+- RPC agregada `uso_agregado(dias)` com **k-anonymity ≥ 3 usuários
+  distintos** por (tela, role). Sem exposição individual — pinta o
+  dashboard sem violar privacidade.
+
+Migration **0061** endireita o LGPD: `_nome_de()` passa a preferir
+`nome_completo` em vez de `apelido` (regra ERP — professor nunca vê
+apelido de aluno). Backfill dos `admin_audit` antigos rodou junto —
+todas as linhas com actor/alvo cujo profile ainda existe passam a
+mostrar o nome completo.
+
+Migration **0062** expande os triggers de `ficha_update` e
+`mensalidade_set`. Antes, `ficha_update` só gravava
+`{"campos":["graus"]}` — não dava pra ver o que mudou. Agora
+distingue **campos objetivos** (faixa, graus, role, status_manual,
+ativo, must_change_pw, academy_id) que gravam `{de, para}` e
+**campos sensíveis** (nome, telefone, foto, cpf, endereço) que só
+listam o nome do campo em `campos_sensiveis`. `mensalidade_set` ganha
+`valor` e `categoria` no detail.
+
+Migration **0063** faz backfill do histórico de graus/faixa. Não
+existe timeline de valor pra nenhum outro campo, mas graus/faixa
+tem `graduations` (fonte única desde a 0022). SQL escaneia
+`admin_audit.ficha_update` sem `mudancas`, pra cada linha busca a
+graduação anterior + posterior na tabela `graduations` do alvo e
+preenche `mudancas` retroativamente.
+
+Hooks no cliente (app.js v648-v650):
+
+- `render()` detecta troca de `_viewKey`, mede tempo na tela anterior
+  e chama `sbAnalytics.logUso`. Analytics passivo, zero clique.
+- `_profAlunoSheet(a)` chama `logLeitura('abrir_ficha', ...)` quando
+  professor abre ficha de aluno (LGPD — quem viu o quê).
+- `_finExportCSV`, `_finExportPDF`, `_xlsExportCSV` logam a exportação.
+
+UI (Hub YAMA → grupo **Auditoria**):
+
+- **📜 Log de acesso** — tela cheia estilo ERP (padrão `xls-tbl.cob-tbl`)
+  com colunas Quando · Escopo · Actor · Ação · Alvo · Detalhes, chips
+  Todos/Leituras (LGPD)/Mutações, botão **↓ Exportar CSV** que baixa
+  UTF-8 BOM. Detail renderiza legível: `mudancas` vira `campo: de → para`
+  em vez de JSON cru. Data completa dd/mm/aa hh:mm:ss.
+- **📊 Uso do app** — dashboard com top 10 telas por role (aluno/professor/dono)
+  e menos abertas. Chips 7d/30d/90d/180d. Só aparecem telas com ≥ 3
+  pessoas distintas — sem essa proteção, um professor conseguia derivar
+  "aluno X anda em Y tela" de tabelas pequenas.
+
+**Etapa 2 · Auditoria de logins (2026-09-27, plano C após duas tentativas falharem)**
+
+Primeira tentativa (**0064**): RPC que lê `auth.audit_log_entries` do
+GoTrue. Falhou porque supabase-js REST não deixa consultar schema `auth`
+(erro `Invalid schema: auth`). Corrigido criando função `security definer`
+em `public` que faz o join server-side.
+
+Segunda tentativa (**0065**): `pg_cron` que drena `auth.audit_log_entries`
+pra tabela persistente `login_events` a cada 10 min, com retention 90d.
+Fantasma — `select count(*) from auth.audit_log_entries` deu **0 rows em
+prod**. Supabase não popula esta tabela no free plan (ou purga em
+segundos). Cron não tinha o que copiar.
+
+Solução final (**0067**, plano C — client-side hooks):
+
+- RPC `log_login_event(tipo, user_agent)` — self-insert em `login_events`
+  com `auth.uid()`.
+- RPC `log_login_falha(email, user_agent)` — grant a **anon**
+  (login errado = não autenticado). Rate limit **50/h por email hash**
+  via bucket próprio na `rate_limits`. Silencia flood.
+- `auditoria_logins_academia` reescrita pra ler de `login_events` +
+  incluir `login_falha` linkado à academia por email.
+- Unschedule do cron fantasma da 0065 + drop da função `_drena_login_events`.
+
+Cliente (`supabase.js` v113, `app.js` v654):
+
+- `sbAuth.signIn` no catch → `log_login_falha(email, navigator.userAgent)`.
+- `onAuthStateChange` hooks: SIGNED_IN → 'login', SIGNED_OUT → 'logout',
+  PASSWORD_RECOVERY → 'recovery', USER_UPDATED (com marcador) →
+  'password_change', MFA_CHALLENGE_VERIFIED → 'mfa_verified'. **INITIAL_SESSION
+  fica de fora** — F5 com sessão viva não é login novo.
+- `changePassword` marca `DB._logPasswordChange` antes de `updateUser`
+  pra desambiguar USER_UPDATED por causa de troca de senha vs metadata.
+
+UI da tela **🔐 Auditoria de logins** (só dono, gate em `DB.eu.role === 'dono'`):
+tabela ERP com Quando · Ação · Usuário · E-mail · Navegador; chip "⚠️
+Falhas" destaca `login_falha` em vermelho; export CSV. Coluna Navegador
+extrai `Chrome · Windows` (etc) do user-agent completo — hover mostra o
+UA cru.
+
+Trade-offs assumidos: sem IP real (cliente não conhece), user-agent
+adulterável, cliente pode bypassar. Auditoria é forense — não defesa
+contra atacante técnico. Quando migrar pra Cloudflare (Infra Fase 1), o
+header passa a trazer IP real.
+
+**Etapa 3 · MFA/TOTP + Códigos de recuperação (2026-09-27)**
+
+Reverte parcialmente [ADR 0001](decisions/0001-features-descartadas.md) na
+parte "MFA TOTP UI". Documentado em novo [ADR 0007](decisions/0007-mfa-totp-para-staff.md).
+
+Migration **0066**:
+
+- Coluna `mfa_recovery_hashes text[]` em `profiles`.
+- RPC `mfa_recovery_salvar(hashes[])` — self-only, valida SHA-256 hex 64ch.
+- RPC `mfa_recovery_usar(hash)` — remove código usado, rate limit **5/h**
+  via `rate_hit('mfa_recovery', 5, 3600)`.
+- RPCs `mfa_recovery_restantes()` e `mfa_recovery_limpar()`.
+
+Adapter (`supabase.js` v112):
+
+- Helpers `_mfaGerarCodigo` e `_mfaHashSHA256` **fora do objeto sbAuth**
+  (bug v655: `wrap(fn)` chama `fn.apply(null, ...)` — `this` fica null
+  dentro dos métodos, tentar `this._gerarCodigo()` quebrava). Alfabeto sem
+  chars ambíguos (`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`), formato `XXX-XXX-XXX`,
+  ~72 bits de entropia por código.
+- `generateRecoveryCodes()` — gera 10, hasheia, salva, devolve plaintexts
+  uma vez.
+- `useRecoveryCode(codigo)` — normaliza, hasheia, valida, retorna bool.
+
+UI (Perfil → "🔐 Autenticação em 2 fatores", **só staff** —
+`me.isProfessor`). Setup em 3 passos:
+
+1. QR code + secret manual (fallback pra apps que não escaneiam).
+2. Input dos 6 dígitos → `mfa.challengeAndVerify`.
+3. **Limpa factors não-verificados antes** (v655 — se o usuário abriu
+   setup e não confirmou, ficava um factor `unverified` órfão e o
+   próximo `enroll` batia em `friendly name '' already exists`). Depois
+   `generateRecoveryCodes` mostra os 10 códigos com botão Copiar/Imprimir
+   e checkbox obrigatório "confirmo que salvei".
+
+Gate no login: **race condition** (v656) — `signIn` disparava SIGNED_IN
+via `onAuthStateChange`, que chamava `_cloudLogin` antes do
+`authEntrar` conseguir checar AAL2. Gate MFA moveu pra dentro do handler
+de SIGNED_IN — toda porta de entrada passa por lá. Se `aal.nextLevel ===
+'aal2'` e `currentLevel === 'aal1'`, abre `_mfaGateSheet` que pede o
+código TOTP antes de `_cloudLogin`.
+
+Recovery flow: link discreto "perdi o celular · usar código de
+recuperação" na sheet do gate → input do código → RPC valida →
+`unenroll` de todos os factors + `mfa_recovery_limpar` + `_cloudLogin`
+com toast "MFA desativado — reative na tela de Perfil". Reenroll
+obrigatório antes de qualquer outra ação.
+
+Gerenciamento: sheet no Perfil com contador (**vermelho se < 3
+restantes**), botão Regenerar (invalida antigos + mostra novos) e
+botão Desativar (pede confirmação + senha atual + código TOTP atual —
+**não recovery**, pra recovery vazado não conseguir desativar MFA).
+
+**Fix cosmético (v655)**: `wrap()` mostrava "Erro de rede: <msg>" pra
+qualquer erro do adapter — no gate MFA, código errado exibia "Erro de
+rede: Invalid TOTP code entered" por cima do "Código inválido" da UI.
+Agora `wrap` detecta erro HTTP (tem `status`/`code`) e não toasta —
+caller lida com msg específica. Toast só pra rede de verdade
+(`TypeError`, `fetch`, `failed to`).
+
+**Fix cosmético (v657)**: `_mfaAtualizarStatus` capturava o node
+`#mfa-status` no setTimeout. A cada re-render do Perfil (foco,
+background refresh), o node virava órfão e o await ficava travado em
+"Verificando…". Agora `_mfaRenderStatus` busca o node por `getElementById`
+na hora de pintar (DOM vivo). State ganha flag `loaded` — cache reusa
+sem refetch em re-renders, refresca em background.
+
+---
+
+### v641-v647 — Loja, login e polimento (2026-09-26)
+
+Série menor entre a v640 (deploy anterior) e o início da série de
+auditoria.
+
+**Loja (v641-v642)**:
+
+- **`resize=contain` no Supabase Image Transformation** (`_imgProduto`).
+  O default `cover` estava cropando lateralmente as camisetas. Agora
+  encaixa dentro do width sem cortar.
+- **`_buildHeroGallery` monta na hora**. Antes esperava TODAS as probes
+  (uma por foto extra) terminarem antes de trocar da foto única pro
+  carrossel — 1-2s de delay ao abrir o produto. Agora carrossel aparece
+  imediatamente; `onerror` de cada `<img>` remove seu próprio
+  slide + dot correspondente se a URL falhar.
+- Alunos (Excel): **cabeçalho de coluna clicável** ordena a lista com
+  toggle asc/desc + seta ▲/▼ visual. Sort estável, respeita filtros
+  ativos.
+
+**Auth (v643-v647)**:
+
+- **Removido o fluxo "esqueci minha senha por email"** (v643). Motivo:
+  76 dos 176 alunos foram importados em massa com emails potencialmente
+  fictícios — o link de reset nunca chegava. Fluxo real agora é 100%
+  via professor: `sbProf.resetarSenha(userId)` (Edge Function
+  `resetar-senha`, deployada desde v436). Handler `PASSWORD_RECOVERY`
+  no `onAuthStateChange` fica vivo pra atender link legado ou reset
+  feito pelo painel admin do Supabase. ADR: nenhum — não é reversão de
+  decisão, é enxugamento de fluxo redundante.
+- **Nota do rodapé do login** reescrita: "Use o e-mail e a senha
+  entregues pela academia. Caso não lembre, seu professor pode gerar
+  uma nova a qualquer momento."
+- **Checkbox "Manter conectado neste aparelho"** (v646). Storage
+  customizado no supabase-js: se marcado (padrão), tokens em
+  `localStorage` — sessão persiste entre reinícios do browser. Se
+  desmarcado, `sessionStorage` — sessão morre ao fechar aba. Legado
+  (chave `yama.remember` ausente) cai no comportamento antigo
+  (localStorage) — ninguém que já estava logado é deslogado no deploy.
+- **Botão "Sair da conta" redesenhado** (v647). Antes: `↩️ Sair` (emoji
+  azul dessalinhado + texto curto). Agora: ícone SVG "logout" (porta com
+  seta) + "Sair da conta" + fundo `red-tint` sutil, sem border tracejado.
+
 ### migration 0059 — Backfill de vendas presenciais antigas + fix de categoria inativa (2026-09-21)
 
 Dono relatou: Gabriel Tavares (venda presencial de hoje) não apareceu no
