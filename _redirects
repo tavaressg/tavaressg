@@ -1,2 +1,0 @@
-# SPA fallback — rota inexistente devolve index.html (200, não 301).
-/*  /index.html  200
