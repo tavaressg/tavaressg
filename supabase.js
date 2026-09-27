@@ -142,7 +142,18 @@
     return async function () {
       try { return await fn.apply(null, arguments); }
       catch (e) {
-        try { global.toast && global.toast('Erro de rede: ' + (e.message || e)); } catch (_) {}
+        // v656: só mostra toast pra ERRO DE REDE de verdade (fetch falhou,
+        // timeout). Erros que o servidor devolveu (HTTP 4xx/5xx com body) tem
+        // `status` ou `code` — o caller lida com esses (mostra msg especifica
+        // na UI, tipo "Codigo invalido"). Antes o toast genérico "Erro de rede"
+        // aparecia por cima da UI, confundindo (ex: MFA com codigo errado).
+        const eSup = e || {};
+        const temStatus = typeof eSup.status === 'number' || typeof eSup.code === 'string';
+        const msgLower = String(eSup.message || '').toLowerCase();
+        const ehRede = !temStatus && (msgLower.includes('fetch') || msgLower.includes('network') || msgLower.includes('failed to') || eSup.name === 'TypeError');
+        if (ehRede) {
+          try { global.toast && global.toast('Erro de rede: ' + (e.message || e)); } catch (_) {}
+        }
         throw e;
       }
     };
