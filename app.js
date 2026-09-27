@@ -17694,6 +17694,7 @@ let _auditLoginsState = { filtro:'todos', rows:null, loading:false, erro:null };
 // v652/0065: tipos normalizados no drena (login_events.tipo)
 const _AUTH_ACOES = {
   login:           '✅ Login',
+  login_falha:     '⚠️ Login falhou',
   logout:          '🚪 Logout',
   recovery:        '🔑 Reset de senha requisitado',
   password_change: '🔒 Senha trocada',
@@ -17748,24 +17749,33 @@ function _auditLoginsPintar(){
   const body = document.getElementById('alg-body'); if (!body) return;
   const chips = document.getElementById('alg-chips'); if (chips) {
     const chip = (lbl,v)=>`<button class="et-chip ${_auditLoginsState.filtro===v?'on':''}" data-click="auditLoginsChip" data-v="${v}">${lbl}</button>`;
-    chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('Logouts','logout') + chip('Reset pedido','recovery') + chip('Senha trocada','password_change') + chip('MFA','mfa_verified');
+    chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('⚠️ Falhas','login_falha') + chip('Logouts','logout') + chip('Reset pedido','recovery') + chip('Senha trocada','password_change') + chip('MFA','mfa_verified');
   }
   const cnt = document.getElementById('alg-count');
   if (cnt) cnt.textContent = _auditLoginsState.rows ? `${_auditLoginsState.rows.length} evento${_auditLoginsState.rows.length===1?'':'s'}` : '';
   if (_auditLoginsState.loading || _auditLoginsState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
   if (_auditLoginsState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">${safeTxt(_auditLoginsState.erro)}</div>`; return; }
   if (!_auditLoginsState.rows.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum evento no filtro atual.</div>'; return; }
-  const head = '<thead><tr><th style="width:150px">Quando</th><th style="width:180px">Ação</th><th>Usuário</th><th>E-mail</th><th style="width:130px">IP</th></tr></thead>';
+  // v654/0067: log_type agora carrega o user_agent do navegador (reutiliza campo).
+  const head = '<thead><tr><th style="width:150px">Quando</th><th style="width:180px">Ação</th><th>Usuário</th><th>E-mail</th><th>Navegador</th></tr></thead>';
+  const uaCurto = (ua) => {
+    if (!ua) return '—';
+    // Resumo curto: browser + OS
+    const b = ua.match(/Chrome|Firefox|Safari|Edge|Opera/)?.[0] || 'Browser';
+    const o = ua.match(/Windows|Mac|iPhone|iPad|Android|Linux/)?.[0] || '';
+    return `${b}${o ? ' · ' + o : ''}`;
+  };
   const rowsHtml = _auditLoginsState.rows.map(r => {
     const dt = new Date(r.criado_em);
     const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
     const acaoLbl = _AUTH_ACOES[r.acao] || r.acao;
-    return `<tr>
+    const cor = r.acao === 'login_falha' ? 'style="background:var(--red-tint)"' : '';
+    return `<tr ${cor}>
       <td style="color:var(--muted);white-space:nowrap">${quando}</td>
       <td><b>${safeTxt(acaoLbl)}</b></td>
       <td>${safeTxt(r.actor_nome || '—')}</td>
       <td style="color:var(--muted);font-size:12px">${safeTxt(r.actor_email || '—')}</td>
-      <td style="color:var(--muted);font-family:ui-monospace,monospace;font-size:11px">${safeTxt(r.ip || '—')}</td>
+      <td style="color:var(--muted);font-size:11px" title="${safeAttr(r.log_type || '')}">${safeTxt(uaCurto(r.log_type))}</td>
     </tr>`;
   }).join('');
   body.innerHTML = `<div class="xls-wrap"><div class="xls-scroll"><table class="xls-tbl cob-tbl">${head}<tbody>${rowsHtml}</tbody></table></div></div>`;
@@ -19121,10 +19131,32 @@ if (DEMO || TESTMODE) {
     sbAuth.onAuthStateChange((event, s)=>{
       // v433: o cartão de visita sai JUNTO com a sessão — aparelho compartilhado não
       // pode mostrar o apelido/faixa do dono anterior no boot seguinte.
-      if(event==='SIGNED_OUT'){ if(typeof sbRealtime !== 'undefined') sbRealtime.desligar(); _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render(); }
-      if(event==='SIGNED_IN' && s && !DB.sbUser){ _cloudLogin(s.user); }
+      if(event==='SIGNED_OUT'){
+        // v654/0067: registra logout ANTES de zerar sbUser (RPC precisa auth.uid()).
+        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent && DB.sbUser) sbAnalytics.logAuthEvent('logout');
+        if(typeof sbRealtime !== 'undefined') sbRealtime.desligar(); _perfilCacheLimpar(DB.sbUser && DB.sbUser.id); _cachePintou=false; DB.sbUser=null; _cloudReady=false; _lastPushed=''; aplicarCleanSlate(); DB.authOpen=true; render();
+      }
+      if(event==='SIGNED_IN' && s && !DB.sbUser){
+        // v654/0067: SIGNED_IN sem sbUser ativo = login real (não INITIAL_SESSION).
+        // INITIAL_SESSION fica de fora — não é login, é reload de página.
+        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) setTimeout(() => sbAnalytics.logAuthEvent('login'), 100);
+        _cloudLogin(s.user);
+      }
       // Link "esqueci a senha": abre o gate de nova senha (sessão veio do e-mail — sem current_password).
-      if(event==='PASSWORD_RECOVERY'){ DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render(); }
+      if(event==='PASSWORD_RECOVERY'){
+        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) sbAnalytics.logAuthEvent('recovery');
+        DB.trocarSenhaOpen=true; DB.trocarSenhaRecovery=true; DB.onboardingOpen=false; render();
+      }
+      // v654/0067: USER_UPDATED dispara depois de changePassword. Registra password_change
+      // apenas se veio de fluxo consciente (marcador setado pelo changePassword do adapter).
+      if(event==='USER_UPDATED' && DB._logPasswordChange){
+        DB._logPasswordChange = false;
+        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) sbAnalytics.logAuthEvent('password_change');
+      }
+      // MFA verificado (upgrade para AAL2)
+      if(event==='MFA_CHALLENGE_VERIFIED'){
+        if (typeof sbAnalytics !== 'undefined' && sbAnalytics.logAuthEvent) sbAnalytics.logAuthEvent('mfa_verified');
+      }
     });
     // v393: refresh silencioso quando o app volta ao foco. Cobre "professor
     // graduou / importou credito, aluno abre depois — vê imediato". Sem isso,

@@ -158,7 +158,17 @@
   const sbAuth = {
     signIn: wrap(async (email, pw) => {
       const { data, error } = await SB.auth.signInWithPassword({ email, password: pw });
-      if (error) throw error;
+      if (error) {
+        // v654/0067: registra falha de login (Plano C — client-side hook).
+        // Fire-and-forget, nunca bloqueia UI. Rate limit 50/h por email no servidor.
+        try {
+          SB.rpc('log_login_falha', {
+            p_email: email || '',
+            p_user_agent: (global.navigator && global.navigator.userAgent || '').slice(0, 200),
+          }).then(() => {}, () => {});
+        } catch (_) {}
+        throw error;
+      }
       _loginPw = pw;
       return { user: data.user };
     }),
@@ -189,6 +199,8 @@
       const cur = currentPw || _loginPw;
       const attrs = { password: newPw };
       if (cur) attrs.current_password = cur;
+      // v654/0067: marca pra logar 'password_change' no USER_UPDATED que vem a seguir.
+      try { if (global.DB) global.DB._logPasswordChange = true; } catch (_) {}
       const { error } = await SB.auth.updateUser(attrs);
       if (error) throw error;
       _loginPw = null;
@@ -2411,6 +2423,14 @@
         p_tela: String(tela).slice(0, 60),
         p_tela_de: telaDe ? String(telaDe).slice(0, 60) : null,
         p_durou_ms: (typeof durouMs === 'number' && durouMs >= 0) ? Math.min(3600000, durouMs|0) : null,
+      }).then(()=>{}, ()=>{});
+    },
+    // v654/0067: eventos de auth do próprio usuário (Plano C).
+    logAuthEvent: (tipo) => {
+      if (!tipo) return;
+      SB.rpc('log_login_event', {
+        p_tipo: String(tipo).slice(0, 30),
+        p_user_agent: (global.navigator && global.navigator.userAgent || '').slice(0, 200),
       }).then(()=>{}, ()=>{});
     },
   };
