@@ -9,6 +9,51 @@
 
 ## Concluídas ✓
 
+### Migração de hospedagem: GitHub Pages → Cloudflare Pages (2026-09-27)
+
+Repositório GitHub virou **privado** e o site passou a ser servido pelo
+Cloudflare Pages. Nada de código quebrou: o `.gitignore` já mantinha
+`confidencial/` e `CLAUDE.md` fora do que sobe, `manifest.json` e `sw.js` usam
+paths relativos, e o app é vanilla JS (sem build step) — o Pages publica a
+raiz do repo direto.
+
+**Mudanças no repo:**
+
+- `index.html` (`og:image`, `og:url`): apontando para
+  `https://app.yamajiujitsu.com.br/` (canônico escolhido em 2026-09-27).
+- `wrangler.toml` (novo, raiz) — 5 linhas: `name = "blue-pond-6abf"` (Worker
+  existente), `[assets] directory = "./"` e
+  `not_found_handling = "single-page-application"`. Wrangler auto-exclui
+  `wrangler.toml`, `.git/` e arquivos gitignored do upload — o `.gitignore`
+  já cobre `confidencial/`, `CLAUDE.md`, `node_modules/` e `supabase/` da
+  raiz, então nenhum `.assetsignore` extra foi necessário.
+- `CLAUDE.md` — linha "Fase atual" reflete o novo host.
+- `_headers` (novo, raiz) — CSP espelhada do `<meta>`, mais o que `<meta>` não
+  aceita: `frame-ancestors 'none'`, HSTS 1 ano (`includeSubDomains; preload`),
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
+  liberando só câmera (`self`, pro QR de presença). Cache `immutable` 1 ano
+  nos assets versionados (`app.js`, `app.css`, `supabase.js`, `vendor/*`,
+  `fonts/*`, `brand/*`); `must-revalidate` no `index.html`, `manifest.json` e
+  `sw.js` pra o `?v=N` novo chegar.
+- `_redirects` (novo, raiz) — `/*  /index.html  200` (fallback SPA).
+
+**Configuração fora do repo (checklist de virada):**
+
+- Cloudflare Worker (`blue-pond-6abf`, static assets) com CI conectado ao
+  repo privado: build command vazio, `Deploy command: npx wrangler deploy`,
+  branch `main`. Push em `main` = deploy.
+- Supabase → Auth → Site URL + Redirect URLs: adicionar o domínio do Pages.
+- Edge Functions → env `ALLOWED_ORIGIN`: trocar `tavaressg.github.io` pelo
+  novo domínio; `supabase functions deploy send-push` depois.
+- Cloudflare Web Analytics: 1 tag JS, grátis, sem cookie (substitui a
+  ausência de analytics do GitHub Pages).
+- Preview per PR: já ativo por padrão no Pages.
+
+**Decisão descartada:** Sentry. `client_errors` (v222) já captura
+`window.onerror` + `unhandledrejection` no cliente, com KPI + alerta 24h no
+Painel — Sentry seria pagar por redundância.
+
 ### v648-v657 + migrations 0060-0067 — Auditoria, analytics e MFA em três etapas (2026-09-26/27)
 
 Série grande em duas sessões. Três eixos independentes construídos e
