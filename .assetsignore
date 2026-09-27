@@ -1,0 +1,14 @@
+.git/
+node_modules/
+.github/
+.gitignore
+.assetsignore
+wrangler.toml
+package.json
+package-lock.json
+tests/
+__pycache__/
+CLAUDE.md
+.claude/
+confidencial/
+supabase/
