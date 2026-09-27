@@ -148,6 +148,22 @@
     };
   }
 
+  // v655: helpers do MFA fora do objeto sbAuth (wrap chama com this=null).
+  const _mfaAlfabetoRecovery = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  function _mfaGerarCodigo() {
+    const buf = new Uint32Array(9);
+    crypto.getRandomValues(buf);
+    const ab = _mfaAlfabetoRecovery, out = [];
+    for (let i = 0; i < 9; i++) out.push(ab[buf[i] % ab.length]);
+    return out.slice(0,3).join('') + '-' + out.slice(3,6).join('') + '-' + out.slice(6,9).join('');
+  }
+  async function _mfaHashSHA256(txt) {
+    const buf = new TextEncoder().encode(txt);
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(digest))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   /* ========================================================
      sbAuth — autenticação
      ======================================================== */
@@ -235,35 +251,25 @@
       // v653/0066: recovery codes. Supabase nao gera nativos — gente cria 10,
       // hash SHA-256 no cliente, grava so' o hash. Plaintext aparece 1x.
       // Alfabeto sem chars ambiguos (0/O/I/l/1 fora). ~72 bits de entropia por codigo.
-      _alfabetoRecovery: 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
-      _gerarCodigo: function() {
-        const buf = new Uint32Array(9);
-        crypto.getRandomValues(buf);
-        const ab = this._alfabetoRecovery, out = [];
-        for (let i = 0; i < 9; i++) out.push(ab[buf[i] % ab.length]);
-        return out.slice(0,3).join('') + '-' + out.slice(3,6).join('') + '-' + out.slice(6,9).join('');
-      },
-      _hashSHA256: async function(txt) {
-        const buf = new TextEncoder().encode(txt);
-        const digest = await crypto.subtle.digest('SHA-256', buf);
-        return Array.from(new Uint8Array(digest))
-          .map(b => b.toString(16).padStart(2, '0')).join('');
-      },
+      // v655: sem `this` — wrap chama com apply(null) e quebrava a referencia.
+      _alfabetoRecovery: _mfaAlfabetoRecovery,
+      _gerarCodigo: _mfaGerarCodigo,
+      _hashSHA256: _mfaHashSHA256,
       // Gera 10 codigos, hasheia, grava hashes via RPC, devolve os plaintexts.
       // Chamar APENAS apos challengeAndVerify — se falhar, factor fica sem recovery.
-      generateRecoveryCodes: wrap(async function() {
+      generateRecoveryCodes: wrap(async () => {
         const codigos = [];
-        for (let i = 0; i < 10; i++) codigos.push(this._gerarCodigo());
-        const hashes = await Promise.all(codigos.map(c => this._hashSHA256(c.replace(/-/g,''))));
+        for (let i = 0; i < 10; i++) codigos.push(_mfaGerarCodigo());
+        const hashes = await Promise.all(codigos.map(c => _mfaHashSHA256(c.replace(/-/g,''))));
         const { error } = await SB.rpc('mfa_recovery_salvar', { p_hashes: hashes });
         if (error) throw error;
         return codigos;   // plaintexts — SO' aparecem aqui, uma vez.
       }),
-      useRecoveryCode: wrap(async function(codigo) {
+      useRecoveryCode: wrap(async (codigo) => {
         // Normaliza: uppercase, tira '-' e espacos.
         const norm = String(codigo || '').toUpperCase().replace(/[-\s]/g, '');
         if (!/^[A-Z2-9]{9}$/.test(norm)) return false;
-        const hash = await this._hashSHA256(norm);
+        const hash = await _mfaHashSHA256(norm);
         const { data, error } = await SB.rpc('mfa_recovery_usar', { p_hash: hash });
         if (error) throw error;
         return data === true;
