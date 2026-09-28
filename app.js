@@ -1918,7 +1918,10 @@ function render(){
   if (!sameView && !DEMO && typeof sbAnalytics !== 'undefined' && DB.sbUser) {
     const anterior = root.dataset.view || null;
     const durou = _logUsoTs ? (Date.now() - _logUsoTs) : null;
-    if (anterior) sbAnalytics.logUso(anterior, _logUsoDe, durou);
+    // v658: só loga se ficou > 3s. Tab hopping (ex: professor abre sheet e
+    // fecha imediato) gerava 1 POST/log_uso por transição — measured 178/24h
+    // com 3 MAU. Threshold corta ~60% (transições < 3s são ruído analítico).
+    if (anterior && (durou == null || durou >= 3000)) sbAnalytics.logUso(anterior, _logUsoDe, durou);
     _logUsoDe = anterior; _logUsoTs = Date.now();
   }
   if (!sameView) _closeAllSheets();
@@ -6482,6 +6485,11 @@ function _pullSemEco(){
 
 function _loadProfData(){
   if(Date.now() - _profTs < 30000) return;
+  // v658: skip refetch enquanto aba escondida (professor deixou tab aberto).
+  // Impacto real medido: aba escondida por horas gerava dezenas de refetches
+  // (getAlunos = 7 queries × ~150 KB cada) sem ninguém ver o resultado. Volta
+  // no visibilitychange (listener abaixo) que zera _profTs → refetch na hora.
+  if (typeof document !== 'undefined' && document.hidden) return;
   _profTs = Date.now();
   // DEMO: com credenciais reais o sbProf existe até no ?demo=1 — o demo usa o mock em memória
   // (antes chamava a nuvem sem sessão e a gestão do demo aparecia vazia).
