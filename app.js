@@ -1646,7 +1646,8 @@ function registroBody(){
       wrap.appendChild(el(`<div class="fsec-title"><span class="ico">🎯</span> O que deu certo no randori?</div>`));
       focos.forEach(t=> wrap.appendChild(tecnicaFocoCard(t)));
     } else {
-      wrap.appendChild(el(`<div class="rs-empty-foco">Você ainda não tem técnicas em foco.<br>Escolha as que vai treinar para acompanhar sua evolução.</div>`));
+      // v663: texto uniforme com Home e Progresso — explica o valor, nao so' o vazio.
+      wrap.appendChild(el(`<div class="rs-empty-foco">🎯 <b>Escolha até 3 técnicas para treinar</b><br>Marque quantas vezes tentou e quantas acertou — o app mostra sua evolução no tempo.</div>`));
       wrap.appendChild(el(`<button class="rs-add" style="margin:2px 0 4px" data-click="focoAdd">＋ Escolher técnicas</button>`));
     }
   }
@@ -1802,7 +1803,9 @@ function _viewKey(){
   if (DB.treinoAberto) return 'treino';
   if (DB.produtoFormOpen) return 'produtoForm';
   if (DB.cadastroAlunoOpen) return 'cadastroAluno';
-  if (DB.flow) return 'flow:'+DB.flow;
+  // v663: DB.flow ora' string ('tecnica'), ora' objeto ({phase:1|2}). A
+  // concatenacao ingenua carimbava 'flow:[object Object]' no log_uso.
+  if (DB.flow) return 'flow:'+(typeof DB.flow==='string' ? DB.flow : ('p'+(DB.flow.phase||'')));
   if (DB.role==='aluno') return 'al:'+DB.navAluno+':'+(DB.jogoTab||'')+':'+(DB.jornadaTab||'');
   return 'prof:'+DB.navProf;
 }
@@ -1817,6 +1820,7 @@ const _ROUTE_NOMES = {
   'prof:financeiro':'Financeiro','prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
   'prof:auditLog':'Log de acesso','prof:auditUso':'Uso do app','prof:auditLogins':'Auditoria de logins',
   'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
+  'flow:p1':'Registrar treino · início','flow:p2':'Registrar treino · detalhes','flow:tecnica':'Explorar técnica',
   'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
 };
 function _announceRoute(viewKey){
@@ -2137,6 +2141,7 @@ let _pushEstado = null;
 _dlgRegister('abrirNotificacoes', () => abrirNotificacoes());
 _dlgRegister('irGraduacao',  () => { DB.jornadaTab = 'graduacao'; goAluno('jornada'); });
 _dlgRegister('irProgresso',  () => { DB.navAluno = 'jogo'; DB.jogoTab = 'progresso'; render(); });
+_dlgRegister('irBiblioteca', () => { DB.navAluno = 'jogo'; DB.jogoTab = 'biblioteca'; render(); });
 _dlgRegister('irHistorico',  () => { DB.navAluno = 'jornada'; DB.jornadaTab = 'historico'; render(); window.scrollTo(0,0); });
 _dlgRegister('abrirFlow',    () => openFlow());
 _dlgRegister('pushBannerFechar', (elm, ev) => {
@@ -2306,6 +2311,16 @@ function alunoInicio(){
     </div>`);
     foco.querySelectorAll('.foco-chip').forEach(c=> c.setAttribute('data-click','irProgresso'));
     w.appendChild(foco);
+  } else {
+    // v663: convite proativo na Home. Aluno que so faz check-in nunca chega ate
+    // Tatame; o card explica o loop e leva pra Biblioteca em 1 toque.
+    const conv = el(`<div class="foco-card" style="cursor:pointer">
+      <div class="foco-top"><span class="foco-ic">🎯</span>
+        <span class="foco-lbl">Escolha o que treinar</span></div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-top:4px">Escolha até 3 técnicas pra medir seu acerto e evolução no tempo. É o coração do app.</div>
+      <button class="add-tec-btn" style="margin-top:10px" data-click="irBiblioteca">Escolher técnicas</button>
+    </div>`);
+    w.appendChild(conv);
   }
 
   // ---- Treino em andamento (draft ativo) ----
@@ -3551,7 +3566,14 @@ function evoluirProgresso(){
   w.appendChild(el(`<div class="prog-head"><div class="ph-l"><span class="ph-t">Em treino</span><span class="ph-n">${focos.length}<span class="ph-m">/3</span></span></div>
     ${focos.length?'<div class="ph-r">acerto · últimos 30 dias</div>':''}</div>`));
   if(!focos.length){
-    w.appendChild(el(`<div class="prog-empty">Nenhuma técnica em foco ainda.</div>`));
+    // v663: empty state rico — explica o loop. Antes so' dizia "Nenhuma
+    // tecnica em foco ainda", que nao dizia o que fazer nem porque.
+    w.appendChild(el(`<div class="prog-empty" style="text-align:center;padding:30px 24px">
+      <div style="font-size:38px;margin-bottom:10px">🎯</div>
+      <div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:8px">Escolha até 3 técnicas para treinar</div>
+      <div style="color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:14px">Foco é o que você está trabalhando <b>agora</b>. A cada treino, marca no Renshū quantas vezes tentou e quantas acertou. O app mostra seu acerto no tempo — e quando você domina, a técnica vira <b>Arsenal</b>.</div>
+      <button class="add-tec-btn" data-click="irBiblioteca">Abrir Biblioteca</button>
+    </div>`));
   }
   focos.forEach(t=>{
     const {T,A,p} = totaisTec(t);
@@ -5305,6 +5327,13 @@ async function presencaScan(){
   video.onplaying = kick;
   // Ordem defensiva: append ANTES de srcObject pro iOS Safari renderizar cedo.
   document.body.appendChild(ov);
+  // v663: iOS PWA standalone pintava PRETO mesmo com stream valido — attrs
+  // definidos via innerHTML nao "colam" como properties no video, entao o
+  // player desiste do inline. Reforca as tres properties depois do append,
+  // ANTES do srcObject.
+  video.muted = true;
+  video.playsInline = true;
+  video.autoplay = true;
   video.srcObject = stream;
   // Se o stream já estava pronto (cache), nada dispara — força play imediato.
   video.play().catch(()=>{});
