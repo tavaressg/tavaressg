@@ -13169,13 +13169,18 @@ _dlgRegister('finPlanoEdit', (el) => {
 function _finRenderContratos(body){
   const cts = _finContratos || [];
   const today = HOJE_ISO;
-  const isVencendo = c => c.status==='ativo' && c.fim && c.fim <= _plus(today, 30) && c.fim >= today;
+  // v660: janela de "vencendo" acompanha o mes selecionado (base = 1o do mes,
+  // piso em hoje) e usa 90d — mesmo card do Dashboard.
+  const [_cy, _cm] = _finMes().split('-').map(Number);
+  const _baseD = new Date(_cy, _cm-1, 1); const _hojeD = new Date();
+  const baseISO = (_baseD > _hojeD ? _baseD : _hojeD).toISOString().slice(0,10);
+  const isVencendo = c => (c.status==='ativo' || c.status==='aguardando_aceite') && c.fim && c.fim >= baseISO && c.fim <= _plus(baseISO, 90);
   const expiradosN = cts.filter(c=>c.status==='expirado').length;
   const vencendoN = cts.filter(isVencendo).length;
 
   if(expiradosN || vencendoN){
     body.appendChild(el(`<div class="card card-pad" style="margin:6px 12px;background:var(--red-soft,#fee);border-left:4px solid var(--red);font-size:13px">
-      ⚠️ <b>${expiradosN}</b> contratos expirados · <b>${vencendoN}</b> vencem em 30 dias
+      ⚠️ <b>${expiradosN}</b> contratos expirados · <b>${vencendoN}</b> vencem em 90 dias
     </div>`));
   }
 
@@ -13375,14 +13380,25 @@ function _finMatriculasPintar(body, alunos, matriculas){
     }, 0);
     const ticket = comPlano.filter(r=>r.m && !r.m.isento).length
       ? mrr / comPlano.filter(r=>r.m && !r.m.isento).length : 0;
-    // Contratos vencendo em <90d (ativos)
-    const cts = (_finContratos || []);
-    const vencendoCts = cts.filter(c => {
-      if(c.status !== 'ativo' || !c.fim) return false;
-      const dias = Math.round((new Date(c.fim+'T12:00:00') - hojeD) / 86400000);
+    // Contratos vencendo em <90d — mesma regra do "Término" na tabela abaixo
+    // (matricula.fim ou contrato.fim), base = 1o dia do mes selecionado com
+    // piso em hoje (mes corrente conta "hoje -> +90d"). v660: antes olhava
+    // so' _finContratos, entao matriculas anuais com fim no aluno_plano sem
+    // contrato vinculado sumiam.
+    const [_fy, _fm] = _finMes().split('-').map(Number);
+    const baseVenc = new Date(_fy, _fm-1, 1, 12, 0, 0);
+    if(baseVenc < hojeD) baseVenc.setTime(hojeD.getTime());
+    const vencendoCts = (_finMatriculas||[]).filter(m => {
+      const fim = m.fim || (m.contrato && m.contrato.fim);
+      if(!fim || m.isento) return false;
+      const dias = Math.round((new Date(fim+'T12:00:00') - baseVenc) / 86400000);
       return dias >= 0 && dias < 90;
     });
-    const vencendoValor = vencendoCts.reduce((s,c)=>s+Number(c.valor_congelado||0), 0);
+    const vencendoValor = vencendoCts.reduce((s,m)=>{
+      const pl = m.planos || {};
+      const v = Number(m.valor_negociado != null ? m.valor_negociado : pl.valor) || 0;
+      return s + v;
+    }, 0);
     // Inadimplencia do mes corrente (cobrancas pendentes com vencimento no passado)
     const cobs = (_finCobrancas || []);
     const inadCobs = cobs.filter(c=>c.status==='pendente' && c.venc && c.venc < hojeSlice);
