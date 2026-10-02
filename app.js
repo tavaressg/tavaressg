@@ -5319,7 +5319,7 @@ async function presencaScan(){
   // pra não iniciar o loop mais de uma vez. Evita o bug "tela preta" quando
   // o loadedmetadata dispara antes do handler ser registrado (stream cache).
   const kick=()=>{
-    if(video.paused) video.play().catch(()=>{});
+    if(video.paused) video.play().catch(e => sbSync?.logError?.(e?.message||e, 'presencaScan.kick.play'));
     if(!ticking && video.videoWidth){ ticking = true; requestAnimationFrame(tick); }
   };
   video.onloadedmetadata = kick;
@@ -5327,6 +5327,10 @@ async function presencaScan(){
   video.onplaying = kick;
   // Ordem defensiva: append ANTES de srcObject pro iOS Safari renderizar cedo.
   document.body.appendChild(ov);
+  // WebKit bug #241152: muted + srcObject antes do layout pintar o elemento
+  // deixa o render pipeline parado. rAF garante que o <video> teve ao menos
+  // 1 frame de layout antes do stream atacar.
+  await new Promise(r => requestAnimationFrame(r));
   // v663: iOS PWA standalone pintava PRETO mesmo com stream valido — attrs
   // definidos via innerHTML nao "colam" como properties no video, entao o
   // player desiste do inline. Reforca as tres properties depois do append,
@@ -5335,8 +5339,18 @@ async function presencaScan(){
   video.playsInline = true;
   video.autoplay = true;
   video.srcObject = stream;
+  // WebKit bug #230922/#252465: autoplay+playsinline+muted+MediaStream congela
+  // o render do <video> em iOS 15.x/17.x/18.x — stream vivo, drawImage pega
+  // frames (jsQR lê o QR), mas o <video> fica preto puro. Fix da comunidade:
+  // detach + reattach do srcObject num microtick, força o compositor a montar
+  // a layer de novo. Não é cura garantida pra PWA (#252465 regride em 18.4+),
+  // mas é o mitigador mais citado.
+  await Promise.resolve();
+  video.srcObject = null;
+  await Promise.resolve();
+  video.srcObject = stream;
   // Se o stream já estava pronto (cache), nada dispara — força play imediato.
-  video.play().catch(()=>{});
+  video.play().catch(e => sbSync?.logError?.(e?.message||e, 'presencaScan.play'));
   // Safety-net: 500 ms depois, se ainda não pintou, chama kick de novo.
   setTimeout(kick, 500);
 }
