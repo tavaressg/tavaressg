@@ -16097,6 +16097,8 @@ function profTurmaEdit(id){
       <input class="cor-picker-inp" id="tu-cor-hex" type="color" value="${safeAttr(cor)}" aria-label="Cor livre (hexadecimal)">
       <span class="cor-picker-lbl" id="tu-cor-lbl">${safeAttr(cor)}</span>
     </div>
+    ${!novo?`<label class="flbl" style="margin-top:14px">Logo da turma <span class="ca-opt">(stamp no story do professor)</span></label>
+      <div id="tu-logo-wrap" class="turma-logo-wrap"></div>`:''}
     ${!novo?`<label class="flbl" style="margin-top:14px">Horários (<span id="tu-nses">${(t.sessoes||[]).length}</span>)</label><div id="tu-sessoes"></div>
       <button class="add-sessao" id="tu-addses">+ Adicionar horário</button>`:'<div class="empty-hint" style="margin-top:12px">Salve a turma para adicionar horários.</div>'}
     ${!novo?`<div class="cad-sec">Alunos matriculados</div><div id="tu-roster"></div>`:''}
@@ -16120,6 +16122,50 @@ function profTurmaEdit(id){
   paintCor();
   corHex.oninput=()=>{ cor=corHex.value; corLbl.textContent=cor; paintCor(); };
   if(!novo){
+    // v667: logo da turma — upload direto, independente do botão salvar.
+    const logoWrap = sheet.querySelector('#tu-logo-wrap');
+    let currentLogoUrl = t.logo_url || null;
+    const paintLogo = () => {
+      logoWrap.innerHTML = '';
+      if (currentLogoUrl) {
+        const prev = el(`<div class="turma-logo-preview">
+          <img src="${safeAttr(currentLogoUrl)}" alt="Logo da turma">
+          <button type="button" class="turma-logo-remove" aria-label="Remover logo">✕</button>
+        </div>`);
+        prev.querySelector('.turma-logo-remove').onclick = async () => {
+          if(!(await _confirmar({titulo:'Remover logo da turma?', desc:'A turma deixa de aparecer como stamp nos stories.', sim:'Remover', nao:'Cancelar'}))) return;
+          try {
+            await sbProf.removerTurmaLogo(t.id, currentLogoUrl);
+            currentLogoUrl = null; t.logo_url = null;
+            _turmasTs = 0; _loadTurmas();
+            paintLogo();
+            toast('Logo removido');
+          } catch(e){ toast('Erro ao remover: '+(e.message||e)); }
+        };
+        logoWrap.appendChild(prev);
+      } else {
+        const btn = el(`<button type="button" class="turma-logo-add">📎 Adicionar logo</button>`);
+        const file = el(`<input type="file" class="turma-logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none">`);
+        btn.onclick = () => file.click();
+        file.onchange = async (e) => {
+          const f = e.target.files && e.target.files[0]; if (!f) return;
+          if (f.size > 5*1024*1024) { toast('Arquivo muito grande (máx 5 MB)'); return; }
+          btn.disabled = true; btn.textContent = 'Enviando…';
+          try {
+            const url = await sbProf.uploadTurmaLogo(t.id, f);
+            currentLogoUrl = url; t.logo_url = url;
+            _turmasTs = 0; _loadTurmas();
+            paintLogo();
+            toast('Logo salvo ✔');
+          } catch (err) {
+            toast('Erro ao enviar: '+(err.message||err));
+            btn.disabled = false; btn.textContent = '📎 Adicionar logo';
+          }
+        };
+        logoWrap.appendChild(btn); logoWrap.appendChild(file);
+      }
+    };
+    paintLogo();
     const sesWrap=sheet.querySelector('#tu-sessoes');
     const nSes=sheet.querySelector('#tu-nses');
     const paintSes=()=>{

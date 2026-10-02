@@ -408,6 +408,13 @@ html.reduced-motion .skel{animation:none;background:var(--field)}
 .grade .g-chip .g-sub{font-style:normal;font-weight:700;font-size:8px;letter-spacing:.2px;text-transform:uppercase;opacity:.92;line-height:1}
 .add-turma{width:calc(100% - 40px);margin:14px 20px 4px;padding:12px;border:1.5px dashed var(--line);background:transparent;border-radius:12px;color:var(--red-strong);font-weight:800;font-size:14px;cursor:pointer;font-family:inherit}
 .add-sessao{width:100%;margin:8px 0 0;padding:10px;border:1.5px dashed var(--line);background:transparent;border-radius:12px;color:var(--red-strong);font-weight:800;font-size:13.5px;cursor:pointer;font-family:inherit}
+/* v667: logo da turma (upload + preview) */
+.turma-logo-wrap{margin-top:6px}
+.turma-logo-add{width:100%;padding:14px;border:1.5px dashed var(--line);background:transparent;border-radius:12px;color:var(--red-strong);font-weight:800;font-size:13.5px;cursor:pointer;font-family:inherit}
+.turma-logo-add:disabled{opacity:.55;cursor:default}
+.turma-logo-preview{position:relative;display:inline-block;padding:10px;background:var(--field);border-radius:12px}
+.turma-logo-preview img{display:block;width:88px;height:88px;object-fit:contain;border-radius:8px;background:#fff}
+.turma-logo-remove{position:absolute;top:-6px;right:-6px;width:26px;height:26px;border-radius:50%;border:none;background:#111;color:#fff;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;padding:0}
 .turma-list{padding:6px 20px 24px;display:flex;flex-direction:column;gap:8px}
 .turma-row{display:flex;align-items:center;gap:12px;padding:16px 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;cursor:pointer;font-family:inherit;text-align:left;width:100%}
 .turma-row .tr-dot{width:12px;height:12px;border-radius:50%;flex:none}

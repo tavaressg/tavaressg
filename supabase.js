@@ -1270,13 +1270,45 @@
       const acad = await myAcademyId(); if (!acad) return [];
       // 0012: capacidade_max/duracao_min/instrutor_id fazem round-trip completo —
       // sem eles no select, salvar turma "perdia" capacidade e duração na recarga.
+      // 0073: logo_url pro stamp no story (Etapa 2 do fluxo do professor).
       const [tR, sR] = await Promise.all([
-        SB.from('turmas').select('id,nome,faixa_etaria,cor,ativo,capacidade_max').eq('academy_id', acad).eq('ativo', true),
+        SB.from('turmas').select('id,nome,faixa_etaria,cor,ativo,capacidade_max,logo_url').eq('academy_id', acad).eq('ativo', true),
         SB.from('turma_sessoes').select('id,turma_id,dia,hora,variacao,bilingue,duracao_min,instrutor_id').eq('academy_id', acad).eq('ativo', true),
       ]);
       const sesByTurma = {};
       (sR.data || []).forEach(s => { (sesByTurma[s.turma_id] || (sesByTurma[s.turma_id] = [])).push({ id: s.id, dia: s.dia, hora: s.hora, variacao: s.variacao || undefined, bilingue: s.bilingue || undefined, duracao_min: s.duracao_min || 60, instrutor_id: s.instrutor_id || undefined }); });
-      return (tR.data || []).map(t => ({ id: t.id, nome: t.nome, faixaEtaria: t.faixa_etaria || '', cor: t.cor, capacidade_max: t.capacidade_max || null, sessoes: sesByTurma[t.id] || [] }));
+      return (tR.data || []).map(t => ({ id: t.id, nome: t.nome, faixaEtaria: t.faixa_etaria || '', cor: t.cor, capacidade_max: t.capacidade_max || null, logo_url: t.logo_url || null, sessoes: sesByTurma[t.id] || [] }));
+    }),
+    // 0073: Upload de logo de turma. Bucket público, path = `${turmaId}_${ts}.ext`
+    // (ts garante URL único e evita cache stale no canvas quando o professor
+    // substitui o logo). Retorna a URL pública salva em turmas.logo_url.
+    uploadTurmaLogo: wrap(async (turmaId, file) => {
+      if (!turmaId || !file) throw new Error('turma_id e arquivo são obrigatórios');
+      const ext = ((file.name || 'logo.png').split('.').pop() || 'png').toLowerCase();
+      const path = `${turmaId}_${Date.now()}.${ext}`;
+      const { error: upErr } = await SB.storage.from('turma-logos').upload(path, file, { contentType: file.type || 'image/png', upsert: false });
+      if (upErr) throw upErr;
+      const { data: urlData } = SB.storage.from('turma-logos').getPublicUrl(path);
+      const publicUrl = urlData && urlData.publicUrl;
+      const { error: tErr } = await SB.from('turmas').update({ logo_url: publicUrl }).eq('id', turmaId);
+      if (tErr) throw tErr;
+      return publicUrl;
+    }),
+    // 0073: Remove o logo da turma (zera coluna + apaga arquivo do bucket).
+    // Falha silenciosa na remoção do arquivo (logo pode já ter sido removido);
+    // o importante é zerar a coluna pra UI parar de desenhar o stamp.
+    removerTurmaLogo: wrap(async (turmaId, publicUrl) => {
+      if (!turmaId) throw new Error('turma_id obrigatório');
+      const { error: tErr } = await SB.from('turmas').update({ logo_url: null }).eq('id', turmaId);
+      if (tErr) throw tErr;
+      // ponytail: parse ingênuo do path a partir da URL — se o padrão mudar, ignora.
+      if (publicUrl) {
+        try {
+          const m = String(publicUrl).match(/\/turma-logos\/(.+?)(?:\?|$)/);
+          if (m && m[1]) await SB.storage.from('turma-logos').remove([m[1]]);
+        } catch (_) { /* best-effort */ }
+      }
+      return true;
     }),
     // Cria/edita uma turma + substitui suas sessões (delete+insert sob RLS de professor/dono).
     salvarTurma: wrap(async (t) => {
