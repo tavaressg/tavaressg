@@ -5295,16 +5295,32 @@ async function presencaScan(){
   // some do overlay (tela preta no lugar).
   const ov = el(`<div class="scan-overlay">
     <video autoplay playsinline muted webkit-playsinline></video>
+    <canvas class="scan-display"></canvas>
     <div class="scan-frame"></div>
     <div class="scan-hint">Aponte para o QR da academia</div>
     <button class="scan-close">Cancelar</button>
   </div>`);
   const video = ov.querySelector('video');
+  // v665: WebKit bugs #230922/#252465 congelam o render do <video> em iOS 17,
+  // mas o DECODE segue vivo (jsQR consegue drawImage(video) e ler o QR). Fix
+  // v285 (CSS) e v664 (rAF+detach/reattach) não dissolvem esse estado em prod.
+  // Bypass: desenhar cada frame num <canvas> por cima do <video> — drawImage
+  // sempre pinta porque lê o buffer interno do elemento, não o pipeline de
+  // paint congelado. O <video> fica atrás como mera "antena" do stream.
+  const displayCanvas = ov.querySelector('.scan-display');
+  const dctx = displayCanvas.getContext('2d');
   let stop=false, avisou=false, ticking=false;
   const close=()=>{ stop=true; try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){} ov.remove(); };
   ov.querySelector('.scan-close').onclick=close;
   const tick=async()=>{
     if(stop) return;
+    // Blit do frame no canvas (bypass do WebKit render-pipeline freeze).
+    const w = video.videoWidth|0, h = video.videoHeight|0;
+    if(w && h){
+      if(displayCanvas.width !== w) displayCanvas.width = w;
+      if(displayCanvas.height !== h) displayCanvas.height = h;
+      try{ dctx.drawImage(video, 0, 0, w, h); }catch(_){ /* ignora frames parciais */ }
+    }
     const val = await detect(video);
     if(val){
       // Comparação estrita contra o token (v374). Aceita URL "…?qr=<token>" pra
