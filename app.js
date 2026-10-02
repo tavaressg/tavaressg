@@ -795,7 +795,7 @@ const SEED_DEMO = {
    ============================================================ */
 const DB = {
   role: 'aluno',                 // 'aluno' | 'professor'
-  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', artes:'Judô Kodokan · Kosen · Jiu-Jitsu', turma:null },
+  academia: { nome:'Yama Jiu-Jitsu', kanji:'山', turma:null },
   professor: { nome:'' },
   turmas: [],            // pullTurmas popula
   eu: { nome:'', nomeCompleto:'', apelido:'', iniciais:'', faixa:'', graus:0, modalidade:'Jiu-Jitsu', foto:null,
@@ -3200,123 +3200,140 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 /* ============================================================
    WRAP COMPARTILHÁVEL — story em canvas (export PNG real) · vários modelos
    ============================================================ */
-const SHARE_TPLS = [['resumo','Treino'],['acerto','Acerto'],['streak','Streak'],['checkin','No tatame'],['marca','Marca'],['kanji','Símbolo']];
-let _shareLogo = null, _sharePhoto = null;
-function abrirShare(id){ DB.shareOpen=id; DB.shareTpl=DB.shareTpl||'resumo'; track('share_aberto'); render(); window.scrollTo(0,0); }
+// v666: redesign minimalista Strava-style. 4 templates (eram 6, "Treino" com
+// stats e "Acerto" caíram — baixa expressão visual). PNG transparente único
+// (modo "fundo branco" removido 2026-10-02 por decisão do dono).
+const SHARE_TPLS = [['checkin','No tatame'],['streak','Streak'],['marca','Marca'],['kanji','Kanji']];
+const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]);
+let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
+function abrirShare(id){
+  DB.shareOpen=id;
+  // Migra template antigo (resumo/acerto) para o novo default.
+  if(!_SHARE_TPL_VALIDOS.includes(DB.shareTpl)) DB.shareTpl = 'checkin';
+  track('share_aberto'); render(); window.scrollTo(0,0);
+}
 function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
-// CARD minimalista COMPACTO e TRANSLÚCIDO — sticker pra colar no story (deixa ver a foto por trás)
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg){
+// v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
+// 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
+// Sem card translúcido, sem bordas gradient, sem copy motivacional.
+function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
+  // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
+  // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
   const SF='-apple-system,"Segoe UI",Roboto,sans-serif';
-  const RED='#ff5a4d';
-  const det=t.det||{}, reps=det.renshu||[];
-  const totA=reps.reduce((s,r)=>s+(r.a||0),0), totT=reps.reduce((s,r)=>s+(r.t||0),0);
-  const acerto = totT?Math.round(totA/totT*100):null;
-  ctx.clearRect(0,0,W,H);
-  if(photoImg){ _cover(ctx,photoImg,W,H); ctx.fillStyle='rgba(8,10,14,.18)'; ctx.fillRect(0,0,W,H); }
-
-  // ----- card compacto (~metade do tamanho) + translúcido -----
-  const cardW=480, cardX=(W-cardW)/2;
-  const cardH = (tpl==='marca'||tpl==='kanji') ? 420 : 520;
-  const cardY=(H-cardH)/2, R=36;
-  ctx.save();
-  ctx.shadowColor='rgba(0,0,0,.38)'; ctx.shadowBlur=40; ctx.shadowOffsetY=14;
-  ctx.fillStyle='rgba(18,21,27,0.58)';                 // translúcido: vê o story por trás
-  _rr(ctx,cardX,cardY,cardW,cardH,R); ctx.fill();
-  ctx.restore();
-  ctx.save(); _rr(ctx,cardX,cardY,cardW,cardH,R); ctx.clip();
-  ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=2; _rr(ctx,cardX,cardY,cardW,cardH,R); ctx.stroke();
-  const rg=ctx.createLinearGradient(cardX,cardY,cardX+cardW,cardY); rg.addColorStop(0,'#e5392f'); rg.addColorStop(1,'#7a1410');
-  ctx.fillStyle=rg; ctx.fillRect(cardX,cardY,cardW,6); ctx.restore();
-
-  // sombra leve no texto p/ legibilidade sobre card translúcido
-  const son=()=>{ ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=8; ctx.shadowOffsetY=1; };
+  const RED='#e5392f';
+  const INK   = photoImg ? '#ffffff' : '#0a0a0a';
+  const MUTED = photoImg ? 'rgba(255,255,255,.72)' : 'rgba(10,10,10,.52)';
+  const SOFT  = photoImg ? 'rgba(255,255,255,.28)' : 'rgba(10,10,10,.14)';
+  const son =()=>{ if(photoImg){ ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=18; ctx.shadowOffsetY=3; } };
   const soff=()=>{ ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0; };
+  // Kanji brushado — preto por padrão, branco quando houver foto por trás.
+  const kanjiImg = photoImg ? kanjiWhite : kanjiBlack;
+  // Desenha o kanji centrado em (cx, cy) com altura sz (largura preservando aspect).
+  const drawKanji = (cx, cy, sz) => {
+    if(!kanjiImg){
+      // fallback só durante o preload — próximo redraw já pega
+      ctx.fillStyle = INK; ctx.font = `900 ${sz}px ${SF}`;
+      ctx.fillText('山', cx, cy + sz*0.35); return;
+    }
+    const ar = kanjiImg.naturalWidth / kanjiImg.naturalHeight;
+    const h = sz, w = sz * ar;
+    soff(); ctx.drawImage(kanjiImg, cx - w/2, cy - h/2, w, h); son();
+  };
+  // Linha "山 + texto" centralizada em y com kanji à esquerda do texto.
+  const drawKanjiTextRow = (y, textStr, textFont, kanjiH) => {
+    ctx.font = textFont;
+    const txtW = ctx.measureText(textStr).width;
+    const ar = kanjiImg ? kanjiImg.naturalWidth / kanjiImg.naturalHeight : 1;
+    const kw = kanjiH * ar;
+    const gap = kanjiH * 0.35;
+    const total = kw + gap + txtW;
+    const startX = W/2 - total/2;
+    drawKanji(startX + kw/2, y - kanjiH*0.15, kanjiH);
+    ctx.textAlign='left'; ctx.fillText(textStr, startX + kw + gap, y);
+    ctx.textAlign='center';
+  };
+
+  // 1. Fundo
+  ctx.clearRect(0,0,W,H);
+  if(photoImg){
+    _cover(ctx,photoImg,W,H);
+    ctx.fillStyle='rgba(0,0,0,.32)'; ctx.fillRect(0,0,W,H);
+  }
+  // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
+
+  const dateFmt = (()=>{ const [y,mo,d]=t.data.split('-'); return `${d}.${mo}.${y}`; })();
+  const logoCenter=(x,y,sz)=>{ if(!logoImg) return; soff(); ctx.drawImage(logoImg,x-sz/2,y-sz/2,sz,sz); son(); };
+
+  ctx.textAlign='center';
   son();
-  const PAD=40, ix=cardX+PAD, iw=cardW-PAD*2;
-  ctx.textAlign='left';
-  const logoTile=(x,y,sz)=>{ if(!logoImg) return; soff(); ctx.save(); _rr(ctx,x,y,sz,sz,sz*0.24); ctx.fillStyle='#fff'; ctx.fill(); const p=sz*0.14; ctx.drawImage(logoImg,x+p,y+p,sz-2*p,sz-2*p); ctx.restore(); son(); };
-  const foot=()=>{ ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.55)'; ctx.font=`700 13px ${SF}`; ctx.fillText('山 · meu jiu-jitsu',ix,cardY+cardH-28); };
 
-  // ----- variantes de marca -----
-  if(tpl==='marca'){
-    logoTile(W/2-60,cardY+78,120);
-    ctx.textAlign='center'; ctx.fillStyle='#fff'; ctx.font=`900 34px ${SF}`; ctx.fillText('YAMA JIU-JITSU',W/2,cardY+250);
-    ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`700 16px ${SF}`; ctx.fillText('Judô Kodokan · Kosen · Jiu-Jitsu',W/2,cardY+282);
-    ctx.fillStyle=RED; ctx.font=`800 13px ${SF}`; ctx.fillText('山 · MEU JIU-JITSU',W/2,cardY+cardH-32); soff(); return;
-  }
+  // ========= KANJI (só o 山 brushado) =========
   if(tpl==='kanji'){
-    ctx.textAlign='center'; ctx.fillStyle='#fff'; ctx.font=`900 200px ${SF}`; ctx.fillText('山',W/2,cardY+cardH/2+62);
-    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.font=`800 22px ${SF}`; ctx.fillText('YAMA JIU-JITSU',W/2,cardY+cardH-40); soff(); return;
+    drawKanji(W/2, H/2, 520);
+    ctx.fillStyle=MUTED;
+    drawKanjiTextRow(H/2+330, 'YAMA JIU-JITSU', `700 30px ${SF}`, 32);
+    soff(); return;
   }
 
-  // ----- header comum -----
-  logoTile(ix,cardY+PAD,52);
-  ctx.fillStyle='#fff'; ctx.font=`800 22px ${SF}`; ctx.fillText('YAMA JIU-JITSU',ix+66,cardY+PAD+21);
-  ctx.fillStyle='rgba(255,255,255,.6)'; ctx.font=`700 14px ${SF}`; ctx.fillText(fmtDataLonga(t.data).toUpperCase(),ix+66,cardY+PAD+43);
+  // ========= MARCA (kanji + nome) =========
+  if(tpl==='marca'){
+    drawKanji(W/2, H/2-80, 160);
+    ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
+    ctx.fillText('YAMA',W/2,H/2+80);
+    ctx.font=`800 52px ${SF}`;
+    ctx.fillText('JIU-JITSU',W/2,H/2+145);
+    ctx.fillStyle=MUTED; ctx.font=`600 20px ${SF}`;
+    ctx.fillText(dateFmt,W/2,H/2+220);
+    soff(); return;
+  }
 
-  if(tpl==='checkin'){
-    const cy=cardY+PAD+110;
-    ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`800 15px ${SF}`; ctx.fillText('NO TATAME',ix,cy-26);
-    // v490: card público mostra HORA DA AULA (não do scan). Antes: via='app'
-    // exibia hora do scan (21:04), via='professor' exibia hora da aula (19:30)
-    // — inconsistência visível ao compartilhar. Regra única agora: sempre a
-    // hora agendada da aula. Fallback: sessao do checkinHoje, ou '19h' se não
-    // tiver contexto (treino manual sem check-in).
-    const _horaCard = (t.horaAula)
+  // ========= STREAK (número + bolinhas da semana) =========
+  if(tpl==='streak'){
+    const s=DB.semana||{streakSemanas:0,feitos:0,meta:0,dias:[0,0,0,0,0,0,0]};
+    logoCenter(W/2,H/2-280,56);
+    ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
+    ctx.fillText(dateFmt,W/2,H/2-200);
+    ctx.font=`800 28px ${SF}`;
+    ctx.fillText('SEMANAS SEGUIDAS',W/2,H/2-140);
+    ctx.fillStyle=INK; ctx.font=`900 280px ${SF}`;
+    ctx.fillText(String(s.streakSemanas),W/2,H/2+70);
+    const dotR=14, gap=64, dotY=H/2+170;
+    const labels=['S','T','Q','Q','S','S','D'];
+    const startX=W/2-(6*gap)/2;
+    labels.forEach((l,i)=>{
+      const dx=startX+i*gap;
+      soff();
+      ctx.beginPath(); ctx.arc(dx,dotY,dotR,0,Math.PI*2);
+      ctx.fillStyle=s.dias[i]?RED:SOFT; ctx.fill();
+      son();
+      ctx.fillStyle=MUTED; ctx.font=`700 18px ${SF}`;
+      ctx.fillText(l,dx,dotY+42);
+    });
+    ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
+    ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
+    drawKanjiTextRow(dotY+170, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
+    soff(); return;
+  }
+
+  // ========= CHECKIN (hora da aula) · default =========
+  {
+    const horaCard = (t.horaAula)
       || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
       || '19h';
-    ctx.fillStyle='#fff'; ctx.font=`900 84px ${SF}`; ctx.fillText(_horaCard,ix,cy+58);
-    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.font=`800 22px ${SF}`; ctx.fillText(t.titulo,ix,cy+96);
-    ctx.fillStyle=RED; ctx.font=`800 16px ${SF}`; ctx.fillText('Bora treinar',ix,cy+128);
-    foot(); soff(); return;
+    logoCenter(W/2,H/2-260,56);
+    ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
+    ctx.fillText(dateFmt,W/2,H/2-180);
+    ctx.font=`800 32px ${SF}`;
+    ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,H/2-120);
+    ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
+    ctx.fillText(horaCard,W/2,H/2+40);
+    ctx.fillStyle=MUTED;
+    drawKanjiTextRow(H/2+120, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
+    soff();
   }
-
-  if(tpl==='streak'){
-    const s=DB.semana, cy=cardY+PAD+78;
-    ctx.fillStyle=RED; ctx.font=`900 120px ${SF}`; ctx.textAlign='left'; ctx.fillText(String(s.streakSemanas),ix,cy+82);
-    ctx.fillStyle='#fff'; ctx.font=`800 24px ${SF}`; ctx.fillText('semanas seguidas',ix,cy+118);
-    ctx.fillStyle='rgba(255,255,255,.6)'; ctx.font=`700 15px ${SF}`; ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,ix,cy+146);
-    const r=12, gap=(iw-r*2)/6; let dx=ix+r;
-    ['S','T','Q','Q','S','S','D'].forEach((l,i)=>{ soff(); ctx.beginPath(); ctx.arc(dx,cy+190,r,0,Math.PI*2); ctx.fillStyle=s.dias[i]?'#e5392f':'rgba(255,255,255,.18)'; ctx.fill(); son();
-      ctx.fillStyle='rgba(255,255,255,.5)'; ctx.font=`700 12px ${SF}`; ctx.textAlign='center'; ctx.fillText(l,dx,cy+216); dx+=gap; });
-    foot(); soff(); return;
-  }
-
-  if(tpl==='acerto'){
-    const cy=cardY+PAD+100;
-    ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.font=`800 22px ${SF}`; ctx.fillText(t.titulo,ix,cy-24);
-    if(acerto!=null){
-      ctx.fillStyle=RED; ctx.font=`900 140px ${SF}`; ctx.fillText(acerto+'%',ix,cy+118);
-      ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`800 18px ${SF}`; ctx.fillText('de acerto no randori',ix,cy+150);
-    } else {
-      ctx.fillStyle=RED; ctx.font=`900 64px ${SF}`; ctx.fillText(det.randori?'RANDORI':'PRESENÇA',ix,cy+64);
-      ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`700 17px ${SF}`; ctx.fillText('no tatame',ix,cy+94);
-    }
-    foot(); soff(); return;
-  }
-
-  // ----- default: RESUMO -----
-  {
-    const ty=cardY+PAD+88;
-    ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.font=`900 30px ${SF}`; ctx.fillText(t.titulo,ix,ty);
-    soff(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(ix,ty+20); ctx.lineTo(ix+iw,ty+20); ctx.stroke(); son();
-    const stats=[ [acerto!=null?acerto+'%':'—','ACERTO'], [det.randori?'SIM':'NÃO','RANDORI'], [String(DB.semana.streakSemanas),'STREAK'] ];
-    const colW=iw/3, sy=ty+76;
-    stats.forEach((st,i)=>{ const cx=ix+colW*i+colW/2;
-      ctx.textAlign='center'; ctx.fillStyle=(i===0?RED:'#fff'); ctx.font=`900 34px ${SF}`; ctx.fillText(st[0],cx,sy);
-      ctx.fillStyle='rgba(255,255,255,.55)'; ctx.font=`800 12px ${SF}`; ctx.fillText(st[1],cx,sy+22); });
-    if(reps.length){
-      let ly=sy+74; ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.5)'; ctx.font=`800 12px ${SF}`; ctx.fillText('TÉCNICAS',ix,ly); ly+=26;
-      reps.slice(0,2).forEach(r=>{ ctx.fillStyle='rgba(255,255,255,.92)'; ctx.font=`700 17px ${SF}`; ctx.textAlign='left'; ctx.fillText(r.jp,ix,ly); ctx.textAlign='right'; ctx.fillText(`${r.a}/${r.t}`,ix+iw,ly); ly+=26; });
-    } else if(t.feel){
-      ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.6)'; ctx.font=`700 16px ${SF}`; ctx.fillText('Sensação · '+FEEL_LABEL[t.feel],ix,sy+78);
-    }
-    foot();
-  }
-  soff();
 }
 /* v554 — acoes do card de story. O canvas e' resolvido por id no momento da
    acao (`#share-canvas`): as closures capturavam o `cv` daquela renderizacao, e
@@ -3327,9 +3344,9 @@ function _shareRedraw(){
   const cv = document.getElementById("share-canvas");
   if(!cv || !_shareTreino) return;
   try{
+    const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
-      (_shareLogo&&_shareLogo.complete&&_shareLogo.naturalWidth)?_shareLogo:null,
-      (_sharePhoto&&_sharePhoto.complete&&_sharePhoto.naturalWidth)?_sharePhoto:null);
+      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW));
   }catch(e){}
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
@@ -3385,13 +3402,18 @@ function renderShare(){
   const stage = el(`<div class="story-stage${_sharePhoto?' has-photo':''}"></div>`);
   const cv = el(`<canvas class="story-canvas" id="share-canvas" width="1080" height="1920"></canvas>`);
   stage.appendChild(cv); body.appendChild(stage);
-  body.appendChild(el(`<div class="story-hint">${_sharePhoto?'card sobre a sua foto — posta a imagem inteira':'card vira sticker (PNG sem fundo) · ou adicione a sua foto'}</div>`));
+  const hintTxt = _sharePhoto ? 'card sobre a sua foto — posta a imagem inteira'
+                              : 'PNG transparente — cole o sticker sobre uma foto no Instagram';
+  body.appendChild(el(`<div class="story-hint">${hintTxt}</div>`));
   // v554: o redraw resolve o canvas no MOMENTO em que roda. Ele e chamado de
   // tres lugares assincronos (fonte carregada, logo carregado, foto escolhida);
   // com o ctx capturado, um repaint no meio fazia o desenho cair num canvas
   // orfao e o story saia em branco.
   _shareTreino = t;
   if(!_shareLogo){ _shareLogo=new Image(); _shareLogo.onload=_shareRedraw; _shareLogo.onerror=function(){ if(this.src.indexOf("yama-logo")<0) this.src="brand/yama-logo.png?v=2"; }; _shareLogo.src="brand/logo.png?v=2"; }
+  // v666: kanji 山 brushado (NUNCA font). 2 cores pra alternar com INK.
+  if(!_shareKanji){ _shareKanji=new Image(); _shareKanji.onload=_shareRedraw; _shareKanji.src="brand/yama-kanji.png?v=1"; }
+  if(!_shareKanjiW){ _shareKanjiW=new Image(); _shareKanjiW.onload=_shareRedraw; _shareKanjiW.src="brand/yama-kanji-white.png?v=1"; }
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(_shareRedraw); else _shareRedraw();   // morph-ok: _shareRedraw resolve #share-canvas no DOM vivo, nao appenda nada
   // modelos
   const chips = el(`<div class="tpl-row"></div>`);
@@ -5876,7 +5898,6 @@ function renderAuth(){
   v.appendChild(el(`<div class="auth-hero">
     <img class="auth-logo" src="brand/logo.png?v=2" data-fallback="logo" alt="">
     <div class="auth-title">${DB.academia.nome}</div>
-    <div class="auth-sub">${DB.academia.artes}</div>
   </div>`));
   const form = el('<div class="auth-form"></div>');
   form.appendChild(el('<label class="flbl">E-mail</label>'));
@@ -19167,7 +19188,7 @@ async function _cloudLogin(user){
       // login do dono criado direto no painel, antes da 1ª rodada de bootstrap_academia.
       // A RPC é gated (zero academias + caller sem profile) — chamada extra levanta
       // 'academia_ja_existe' e é ignorada; o pullAll a seguir reconfirma o profile.
-      try{ await sbProf.bootstrapAcademia('Yama Jiu-Jitsu', '山', 'Judô Kodokan · Kosen · Jiu-Jitsu', null); }catch(_){}
+      try{ await sbProf.bootstrapAcademia('Yama Jiu-Jitsu', '山', null, null); }catch(_){}
       try{ overlay = await sbSync.pullAll(user.id) || overlay; }catch(e){}
     }
     // Onboarding depende do `role`, que só é confiável depois do pullAll acima.
