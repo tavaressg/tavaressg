@@ -3210,6 +3210,19 @@ let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = nu
 // Permite abrir a share sem presença numa aula — sticker vai direto pro story
 // do WhatsApp sem precisar de check-in. Default: template Kanji (brand-focused).
 let _profStubTreino = null;
+// v668 Etapa 3: stamp de logo de turma no canto superior direito do sticker.
+// Carregado sob demanda quando o professor toca o chip da turma.
+let _shareTurmaLogo = null, _shareTurmaLogoUrl = null;
+function _ensureTurmaLogo(url){
+  if(!url){ _shareTurmaLogo=null; _shareTurmaLogoUrl=null; return; }
+  if(url === _shareTurmaLogoUrl && _shareTurmaLogo) return;
+  _shareTurmaLogoUrl = url;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';   // bucket público do Supabase devolve CORS *; necessário pro toBlob não tingir o canvas
+  img.onload  = ()=>{ if(_shareTurmaLogoUrl===url){ _shareTurmaLogo = img; _shareRedraw(); } };
+  img.onerror = ()=>{ if(_shareTurmaLogoUrl===url){ _shareTurmaLogo = null; _shareRedraw(); } };
+  img.src = url;
+}
 function abrirShare(id){
   DB.shareOpen=id;
   // Migra template antigo (resumo/acerto) para o novo default.
@@ -3224,16 +3237,20 @@ function abrirShareProf(){
   };
   DB.shareOpen = _profStubTreino.id;
   DB.shareTpl = 'kanji';          // default do professor: brand puro
+  DB.shareTurmaId = null;
+  // Garante que DB.turmas esteja carregado antes dos chips renderizarem
+  // (professor pode abrir o FAB a partir do Painel sem ter visitado Turmas).
+  if (typeof _loadTurmas === 'function') _loadTurmas();
   track('share_prof_aberto'); render(); window.scrollTo(0,0);
 }
-function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; render(); }
+function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
 // v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
 // 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
 // Sem card translúcido, sem bordas gradient, sem copy motivacional.
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
+function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo){
   // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
   // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
   const SF='-apple-system,"Segoe UI",Roboto,sans-serif';
@@ -3269,6 +3286,18 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
     ctx.textAlign='left'; ctx.fillText(textStr, startX + kw + gap, y);
     ctx.textAlign='center';
   };
+  // v668 Etapa 3: logo da turma stampado no canto superior direito.
+  // Chamado antes de cada return/final — aparece acima dos elementos do template.
+  const drawTurmaStamp = () => {
+    if(!turmaLogo || !turmaLogo.naturalWidth) return;
+    const maxW = 180, maxH = 180;
+    const ar = turmaLogo.naturalWidth / turmaLogo.naturalHeight;
+    let dw = maxW, dh = maxW / ar;
+    if (dh > maxH) { dh = maxH; dw = maxH * ar; }
+    const padR = 70, padT = 70;
+    soff();
+    ctx.drawImage(turmaLogo, W - padR - dw, padT, dw, dh);
+  };
 
   // 1. Fundo
   ctx.clearRect(0,0,W,H);
@@ -3289,7 +3318,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
     drawKanji(W/2, H/2, 520);
     ctx.fillStyle=MUTED;
     drawKanjiTextRow(H/2+330, 'YAMA JIU-JITSU', `700 30px ${SF}`, 32);
-    soff(); return;
+    drawTurmaStamp(); soff(); return;
   }
 
   // ========= MARCA (kanji + nome) =========
@@ -3301,7 +3330,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
     ctx.fillText('JIU-JITSU',W/2,H/2+145);
     ctx.fillStyle=MUTED; ctx.font=`600 20px ${SF}`;
     ctx.fillText(dateFmt,W/2,H/2+220);
-    soff(); return;
+    drawTurmaStamp(); soff(); return;
   }
 
   // ========= STREAK (número + bolinhas da semana) =========
@@ -3329,7 +3358,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
     ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
     ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
     drawKanjiTextRow(dotY+170, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
-    soff(); return;
+    drawTurmaStamp(); soff(); return;
   }
 
   // ========= CHECKIN (hora da aula) · default =========
@@ -3346,7 +3375,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite){
     ctx.fillText(horaCard,W/2,H/2+40);
     ctx.fillStyle=MUTED;
     drawKanjiTextRow(H/2+120, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
-    soff();
+    drawTurmaStamp(); soff();
   }
 }
 /* v554 — acoes do card de story. O canvas e' resolvido por id no momento da
@@ -3360,12 +3389,20 @@ function _shareRedraw(){
   try{
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
-      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW));
+      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo));
   }catch(e){}
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
 _dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
 _dlgRegister('fabCompartilhar', () => abrirShareProf());
+// v668 Etapa 3: chip de turma pro stamp — carrega o logo (cross-origin) e repinta.
+_dlgRegister('shareTurma', (elm) => {
+  const id = elm.dataset.v || null;
+  DB.shareTurmaId = id;
+  const t = id ? (DB.turmas||[]).find(x=>x && x.id===id) : null;
+  _ensureTurmaLogo(t && t.logo_url || null);
+  render();
+});
 _dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
 _dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
 _dlgRegister('shareFoto', (elm) => {
@@ -3440,6 +3477,23 @@ function renderShare(){
   SHARE_TPLS.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
     b.setAttribute('data-click','shareTpl'); b.setAttribute('data-v', id); chips.appendChild(b); });
   body.appendChild(chips);
+  // v668 Etapa 3: chip row de turmas com logo (só pro fluxo do professor —
+  // aluno não precisa escolher turma). Filtra turmas que têm logo_url carregado.
+  if (_profStubTreino) {
+    const turmasComLogo = (DB.turmas || []).filter(x => x && x.logo_url);
+    if (turmasComLogo.length) {
+      const turmaChips = el(`<div class="tpl-row"></div>`);
+      const none = el(`<button class="tpl-chip ${!DB.shareTurmaId?'on':''}">Sem turma</button>`);
+      none.setAttribute('data-click','shareTurma'); none.setAttribute('data-v','');
+      turmaChips.appendChild(none);
+      turmasComLogo.forEach(tm => {
+        const b = el(`<button class="tpl-chip ${DB.shareTurmaId===tm.id?'on':''}">${safeTxt(tm.nome)}</button>`);
+        b.setAttribute('data-click','shareTurma'); b.setAttribute('data-v', tm.id);
+        turmaChips.appendChild(b);
+      });
+      body.appendChild(turmaChips);
+    }
+  }
   // foto de fundo (opcional) — postar com a sua imagem direto no story
   const fileIn = el(`<input type="file" accept="image/*" capture="environment" style="display:none">`);
   fileIn.id='share-file'; fileIn.setAttribute('data-change','shareFoto');
