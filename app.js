@@ -3430,7 +3430,8 @@ _dlgRegister('shareEnviar', () => {
   cv.toBlob(async (b) => {
     const file = new File([b], 'yama-treino.png', { type:'image/png' });
     if(navigator.canShare && navigator.canShare({files:[file]})){
-      try{ await navigator.share({files:[file], title:'Yama Jiu-Jitsu', text:'山 Yama Jiu-Jitsu'}); }catch(e){}
+      // v671: só o arquivo, sem title/text — WhatsApp usava `text` como legenda da foto.
+      try{ await navigator.share({files:[file]}); }catch(e){}
     } else { toast('Compartilhar direto indisponível — use Copiar/Baixar'); }
   });
 });
