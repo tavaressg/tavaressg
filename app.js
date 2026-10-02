@@ -3206,13 +3206,27 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 const SHARE_TPLS = [['checkin','No tatame'],['streak','Streak'],['marca','Marca'],['kanji','Kanji']];
 const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]);
 let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
+// v667: stub de treino pro fluxo do professor (FAB "Compartilhar foto").
+// Permite abrir a share sem presença numa aula — sticker vai direto pro story
+// do WhatsApp sem precisar de check-in. Default: template Kanji (brand-focused).
+let _profStubTreino = null;
 function abrirShare(id){
   DB.shareOpen=id;
   // Migra template antigo (resumo/acerto) para o novo default.
   if(!_SHARE_TPL_VALIDOS.includes(DB.shareTpl)) DB.shareTpl = 'checkin';
   track('share_aberto'); render(); window.scrollTo(0,0);
 }
-function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; render(); }
+function abrirShareProf(){
+  _profStubTreino = {
+    id: '_profStub_' + Date.now(),
+    data: new Date().toISOString().slice(0,10),
+    titulo: '', horaAula: '', det: {}
+  };
+  DB.shareOpen = _profStubTreino.id;
+  DB.shareTpl = 'kanji';          // default do professor: brand puro
+  track('share_prof_aberto'); render(); window.scrollTo(0,0);
+}
+function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
@@ -3351,6 +3365,7 @@ function _shareRedraw(){
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
 _dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
+_dlgRegister('fabCompartilhar', () => abrirShareProf());
 _dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
 _dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
 _dlgRegister('shareFoto', (elm) => {
@@ -3390,9 +3405,14 @@ _dlgRegister('shareBaixar', () => {
 });
 
 function renderShare(){
-  const t = DB.treinos.find(x=>x.id===DB.shareOpen);
+  // v667: fluxo do professor passa um stub (sem presença) via _profStubTreino.
+  const t = (_profStubTreino && _profStubTreino.id === DB.shareOpen)
+    ? _profStubTreino
+    : DB.treinos.find(x=>x.id===DB.shareOpen);
   if(!t){ DB.shareOpen=null; return el('<div></div>'); }
-  const sub = DB.shareFromSave ? 'Treino salvo ✔ · compartilhe ou feche' : 'Card pro seu story';
+  const sub = _profStubTreino ? 'Foto da academia pro story'
+            : DB.shareFromSave ? 'Treino salvo ✔ · compartilhe ou feche'
+                               : 'Card pro seu story';
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
     <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharShare">✕</div>
@@ -6589,6 +6609,12 @@ function _loadProfData(){
   if(!DB.academyConfig && sbProf.getConfig) sbProf.getConfig().then(c=>{ DB.academyConfig=c||{}; renderBg(); }).catch(()=>{});
 }
 
+// v667: FAB "Compartilhar foto" — câmera/galeria + sticker do story sem presença.
+// Fica fora dos focus modes (batch, imports, auditorias, ficha de aluno).
+function fabProfShare(){
+  const b = el(`<button class="fab-share-prof" data-click="fabCompartilhar" aria-label="Compartilhar foto no story">📸</button>`);
+  return b;
+}
 function renderProfessor(){
   _loadProfData();
   const v = el(`<div class="view"></div>`);
@@ -6616,6 +6642,7 @@ function renderProfessor(){
   if (nav==='yama')      body.appendChild(profYama());
   if (nav==='perfil')    body.appendChild(alunoPerfil());   // "Mais": o professor também é aluno (mesmo DB.eu)
   v.appendChild(body);
+  v.appendChild(fabProfShare());   // v667: FAB flutuante acima da tabbar
   v.appendChild(tabbarProf());
   return v;
 }
