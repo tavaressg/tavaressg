@@ -3203,7 +3203,7 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 // v666: redesign minimalista Strava-style. 4 templates (eram 6, "Treino" com
 // stats e "Acerto" caíram — baixa expressão visual). PNG transparente único
 // (modo "fundo branco" removido 2026-10-02 por decisão do dono).
-const SHARE_TPLS = [['checkin','No tatame'],['streak','Streak'],['marca','Marca'],['kanji','Kanji']];
+const SHARE_TPLS = [['vazio','Sem nada'],['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
 const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]);
 let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
 // v667: stub de treino pro fluxo do professor (FAB "Compartilhar foto").
@@ -3243,16 +3243,19 @@ function abrirShareProf(){
   if (typeof _loadTurmas === 'function') _loadTurmas();
   track('share_prof_aberto'); render(); window.scrollTo(0,0);
 }
-function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; render(); }
+function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; DB.sharePos=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
 // v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
 // 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
 // Sem card translúcido, sem bordas gradient, sem copy motivacional.
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo){
+function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,pos){
   // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
   // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
+  // v670: pos ∈ {central, embaixo} desloca TODO o conteúdo verticalmente.
+  // "embaixo" libera o topo pra ler o stamp da turma sem overlap visual.
+  const cY = (pos === 'embaixo') ? (H*0.5 + 420) : (H*0.5);
   const SF='-apple-system,"Segoe UI",Roboto,sans-serif';
   const RED='#e5392f';
   const INK   = photoImg ? '#ffffff' : '#0a0a0a';
@@ -3288,9 +3291,10 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   };
   // v668 Etapa 3: logo da turma stampado no canto superior direito.
   // Chamado antes de cada return/final — aparece acima dos elementos do template.
+  // v670: tamanho ampliado (320x220 max) — stamp antes era discreto demais.
   const drawTurmaStamp = () => {
     if(!turmaLogo || !turmaLogo.naturalWidth) return;
-    const maxW = 180, maxH = 180;
+    const maxW = 320, maxH = 220;
     const ar = turmaLogo.naturalWidth / turmaLogo.naturalHeight;
     let dw = maxW, dh = maxW / ar;
     if (dh > maxH) { dh = maxH; dw = maxH * ar; }
@@ -3313,37 +3317,43 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   ctx.textAlign='center';
   son();
 
+  // ========= VAZIO (só foto + stamp da turma, sem branding/texto) =========
+  // v670: user escolhe se cola algo (adicionar foto) e se stampa logo da turma.
+  if(tpl==='vazio'){
+    drawTurmaStamp(); soff(); return;
+  }
+
   // ========= KANJI (só o 山 brushado) =========
   if(tpl==='kanji'){
-    drawKanji(W/2, H/2, 520);
+    drawKanji(W/2, cY, 520);
     ctx.fillStyle=MUTED;
-    drawKanjiTextRow(H/2+330, 'YAMA JIU-JITSU', `700 30px ${SF}`, 32);
+    drawKanjiTextRow(cY+330, 'YAMA JIU-JITSU', `700 30px ${SF}`, 32);
     drawTurmaStamp(); soff(); return;
   }
 
   // ========= MARCA (kanji + nome) =========
   if(tpl==='marca'){
-    drawKanji(W/2, H/2-80, 160);
+    drawKanji(W/2, cY-80, 160);
     ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
-    ctx.fillText('YAMA',W/2,H/2+80);
+    ctx.fillText('YAMA',W/2,cY+80);
     ctx.font=`800 52px ${SF}`;
-    ctx.fillText('JIU-JITSU',W/2,H/2+145);
+    ctx.fillText('JIU-JITSU',W/2,cY+145);
     ctx.fillStyle=MUTED; ctx.font=`600 20px ${SF}`;
-    ctx.fillText(dateFmt,W/2,H/2+220);
+    ctx.fillText(dateFmt,W/2,cY+220);
     drawTurmaStamp(); soff(); return;
   }
 
   // ========= STREAK (número + bolinhas da semana) =========
   if(tpl==='streak'){
     const s=DB.semana||{streakSemanas:0,feitos:0,meta:0,dias:[0,0,0,0,0,0,0]};
-    logoCenter(W/2,H/2-280,56);
+    logoCenter(W/2,cY-280,56);
     ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
-    ctx.fillText(dateFmt,W/2,H/2-200);
+    ctx.fillText(dateFmt,W/2,cY-200);
     ctx.font=`800 28px ${SF}`;
-    ctx.fillText('SEMANAS SEGUIDAS',W/2,H/2-140);
+    ctx.fillText('SEMANAS SEGUIDAS',W/2,cY-140);
     ctx.fillStyle=INK; ctx.font=`900 280px ${SF}`;
-    ctx.fillText(String(s.streakSemanas),W/2,H/2+70);
-    const dotR=14, gap=64, dotY=H/2+170;
+    ctx.fillText(String(s.streakSemanas),W/2,cY+70);
+    const dotR=14, gap=64, dotY=cY+170;
     const labels=['S','T','Q','Q','S','S','D'];
     const startX=W/2-(6*gap)/2;
     labels.forEach((l,i)=>{
@@ -3366,15 +3376,15 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const horaCard = (t.horaAula)
       || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
       || '19h';
-    logoCenter(W/2,H/2-260,56);
+    logoCenter(W/2,cY-260,56);
     ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
-    ctx.fillText(dateFmt,W/2,H/2-180);
+    ctx.fillText(dateFmt,W/2,cY-180);
     ctx.font=`800 32px ${SF}`;
-    ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,H/2-120);
+    ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-120);
     ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
-    ctx.fillText(horaCard,W/2,H/2+40);
+    ctx.fillText(horaCard,W/2,cY+40);
     ctx.fillStyle=MUTED;
-    drawKanjiTextRow(H/2+120, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
+    drawKanjiTextRow(cY+120, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
     drawTurmaStamp(); soff();
   }
 }
@@ -3389,7 +3399,8 @@ function _shareRedraw(){
   try{
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
-      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo));
+      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
+      DB.sharePos || 'central');
   }catch(e){}
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
@@ -3403,6 +3414,8 @@ _dlgRegister('shareTurma', (elm) => {
   _ensureTurmaLogo(t && t.logo_url || null);
   render();
 });
+// v670: posição do conteúdo do template (central / embaixo).
+_dlgRegister('sharePos', (elm) => { DB.sharePos = elm.dataset.v || 'central'; render(); });
 _dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
 _dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
 _dlgRegister('shareFoto', (elm) => {
@@ -3477,6 +3490,17 @@ function renderShare(){
   SHARE_TPLS.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
     b.setAttribute('data-click','shareTpl'); b.setAttribute('data-v', id); chips.appendChild(b); });
   body.appendChild(chips);
+  // v670: posição do conteúdo (central / embaixo) — libera o topo pro stamp.
+  // Só mostra pros templates com conteúdo (vazio e kanji são indiferentes).
+  if (DB.shareTpl !== 'vazio') {
+    const posChips = el(`<div class="tpl-row"></div>`);
+    [['central','Central'],['embaixo','Embaixo']].forEach(([id,label])=>{
+      const b = el(`<button class="tpl-chip ${(DB.sharePos||'central')===id?'on':''}">${label}</button>`);
+      b.setAttribute('data-click','sharePos'); b.setAttribute('data-v', id);
+      posChips.appendChild(b);
+    });
+    body.appendChild(posChips);
+  }
   // v668 Etapa 3: chip row de turmas com logo (só pro fluxo do professor —
   // aluno não precisa escolher turma). Filtra turmas que têm logo_url carregado.
   if (_profStubTreino) {
@@ -6666,7 +6690,9 @@ function _loadProfData(){
 // v667: FAB "Compartilhar foto" — câmera/galeria + sticker do story sem presença.
 // Fica fora dos focus modes (batch, imports, auditorias, ficha de aluno).
 function fabProfShare(){
-  const b = el(`<button class="fab-share-prof" data-click="fabCompartilhar" aria-label="Compartilhar foto no story">📸</button>`);
+  // SVG inline (câmera) em vez de emoji — baseline cross-platform consistente
+  // (emoji 📸 renderiza fora de centro em Windows/Chrome e algumas versões do iOS).
+  const b = el(`<button class="fab-share-prof" data-click="fabCompartilhar" aria-label="Compartilhar foto no story"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h3l2 -3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2"/><circle cx="12" cy="13" r="3"/></svg></button>`);
   return b;
 }
 function renderProfessor(){

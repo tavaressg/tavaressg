@@ -1059,16 +1059,21 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .tabbar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;
   background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:flex-end;
   padding:4px 0 calc(env(safe-area-inset-bottom) + 4px);box-shadow:0 -1px 8px rgba(0,0,0,.03);z-index:40}
-/* v667: FAB "Compartilhar foto" do professor — flutua acima da tabbar, canto inferior
-   direito. Em telas largas (>430px), fica no limite direito do shell de 430px. */
+/* v667: FAB "Compartilhar foto" do professor — flutua acima da tabbar, canto
+   inferior direito. Mobile: dentro do shell de 430px. Desktop professor
+   (>=768px, sidebar à esquerda): colado no canto direito do viewport. */
 .fab-share-prof{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 76px);
   right:max(16px, calc(50vw - 199px));
-  width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;
-  background:var(--red);color:#fff;font-size:26px;line-height:1;
+  width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;padding:0;
+  background:var(--red);color:#fff;
   display:flex;align-items:center;justify-content:center;z-index:45;
   box-shadow:0 8px 22px rgba(229,57,47,.42),0 2px 6px rgba(0,0,0,.18);
   transition:transform .12s ease,box-shadow .12s ease}
+.fab-share-prof svg{width:26px;height:26px;display:block}
 .fab-share-prof:active{transform:scale(.94);box-shadow:0 4px 14px rgba(229,57,47,.36),0 1px 3px rgba(0,0,0,.18)}
+@media (min-width:768px){
+  body[data-role="professor"] .fab-share-prof{right:28px;bottom:28px}
+}
 .tab{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--muted);flex:1}
 .tab svg{width:23px;height:23px}
 .tab .tl{font-size:10px;font-weight:700;letter-spacing:.2px}
