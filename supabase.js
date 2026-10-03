@@ -897,24 +897,26 @@
     getAlunos: wrap(async () => {
       if (_alunosMemo.data && Date.now() - _alunosMemo.t < 4000) return _alunosMemo.data;
       const acad = await myAcademyId(); if (!acad) return [];
-      // 120d: cobre as 16 semanas do cálculo de tendência de queda (freq4 vs base4)
-      const hojeISO = HOJE(), mes = mesAtual(), d120 = _diasAtras(120);
-      const [profs, hoje, mens, ckAll, grads, enrolls, aulasRpc] = await Promise.all([
+      // v697 (0075): ckAll (checkins 120d) saiu do Promise.all. Antes trafegava
+      // ~273 KB/fetch (2.117 linhas em prod) só pra o cliente derivar 5 agregados
+      // por aluno. Agora a RPC `aulas_por_aluno` devolve os 5 agregados já contados
+      // server-side (freq_mes, freq_4sem, base_4sem_pool, dias_sem, ultima_pres).
+      const mes = mesAtual();
+      const [profs, hoje, mens, grads, enrolls, aulasRpc] = await Promise.all([
         // Todos os usuários da academia (aluno + professor + dono). O papel vai no
         // campo `role` de cada linha; os KPIs (getKPIs) contam todos.
         SB.from('profiles').select('*').eq('academy_id', acad).eq('ativo', true),
         // v435: traz a TURMA junto — o card "Check-ins de hoje" mostrava só nome/faixa/hora
         // e o professor não sabia de qual aula era a presença. `turmas(nome)` é o embed;
         // o cliente recebe achatado em `presTurma` logo abaixo.
-        SB.from('checkins').select('user_id,hora,turma_id,turmas(nome)').eq('academy_id', acad).eq('data', hojeISO),   // M6: índice (academy_id,data)
+        SB.from('checkins').select('user_id,hora,turma_id,turmas(nome)').eq('academy_id', acad).eq('data', HOJE()),   // M6: índice (academy_id,data)
         SB.from('mensalidades').select('user_id,valor,venc,status').eq('mes', mes),
-        _todasLinhas(o => SB.from('checkins').select('user_id,data', o).eq('academy_id', acad).gte('data', d120)),   // M6 · v91 paginado (passou de 1000)
         _todasLinhas(o => SB.from('graduations').select('user_id,faixa,graus,tipo,data,aulas_credito_grau,aulas_credito_faixa', o).eq('academy_id', acad)),   // M6 + v391 (credito 0029) · v91 paginado (684 e subindo)
         // Matrículas ativas — popula a.turmas em cada aluno (a UI de Turmas usa isso)
         SB.from('enrollments').select('user_id,turma_id').eq('status', 'ativo'),
-        // 0034: aulas no grau / na faixa contadas NO SERVIDOR. Mesma RPC que o app do
-        // aluno chama pra si (o escopo mora dentro da função) — fim das duas contagens
-        // em JS que divergiam. Sem janela de data: `count(*)` não trafega linha.
+        // 0034/0075: aulas + agregados de frequência contados NO SERVIDOR. Mesma RPC
+        // que o app do aluno chama pra si (o escopo mora dentro da função) — fim das
+        // duas contagens em JS que divergiam.
         SB.rpc('aulas_por_aluno'),
       ]);
       const presById = {}; (hoje.data || []).forEach(c => { presById[c.user_id] = c.hora || '✓'; });
@@ -927,64 +929,45 @@
         (presTurmaById[c.user_id] || (presTurmaById[c.user_id] = new Set())).add(nome);
       });
       const mensById = {}; (mens.data || []).forEach(m => { mensById[m.user_id] = m; });
-      // agrega check-ins por aluno (dias distintos + último). `dias` continua sendo
-      // DIA distinto: alimenta freq (% do mês), diasSem e a tendência freq4/base4 —
-      // métricas de regularidade, que não podem virar volume. Aulas no grau/faixa
-      // saíram daqui pra RPC 0034 (contam por AULA, sem janela).
-      const agg = {};
-      (ckAll.data || []).forEach(c => {
-        const a = agg[c.user_id] || (agg[c.user_id] = { dias: new Set(), last: null });
-        a.dias.add(c.data); if (!a.last || c.data > a.last) a.last = c.data;
-      });
-      // 0034: { user_id → {grau, faixa, grauDesde, faixaDesde, creditoGrau, creditoFaixa} }
+      // 0034/0075: { user_id → {grau, faixa, grauDesde, faixaDesde, creditoGrau,
+      // creditoFaixa, freqMes, freq4, basePool4, diasSem, ultimaPres} }
       const aulasByUser = {};
       ((aulasRpc && aulasRpc.data) || []).forEach(r => {
         aulasByUser[r.o_user_id] = {
           grau: r.o_aulas_grau || 0, faixa: r.o_aulas_faixa || 0,
           grauDesde: r.o_grau_desde || null, faixaDesde: r.o_faixa_desde || null,
           creditoGrau: r.o_credito_grau || 0, creditoFaixa: r.o_credito_faixa || 0,
+          // 0075: agregados de freq. RPC antiga (sem esses campos) → undefined → fallbacks abaixo
+          freqMes: r.o_freq_mes, freq4: r.o_freq_4sem, basePool4: r.o_base_4sem_pool,
+          diasSem: r.o_dias_sem, ultimaPres: r.o_ultima_pres,
         };
       });
       const gradByUser = {}; (grads.data || []).forEach(g => { (gradByUser[g.user_id] || (gradByUser[g.user_id] = [])).push(g); });
       const turmasByUser = {}; (enrolls.data || []).forEach(e => { (turmasByUser[e.user_id] || (turmasByUser[e.user_id] = [])).push(e.turma_id); });
       const out = (profs.data || []).map(p => {
         const base = mapAluno(p, presById, mensById);
-        // v435: fora do mapAluno de propósito — não mexe na assinatura dele, que tem
-        // outros chamadores. Array (não Set) pra sobreviver a JSON/estruturação.
         base.presTurma = presTurmaById[p.id] ? [...presTurmaById[p.id]] : null;
-        base.turmas = turmasByUser[p.id] || [];   // ids das turmas matriculadas (UI de Turmas usa)
-        const a = agg[p.id];
-        base.diasSem = (a && a.last) ? Math.max(0, Math.round((new Date(hojeISO) - new Date(a.last)) / 86400000)) : 999;
-        base.ultimaPres = (a && a.last) || null;   // v452: ISO YYYY-MM-DD do último check-in (UI usa em vez de "ausente")
-        const diasMes = a ? [...a.dias].filter(d => d.slice(0, 7) === mes).length : 0;
-        base.freq = Math.min(100, Math.round(diasMes / _METAS().META_MES * 100));
-        // aulas desde o início do grau/faixa atual → apto a graduar (aprox.)
-        const gs = gradByUser[p.id] || [];
-        // v345: a TIMELINE é a fonte da verdade da graduação. Sem nenhum evento, o
-        // aluno é "não graduado" — a lista mostra isso em vez de uma faixa branca lisa
-        // que ninguém registrou. (profiles.faixa segue como valor técnico.)
-        base.semGrad = gs.length === 0;
-        // 0034: âncoras, créditos e contagens vêm da RPC `aulas_por_aluno` — o MESMO
-        // SQL que o app do aluno chama pra si. Antes isso era ~30 linhas de JS aqui e
-        // outras ~20 no app.js (`aulasStats`), que contavam DIAS distintos dentro da
-        // janela de 120d; agora é `count(*)` de check-ins (1 linha = 1 aula) sem janela.
-        // Aluno com 4 turmas ADULTO no mesmo dia conta 4, não 1.
+        base.turmas = turmasByUser[p.id] || [];
+        // 0034/0075: âncoras, créditos, contagens e agregados de frequência vêm todos
+        // da RPC. Aluno sem linha na RPC (indisponível) → fallbacks seguros.
         const ag = aulasByUser[p.id] || null;
-        base.aulasNoGrau   = ag ? ag.grau : null;      // null = RPC indisponível → UI mostra '—'
+        base.aulasNoGrau   = ag ? ag.grau : null;
         base.creditoGrau   = ag ? ag.creditoGrau : 0;
         base.grauDesde     = ag ? ag.grauDesde : null;
         base.aulasNaFaixa  = ag ? ag.faixa : null;
         base.creditoFaixa  = ag ? ag.creditoFaixa : 0;
         base.faixaDesde    = ag ? ag.faixaDesde : null;
         base.aptoGrad      = ag ? (ag.grau >= _METAS().META_GRAU) : false;
-        // Tendência de queda (risco v2): dias treinados nas últimas 4 semanas vs a média
-        // por 4 semanas do trimestre anterior (semanas 5–16). Queda ≥50% = sinal de churn.
-        if (a) {
-          const dias = [...a.dias];
-          const d28 = _diasAtras(28);
-          base.freq4 = dias.filter(x => x >= d28).length;
-          base.base4 = Math.round(dias.filter(x => x < d28).length / 3 * 10) / 10;
-        } else { base.freq4 = 0; base.base4 = 0; }
+        // 0075: diasSem/ultimaPres/freq/freq4/base4 agora vêm agregados do servidor
+        base.diasSem    = (ag && typeof ag.diasSem === 'number') ? ag.diasSem : 999;
+        base.ultimaPres = (ag && ag.ultimaPres) || null;
+        const diasMes   = (ag && typeof ag.freqMes === 'number') ? ag.freqMes : 0;
+        base.freq       = Math.min(100, Math.round(diasMes / _METAS().META_MES * 100));
+        base.freq4      = (ag && typeof ag.freq4 === 'number') ? ag.freq4 : 0;
+        base.base4      = (ag && typeof ag.basePool4 === 'number') ? Math.round(ag.basePool4 / 3 * 10) / 10 : 0;
+        // v345: TIMELINE é a fonte da verdade da graduação. Sem evento = não graduado.
+        const gs = gradByUser[p.id] || [];
+        base.semGrad = gs.length === 0;
         return base;
       });
       // 0007: foto_url é PATH e o bucket é privado — assina em LOTE p/ o roster

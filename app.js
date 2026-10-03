@@ -7099,7 +7099,11 @@ function _pullSemEco(){
 }
 
 function _loadProfData(){
-  if(Date.now() - _profTs < 30000) return;
+  // v697: gate 30s→60s. Realtime (v556) cobre check-ins/pedidos/graduacoes em
+  // tempo real; as 3 outras protecoes (refetch por foco 5min, onDadosMudaram
+  // em cada mutacao, Realtime) ja' garantem frescor. Dobrar o gate corta
+  // chamadas espaçadas por 30-60s sem perda perceptivel pro professor.
+  if(Date.now() - _profTs < 60000) return;
   // v658: skip refetch enquanto aba escondida (professor deixou tab aberto).
   // Impacto real medido: aba escondida por horas gerava dezenas de refetches
   // (getAlunos = 7 queries × ~150 KB cada) sem ninguém ver o resultado. Volta
