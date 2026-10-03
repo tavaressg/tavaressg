@@ -3783,7 +3783,7 @@ function renderShare(){
                                : 'Card pro seu story';
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
-    <div class="back" role="button" tabindex="0" aria-label="Voltar" data-click="fecharShare">✕</div>
+    <div class="back" role="button" tabindex="0" aria-label="Fechar" data-click="fecharShare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
     <div class="ft"><div class="t">Compartilhar</div><div class="s">${sub}</div></div>
   </div>`;
   const body = el(`<div class="share-body"></div>`);

@@ -9,6 +9,24 @@
 
 ## Concluídas ✓
 
+### v689 — O ✕ do header de Compartilhar vira SVG (2026-10-03)
+
+O botão de fechar aparecia meio pixel acima do centro do quadrado. Não era o
+CSS: `.flow-head .back` já centra com `align-items:center`, mas o flex centra a
+**caixa da linha**, não o desenho do glifo. Medido no Chromium com a Montserrat
+em 20px: caixa de 24px (centro em 12), tinta do `✕` de 5 a 18 (centro em 11,5).
+O glifo tem `descent -1` — nem encosta na linha de base. Nenhum valor de
+alinhamento conserta uma assimetria que mora na fonte; num 3x isso vira 1,5px
+físico e aparece.
+
+Virou SVG inline, simétrico no `viewBox` e centrado por geometria — a mesma
+convenção dos outros onze `.back` do app (16×16, `viewBox 0 0 24 24`,
+`stroke-width 2.5`), que já eram SVG. O `renderShare` era o único fora do
+padrão. Efeito colateral: o ✕ ficou menor, porque passou a ter o peso visual
+do chevron das outras telas em vez do corpo do glifo de 20px.
+
+`aria-label` corrigido junto: era "Voltar" num botão que fecha e desenha um ✕.
+
 ### v688 + supabase.js v117 + migration 0074 — Gênero na ficha cadastral (2026-10-03)
 
 A ficha não tinha gênero. Faltava pra categoria de competição (CBJJ separa por
