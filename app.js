@@ -3689,13 +3689,20 @@ function _shareAttachGestures(ov){
   ov.onpointercancel = end;
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
-_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
+// v683: toggle — tap no chip já marcado desseleciona (volta pra 'vazio').
+_dlgRegister('shareTpl', (elm) => {
+  const v = elm.dataset.v;
+  DB.shareTpl = (DB.shareTpl === v && v !== 'vazio') ? 'vazio' : v;
+  render();
+});
 _dlgRegister('fabCompartilhar', () => abrirShareProf());
 // v668 Etapa 3: chip de turma pro stamp — carrega o logo (cross-origin) e repinta.
 _dlgRegister('shareTurma', (elm) => {
-  const id = elm.dataset.v || null;
-  DB.shareTurmaId = id;
-  const t = id ? (DB.turmas||[]).find(x=>x && x.id===id) : null;
+  const v = elm.dataset.v || null;
+  // v683: toggle — tap na turma já marcada desseleciona (volta pra 'Sem turma')
+  const nextId = (DB.shareTurmaId === v && v !== null) ? null : v;
+  DB.shareTurmaId = nextId;
+  const t = nextId ? (DB.turmas||[]).find(x=>x && x.id===nextId) : null;
   _ensureTurmaLogo(t && t.logo_url || null);
   // v680: transforms persistem entre trocas de template/turma na mesma sessão
   render();
