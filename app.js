@@ -3399,6 +3399,10 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
   // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
 
   const dateFmt = (()=>{ const [y,mo,d]=t.data.split('-'); return `${d}.${mo}.${y}`; })();
+  // v693: dia da semana por extenso (checkin). Monta a Date por componentes —
+  // `new Date('2026-10-03')` seria lido como UTC e, a oeste de Greenwich,
+  // voltaria o dia anterior: o card diria "Sexta" num treino de sábado.
+  const diaSemExt = (()=>{ const [y,mo,d]=t.data.split('-').map(Number); return diasSem[new Date(y,mo-1,d).getDay()]; })();
 
   ctx.textAlign='center';
   son();
@@ -3474,8 +3478,8 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
       ctx.fillStyle=MUTED; ctx.font=`700 18px ${SF}`;
       ctx.fillText(l,dx,dotY+42);
     });
-    ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
-    ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
+    // v693: "N/M treinos esta semana" saiu — as bolinhas já dizem isso, e com
+    // mais clareza: elas mostram QUAIS dias, não só quantos.
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
     // v678: lockup -33% (900→600) — estava desproporcional ao mockup
     drawLockup(dotY+180, 600);
@@ -3495,8 +3499,11 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
       // v678: data +30% (26→34), estava muito pequena.
       ctx.fillStyle=MUTED; ctx.font=`700 34px ${SF}`;
       ctx.fillText(dateFmt,W/2,cY-170);
+      // v693: dia da semana por extenso no lugar do tipo de treino. "QUARTA"
+      // diz algo pra quem vê o story; "FUNDAMENTOS" só faz sentido pra quem já
+      // é da casa — e o tipo de treino já fica no app, onde ele serve.
       ctx.font=`800 32px ${SF}`;
-      ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-110);
+      ctx.fillText(diaSemExt.toUpperCase(),W/2,cY-110);
       ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
       ctx.fillText(horaCard,W/2,cY+50);
       // v678: lockup -33% (900→600), mesmo motivo do streak

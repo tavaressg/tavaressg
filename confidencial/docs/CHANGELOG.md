@@ -9,6 +9,23 @@
 
 ## Concluídas ✓
 
+### v693 — Streak perde a legenda; "No tatame" troca o tipo de treino pelo dia (2026-10-03)
+
+Dois pedidos do dono nos cards de story.
+
+**Streak:** sai `N/M treinos esta semana`. As bolinhas logo acima já contam a
+mesma coisa e dizem mais: mostram *quais* dias, não só quantos.
+
+**No tatame:** no lugar do tipo de treino (`FUNDAMENTOS`, `TÉCNICO`), o dia da
+semana por extenso — `QUARTA`. O tipo é vocabulário de quem já treina na
+academia; num story, quem vê de fora entende o dia. O tipo continua no app,
+onde serve.
+
+A `Date` do dia da semana é montada por componentes
+(`new Date(y, mo-1, d)`), nunca de `new Date('2026-09-30')`: a string ISO é
+lida como UTC e, a oeste de Greenwich, voltaria o dia anterior — um treino de
+sábado sairia como "Sexta". Conferido no Chromium em `America/Sao_Paulo`.
+
 ### v692 — Marca sai também do "No tatame"; cadeia do logo vira código morto (2026-10-03)
 
 Mesma decisão da v691 aplicada ao template `checkin` ("No tatame"), o último
