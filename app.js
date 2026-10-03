@@ -3203,8 +3203,11 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 // v666: redesign minimalista Strava-style. 4 templates (eram 6, "Treino" com
 // stats e "Acerto" caíram — baixa expressão visual). PNG transparente único
 // (modo "fundo branco" removido 2026-10-02 por decisão do dono).
-const SHARE_TPLS = [['vazio','Sem nada'],['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
-const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]);
+// v684: chip "Sem nada" removido. Estado 'vazio' continua intrínseco — ativa
+// automaticamente quando user desseleciona (toggle do chip ativo).
+const SHARE_TPLS = [['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
+// v684: 'vazio' é estado intrínseco (sem chip visível) mas valido como shareTpl.
+const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]).concat('vazio');
 let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
 // v673: brand assets novos — marca circular + lockup horizontal (kanji+texto na
 // tipografia brushada da marca). Substitui o drawKanjiTextRow que misturava
@@ -3800,13 +3803,12 @@ function renderShare(){
   body.appendChild(chips);
   // v668 Etapa 3: chip row de turmas com logo (só pro fluxo do professor —
   // aluno não precisa escolher turma). Filtra turmas que têm logo_url carregado.
+  // v684: chip "Sem turma" removido — estado intrínseco. Tap na turma ativa
+  // desseleciona (toggle via shareTurma handler).
   if (_profStubTreino) {
     const turmasComLogo = (DB.turmas || []).filter(x => x && x.logo_url);
     if (turmasComLogo.length) {
       const turmaChips = el(`<div class="tpl-row"></div>`);
-      const none = el(`<button class="tpl-chip ${!DB.shareTurmaId?'on':''}">Sem turma</button>`);
-      none.setAttribute('data-click','shareTurma'); none.setAttribute('data-v','');
-      turmaChips.appendChild(none);
       turmasComLogo.forEach(tm => {
         const b = el(`<button class="tpl-chip ${DB.shareTurmaId===tm.id?'on':''}">${safeTxt(tm.nome)}</button>`);
         b.setAttribute('data-click','shareTurma'); b.setAttribute('data-v', tm.id);
