@@ -3262,13 +3262,17 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   const cY = (pos === 'embaixo') ? (H*0.5 + 420) : (H*0.5);
   const SF='-apple-system,"Segoe UI",Roboto,sans-serif';
   const RED='#e5392f';
-  const INK   = photoImg ? '#ffffff' : '#0a0a0a';
-  const MUTED = photoImg ? 'rgba(255,255,255,.72)' : 'rgba(10,10,10,.52)';
-  const SOFT  = photoImg ? 'rgba(255,255,255,.28)' : 'rgba(10,10,10,.14)';
-  const son =()=>{ if(photoImg){ ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=18; ctx.shadowOffsetY=3; } };
+  // v673: TUDO em BRANCO sempre — os brand assets do dono são brancos (yama-lockup,
+  // yama-marca-circular), então textos e kanji brushado precisam combinar. Sombra
+  // ativa sempre pra manter contraste em qualquer fundo (foto escura, canvas
+  // transparente colado sobre foto, etc.).
+  const INK   = '#ffffff';
+  const MUTED = 'rgba(255,255,255,.80)';
+  const SOFT  = 'rgba(255,255,255,.32)';
+  const son =()=>{ ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=22; ctx.shadowOffsetY=3; };
   const soff=()=>{ ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0; };
-  // Kanji brushado — preto por padrão, branco quando houver foto por trás.
-  const kanjiImg = photoImg ? kanjiWhite : kanjiBlack;
+  // Kanji sempre a versão branca (combina com os outros brand assets brancos)
+  const kanjiImg = kanjiWhite;
   // Desenha o kanji centrado em (cx, cy) com altura sz (largura preservando aspect).
   const drawKanji = (cx, cy, sz) => {
     if(!kanjiImg){
@@ -3295,15 +3299,16 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   };
   // v673: lockup horizontal "kanji + YAMA JIU-JITSU" brushado — substitui o
   // drawKanjiTextRow nos footers (resolve inconsistência de fonte).
-  const drawLockup = (y, targetH) => {
+  // v674: constrain por LARGURA (asset é 12.66:1, muito wide — altura virava
+  // escala errada).
+  const drawLockup = (y, targetW) => {
     if(!lockupH || !lockupH.naturalWidth){
-      // fallback: desenha com kanji PNG + texto sans-serif
-      drawKanjiTextRow(y, 'YAMA JIU-JITSU', `700 22px ${SF}`, targetH*0.9);
+      drawKanjiTextRow(y, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
       return;
     }
     const ar = lockupH.naturalWidth / lockupH.naturalHeight;
-    const w = targetH * ar;
-    soff(); ctx.drawImage(lockupH, W/2 - w/2, y - targetH/2, w, targetH); son();
+    const h = targetW / ar;
+    soff(); ctx.drawImage(lockupH, W/2 - targetW/2, y - h/2, targetW, h); son();
   };
   // v668 Etapa 3: logo da turma stampado no canto superior direito.
   // Chamado antes de cada return/final — aparece acima dos elementos do template.
@@ -3394,7 +3399,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
     ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
-    drawLockup(dotY+180, 48);
+    drawLockup(dotY+200, 900);
     drawTurmaStamp(); soff(); return;
   }
 
@@ -3411,7 +3416,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
     ctx.fillText(horaCard,W/2,cY+40);
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
-    drawLockup(cY+130, 48);
+    drawLockup(cY+170, 900);
     drawTurmaStamp(); soff();
   }
 }
@@ -3513,8 +3518,8 @@ function renderShare(){
   if(!_shareKanji){ _shareKanji=new Image(); _shareKanji.onload=_shareRedraw; _shareKanji.src="brand/yama-kanji.png?v=1"; }
   if(!_shareKanjiW){ _shareKanjiW=new Image(); _shareKanjiW.onload=_shareRedraw; _shareKanjiW.src="brand/yama-kanji-white.png?v=1"; }
   // v673: marca circular + lockup horizontal (tipografia brushada da marca)
-  if(!_shareMarcaCirc){ _shareMarcaCirc=new Image(); _shareMarcaCirc.onload=_shareRedraw; _shareMarcaCirc.src="brand/yama-marca-circular.webp?v=1"; }
-  if(!_shareLockupH){ _shareLockupH=new Image(); _shareLockupH.onload=_shareRedraw; _shareLockupH.src="brand/yama-lockup-horizontal.png?v=1"; }
+  if(!_shareMarcaCirc){ _shareMarcaCirc=new Image(); _shareMarcaCirc.onload=_shareRedraw; _shareMarcaCirc.src="brand/yama-marca-circular.webp?v=4"; }
+  if(!_shareLockupH){ _shareLockupH=new Image(); _shareLockupH.onload=_shareRedraw; _shareLockupH.src="brand/yama-lockup-horizontal.png?v=4"; }
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(_shareRedraw); else _shareRedraw();   // morph-ok: _shareRedraw resolve #share-canvas no DOM vivo, nao appenda nada
   // modelos
   const chips = el(`<div class="tpl-row"></div>`);
