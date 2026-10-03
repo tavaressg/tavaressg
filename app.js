@@ -1469,11 +1469,19 @@ function track(e, props){
     // sanitiza msg por CORS/SRI) — src/ln/col ainda vem, entao pelo menos
     // consegue localizar. Stack quando disponivel ajuda muito no cross-origin.
     window.addEventListener('error', (ev)=>{
+      const msg = String((ev&&(ev.message||ev.error))||'');
+      const src = String((ev&&ev.filename)||'');
+      // v696: ruido de extensao de browser do aluno (adblock/translator/etc.)
+      // vem mascarado por CORS: msg="Script error." + src=""+ln=0+col=0+stack=null.
+      // Nao e' bug do app — dois alunos distintos reportaram em 2026-10-03 mesmo
+      // tendo logado normal. Pula pra nao poluir client_errors e disparar o KPI
+      // de erros. Erro real do app sempre tem src OU stack.
+      if (msg === 'Script error.' && !src) return;
       const stack = ev && ev.error && ev.error.stack ? String(ev.error.stack).slice(0,600) : null;
-      report(String((ev&&(ev.message||ev.error))||''), {
-        src:String((ev&&ev.filename)||'').split('/').pop(),
-        ln:ev&&ev.lineno,
-        col:ev&&ev.colno,
+      report(msg, {
+        src: src.split('/').pop(),
+        ln: ev&&ev.lineno,
+        col: ev&&ev.colno,
         stack
       });
     });
