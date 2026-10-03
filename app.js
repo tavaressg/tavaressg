@@ -3206,6 +3206,10 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 const SHARE_TPLS = [['vazio','Sem nada'],['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
 const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]);
 let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
+// v673: brand assets novos — marca circular + lockup horizontal (kanji+texto na
+// tipografia brushada da marca). Substitui o drawKanjiTextRow que misturava
+// kanji PNG com texto sans-serif inconsistente.
+let _shareMarcaCirc = null, _shareLockupH = null;
 // v667: stub de treino pro fluxo do professor (FAB "Compartilhar foto").
 // Permite abrir a share sem presença numa aula — sticker vai direto pro story
 // do WhatsApp sem precisar de check-in. Default: template Kanji (brand-focused).
@@ -3250,7 +3254,7 @@ function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/
 // v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
 // 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
 // Sem card translúcido, sem bordas gradient, sem copy motivacional.
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,pos){
+function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,pos,marcaCirc,lockupH){
   // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
   // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
   // v670: pos ∈ {central, embaixo} desloca TODO o conteúdo verticalmente.
@@ -3289,6 +3293,18 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.textAlign='left'; ctx.fillText(textStr, startX + kw + gap, y);
     ctx.textAlign='center';
   };
+  // v673: lockup horizontal "kanji + YAMA JIU-JITSU" brushado — substitui o
+  // drawKanjiTextRow nos footers (resolve inconsistência de fonte).
+  const drawLockup = (y, targetH) => {
+    if(!lockupH || !lockupH.naturalWidth){
+      // fallback: desenha com kanji PNG + texto sans-serif
+      drawKanjiTextRow(y, 'YAMA JIU-JITSU', `700 22px ${SF}`, targetH*0.9);
+      return;
+    }
+    const ar = lockupH.naturalWidth / lockupH.naturalHeight;
+    const w = targetH * ar;
+    soff(); ctx.drawImage(lockupH, W/2 - w/2, y - targetH/2, w, targetH); son();
+  };
   // v668 Etapa 3: logo da turma stampado no canto superior direito.
   // Chamado antes de cada return/final — aparece acima dos elementos do template.
   // v670: tamanho ampliado (320x220 max) — stamp antes era discreto demais.
@@ -3324,22 +3340,32 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   }
 
   // ========= KANJI (só o 山 brushado) =========
+  // v673: "YAMA JIU-JITSU" vira texto puro sem kanji prefix (o kanji grande ja ta' no centro)
   if(tpl==='kanji'){
     drawKanji(W/2, cY, 520);
-    ctx.fillStyle=MUTED;
-    drawKanjiTextRow(cY+330, 'YAMA JIU-JITSU', `700 30px ${SF}`, 32);
+    ctx.fillStyle=MUTED; ctx.font=`700 36px ${SF}`;
+    ctx.fillText('YAMA JIU-JITSU', W/2, cY+340);
     drawTurmaStamp(); soff(); return;
   }
 
-  // ========= MARCA (kanji + nome) =========
+  // ========= MARCA (lockup circular do brand) =========
+  // v673: marca redonda substitui o kanji + "YAMA" + "JIU-JITSU" montados a mao.
   if(tpl==='marca'){
-    drawKanji(W/2, cY-80, 160);
-    ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
-    ctx.fillText('YAMA',W/2,cY+80);
-    ctx.font=`800 52px ${SF}`;
-    ctx.fillText('JIU-JITSU',W/2,cY+145);
-    ctx.fillStyle=MUTED; ctx.font=`600 20px ${SF}`;
-    ctx.fillText(dateFmt,W/2,cY+220);
+    if(marcaCirc && marcaCirc.naturalWidth){
+      const sz = 760;
+      const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
+      const w = sz, h = sz / ar;
+      soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
+    } else {
+      // fallback (preload incompleto)
+      drawKanji(W/2, cY-80, 160);
+      ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
+      ctx.fillText('YAMA',W/2,cY+80);
+      ctx.font=`800 52px ${SF}`;
+      ctx.fillText('JIU-JITSU',W/2,cY+145);
+    }
+    ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
+    ctx.fillText(dateFmt, W/2, cY+440);
     drawTurmaStamp(); soff(); return;
   }
 
@@ -3367,7 +3393,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     });
     ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
     ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
-    drawKanjiTextRow(dotY+170, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
+    // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
+    drawLockup(dotY+180, 48);
     drawTurmaStamp(); soff(); return;
   }
 
@@ -3383,8 +3410,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-120);
     ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
     ctx.fillText(horaCard,W/2,cY+40);
-    ctx.fillStyle=MUTED;
-    drawKanjiTextRow(cY+120, 'YAMA JIU-JITSU', `700 22px ${SF}`, 26);
+    // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
+    drawLockup(cY+130, 48);
     drawTurmaStamp(); soff();
   }
 }
@@ -3400,7 +3427,7 @@ function _shareRedraw(){
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
       _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
-      DB.sharePos || 'central');
+      DB.sharePos || 'central', _ok(_shareMarcaCirc), _ok(_shareLockupH));
   }catch(e){}
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
@@ -3485,6 +3512,9 @@ function renderShare(){
   // v666: kanji 山 brushado (NUNCA font). 2 cores pra alternar com INK.
   if(!_shareKanji){ _shareKanji=new Image(); _shareKanji.onload=_shareRedraw; _shareKanji.src="brand/yama-kanji.png?v=1"; }
   if(!_shareKanjiW){ _shareKanjiW=new Image(); _shareKanjiW.onload=_shareRedraw; _shareKanjiW.src="brand/yama-kanji-white.png?v=1"; }
+  // v673: marca circular + lockup horizontal (tipografia brushada da marca)
+  if(!_shareMarcaCirc){ _shareMarcaCirc=new Image(); _shareMarcaCirc.onload=_shareRedraw; _shareMarcaCirc.src="brand/yama-marca-circular.webp?v=1"; }
+  if(!_shareLockupH){ _shareLockupH=new Image(); _shareLockupH.onload=_shareRedraw; _shareLockupH.src="brand/yama-lockup-horizontal.png?v=1"; }
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(_shareRedraw); else _shareRedraw();   // morph-ok: _shareRedraw resolve #share-canvas no DOM vivo, nao appenda nada
   // modelos
   const chips = el(`<div class="tpl-row"></div>`);
