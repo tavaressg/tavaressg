@@ -3520,7 +3520,9 @@ function renderShare(){
     }
   }
   // foto de fundo (opcional) — postar com a sua imagem direto no story
-  const fileIn = el(`<input type="file" accept="image/*" capture="environment" style="display:none">`);
+  // v672: sem capture="environment" pra iOS/Android mostrar galeria + câmera no prompt
+  // (atributo forçava câmera e escondia galeria em alguns devices).
+  const fileIn = el(`<input type="file" accept="image/*" style="display:none">`);
   fileIn.id='share-file'; fileIn.setAttribute('data-change','shareFoto');
   const photoRow = el(`<div class="share-photo-row"></div>`);
   const lbl = el(`<button class="share-photo">📷 ${_sharePhoto?'Trocar foto':'Adicionar sua foto'}</button>`);
