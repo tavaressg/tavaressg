@@ -3225,7 +3225,7 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 const SHARE_TPLS = [['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
 // v684: 'vazio' é estado intrínseco (sem chip visível) mas valido como shareTpl.
 const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]).concat('vazio');
-let _shareLogo = null, _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
+let _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
 // v673: brand assets novos — marca circular + lockup horizontal (kanji+texto na
 // tipografia brushada da marca). Substitui o drawKanjiTextRow que misturava
 // kanji PNG com texto sans-serif inconsistente.
@@ -3281,7 +3281,7 @@ function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/
 // v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
 // 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
 // Sem card translúcido, sem bordas gradient, sem copy motivacional.
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaCirc,lockupH){
+function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaCirc,lockupH){
   // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
   // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
   // v670: pos ∈ {central, embaixo} desloca TODO o conteúdo verticalmente.
@@ -3399,7 +3399,6 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
 
   const dateFmt = (()=>{ const [y,mo,d]=t.data.split('-'); return `${d}.${mo}.${y}`; })();
-  const logoCenter=(x,y,sz)=>{ if(!logoImg) return; soff(); ctx.drawImage(logoImg,x-sz/2,y-sz/2,sz,sz); son(); };
 
   ctx.textAlign='center';
   son();
@@ -3489,8 +3488,10 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const horaCard = (t.horaAula)
       || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
       || '19h';
-    withContent({x: W/2-450, y: cY-290, w: 900, h: 500}, () => {
-      logoCenter(W/2,cY-260,56);
+    // v692: marca circular do topo saiu, como no streak (v691) — o lockup do
+    // rodapé já assina. Bbox encolhe junto (topo cY-290 → cY-205): ela é o alvo
+    // de toque dos gestos (v675) e sobraria vazia acima do conteúdo.
+    withContent({x: W/2-450, y: cY-205, w: 900, h: 415}, () => {
       // v678: data +30% (26→34), estava muito pequena.
       ctx.fillStyle=MUTED; ctx.font=`700 34px ${SF}`;
       ctx.fillText(dateFmt,W/2,cY-170);
@@ -3515,7 +3516,7 @@ function _shareRedraw(){
   try{
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
-      _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
+      _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
       _ok(_shareMarcaCirc), _ok(_shareLockupH));
     _shareDrawOverlay();
   }catch(e){}
@@ -3807,7 +3808,6 @@ function renderShare(){
   // com o ctx capturado, um repaint no meio fazia o desenho cair num canvas
   // orfao e o story saia em branco.
   _shareTreino = t;
-  if(!_shareLogo){ _shareLogo=new Image(); _shareLogo.onload=_shareRedraw; _shareLogo.onerror=function(){ if(this.src.indexOf("yama-logo")<0) this.src="brand/yama-logo.png?v=2"; }; _shareLogo.src="brand/logo.png?v=2"; }
   // v666: kanji 山 brushado (NUNCA font). 2 cores pra alternar com INK.
   if(!_shareKanji){ _shareKanji=new Image(); _shareKanji.onload=_shareRedraw; _shareKanji.src="brand/yama-kanji.png?v=1"; }
   if(!_shareKanjiW){ _shareKanjiW=new Image(); _shareKanjiW.onload=_shareRedraw; _shareKanjiW.src="brand/yama-kanji-white.png?v=1"; }

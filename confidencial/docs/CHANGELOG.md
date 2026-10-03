@@ -9,6 +9,22 @@
 
 ## Concluídas ✓
 
+### v692 — Marca sai também do "No tatame"; cadeia do logo vira código morto (2026-10-03)
+
+Mesma decisão da v691 aplicada ao template `checkin` ("No tatame"), o último
+que ainda abria com a marca circular acima da data. Bbox encolhida junto
+(`cY-290` → `cY-205`, altura 500 → 415), pelo motivo da v691: ela é o alvo de
+toque dos gestos (v675).
+
+Com os dois chamadores fora, `logoCenter()` ficou sem uso — e atrás dele uma
+cadeia inteira: o parâmetro `logoImg` de `drawStory()`, o argumento no único
+call site, a variável `_shareLogo` e o preload que buscava `brand/logo.png` com
+fallback pra `yama-logo.png`. Tudo removido. Abrir Compartilhar deixa de baixar
+uma imagem que nada desenha.
+
+Os cards não perderam marca nenhuma: quem assina é o lockup horizontal do
+rodapé (v673), que continua nos dois.
+
 ### v691 — Marca circular sai do topo do card de Streak (2026-10-03)
 
 Pedido do dono. O template `streak` abria com a marca circular logo acima da
