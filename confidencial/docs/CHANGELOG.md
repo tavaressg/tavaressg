@@ -9,7 +9,7 @@
 
 ## Concluídas ✓
 
-### v688 + supabase.js v117 + migration 0068 — Gênero na ficha cadastral (2026-10-03)
+### v688 + supabase.js v117 + migration 0074 — Gênero na ficha cadastral (2026-10-03)
 
 A ficha não tinha gênero. Faltava pra categoria de competição (CBJJ separa por
 sexo) e pra qualquer leitura por gênero nos relatórios. Mesmo desenho do CPF
@@ -21,21 +21,29 @@ seguem obrigatórios no cadastro.
 
 **A palavra inteira em vez de código.** O primeiro corte gravava `M`/`F`/
 `nao_informar`; decisão do dono no mesmo dia, antes de qualquer gravação (a
-0068 ainda não havia rodado, então a troca não custou migração de dados). Duas
+0074 ainda não havia rodado, então a troca não custou migração de dados). Duas
 mudanças: a terceira opção virou **Outros** (era "Prefiro não informar") e o
 valor gravado passou a ser a palavra em minúscula. Quem abre o banco ou um
 export SQL lê `masculino` direto — a economia de 7 bytes por linha não paga uma
 tabela de decodificação na cabeça de quem consulta.
 
-**Nota de numeração:** este trabalho nasceu numerado `v687` numa sessão
-paralela e foi renumerado pra `v688` no merge — o `v687` já tinha sido tomado
-pelos gestos da foto (821fe53), publicado primeiro. Mesma colisão que o
-cabeçalho deste arquivo documenta pros `v122`/`v142`/`v143`: duas frentes no
-mesmo dia escolhendo o próximo número sem se ver. Quem for ler o histórico
-depois, o `?v=N` do `index.html` em `main` é a fonte da verdade.
+**Nota de numeração — duas colisões no mesmo dia.** O app nasceu numerado
+`v687` numa sessão paralela e virou `v688` no merge: o `v687` já tinha sido
+tomado pelos gestos da foto (821fe53), publicado primeiro. Mesma colisão que o
+cabeçalho deste arquivo documenta pros `v122`/`v142`/`v143` — duas frentes no
+mesmo dia escolhendo o próximo número sem se ver. Fonte da verdade: o `?v=N`
+do `index.html` em `main`.
+
+A migration errou pelo mesmo motivo, com uma lição a mais: foi numerada `0068`
+lendo **este changelog**, que só documentava até a `0067`, quando a pasta
+`migrations/` já ia até a `0073` (`0068` = `hardening_security_advisor`). O
+changelog fica no repo do app e a pasta de migrations vive em `confidencial/`,
+fora dele — então este arquivo atrasa em relação ao banco sempre que uma
+migration sobe sem entrada aqui. **Próximo número de migration se tira de
+`supabase migration list`, nunca daqui.**
 
 ```sql
--- confidencial/supabase/migrations/0068_profiles_genero.sql
+-- confidencial/supabase/migrations/0074_profiles_genero.sql
 alter table public.profiles add column if not exists genero text;
 comment on column public.profiles.genero is
   'Gênero (opcional): masculino | feminino | outros | NULL (não preenchido). v688.';
