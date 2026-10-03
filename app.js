@@ -3459,7 +3459,7 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
     // card, e duas marcas no mesmo story disputavam atenção com o número. A bbox
     // encolhe junto (topo cY-310 → cY-230): ela é o alvo de toque dos gestos
     // (v675), e sobrando acima do conteúdo pegaria arrasto no vazio.
-    withContent({x: W/2-450, y: cY-230, w: 900, h: 620}, () => {
+    withContent({x: W/2-450, y: cY-230, w: 900, h: 560}, () => {
     ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
     ctx.fillText(dateFmt,W/2,cY-200);
     ctx.font=`800 28px ${SF}`;
@@ -3480,9 +3480,12 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
     });
     // v693: "N/M treinos esta semana" saiu — as bolinhas já dizem isso, e com
     // mais clareza: elas mostram QUAIS dias, não só quantos.
+    // v694: lockup sobe 60px (dotY+180 → +120). Com a legenda fora, o rodapé
+    // ficava solto no vazio que ela deixou; agora fecha o bloco logo abaixo das
+    // letras dos dias, no mesmo respiro do checkin.
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
     // v678: lockup -33% (900→600) — estava desproporcional ao mockup
-    drawLockup(dotY+180, 600);
+    drawLockup(dotY+120, 600);
     }); // fecha withContent do streak
     drawTurmaStamp(); soff(); return;
   }

@@ -9,6 +9,13 @@
 
 ## Concluídas ✓
 
+### v694 — Lockup do Streak sobe 60px (2026-10-03)
+
+Rabo da v693: com a legenda `N/M treinos` fora, o lockup ficou boiando no vazio
+que ela deixou. Sobe de `dotY+180` pra `dotY+120`, fechando o bloco logo abaixo
+das letras dos dias — mesmo respiro que o `checkin` tem entre a hora e o
+rodapé. Bbox do conteúdo acompanha (altura 620 → 560).
+
 ### v693 — Streak perde a legenda; "No tatame" troca o tipo de treino pelo dia (2026-10-03)
 
 Dois pedidos do dono nos cards de story.
