@@ -3326,7 +3326,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
       ctx.fillText('YAMA JIU-JITSU', W/2, y+10);
       return;
     }
-    const srcSkipPct = 0.18; // corta ~18% da esquerda (área do 山)
+    const srcSkipPct = 0.10; // v679: 18% cortava o Y; só o 山 agora (~10%)
     const srcX = lockupH.naturalWidth * srcSkipPct;
     const srcW = lockupH.naturalWidth - srcX;
     const ar = srcW / lockupH.naturalHeight;
@@ -3403,7 +3403,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   if(tpl==='marca'){
     withContent({x: W/2-300, y: cY-280, w: 600, h: 640}, () => {
       if(marcaCirc && marcaCirc.naturalWidth){
-        const sz = 530;
+        // v679: logo -25% a mais (530→400), data +15% (26→30)
+        const sz = 400;
         const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
         const w = sz, h = sz / ar;
         soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
@@ -3414,8 +3415,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
         ctx.font=`800 52px ${SF}`;
         ctx.fillText('JIU-JITSU',W/2,cY+145);
       }
-      ctx.fillStyle=MUTED; ctx.font=`600 26px ${SF}`;
-      ctx.fillText(dateFmt, W/2, cY+330);
+      ctx.fillStyle=MUTED; ctx.font=`600 30px ${SF}`;
+      ctx.fillText(dateFmt, W/2, cY+270);
     });
     drawTurmaStamp(); soff(); return;
   }
