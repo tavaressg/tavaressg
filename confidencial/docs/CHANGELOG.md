@@ -9,6 +9,48 @@
 
 ## Concluídas ✓
 
+### v697 + supabase.js v118 — Auditoria destravada, foto só na ficha, cache de 1 semana (2026-10-03)
+
+Três pedidos do dono no primeiro dia com a academia usando o app.
+
+**1. A auditoria de logins travava quando mais se precisava dela.** Cada chip
+de filtro refazia a chamada à Edge Function `auditoria-logins`, que tem trava
+de 20/h. Sete chips e a cota evaporava. Agora a tela busca UMA vez
+(`acao: null`) e os chips recortam o lote em memória: trocar de filtro ficou
+instantâneo e não gasta cota. Botão **↻ Recarregar** para dado fresco, aviso
+quando o lote vem cheio (200 = pode haver evento mais antigo fora do filtro) e
+a mensagem crua do servidor virou texto legível. Medido no Chromium: 5 cliques
+em chip = 1 chamada; Recarregar = 1 a mais.
+
+**2. Foto sai das listas, entra na ficha.** `avatarAluno()` ganhou terceiro
+parâmetro `comFoto`, default **false**: toda lista (alunos, chamada, risco,
+ranking) passa a desenhar iniciais, que não tocam a rede. A ficha do aluno,
+que não tinha foto nenhuma, ganhou uma no cabeçalho.
+
+**3. `cacheControl` do upload: 3600 → 604800** (1h → 1 semana). Com 1h o
+navegador rebaixava a mesma foto de hora em hora. Foto de perfil quase não
+muda, e quando muda o `upsert` escreve no mesmo path.
+
+**Os números por trás da decisão** (medidos, não estimados): foto pós-upload
+(1024px, jpeg 0.85) = **44,6 KB**; miniatura de 96px = **1,5 KB**, 30x menor.
+Um servidor local com o mesmo `cache-control` do Storage confirmou que
+reassinar quebra o cache: 5 carregamentos, 3 requisições reais, só a URL
+repetida veio do cache. Com a lista paginando de 20 em 20, o custo era ~1,2 MB
+por abertura, 7% da cota mensal em 10 aberturas/dia. Não era emergência; o
+dono preferiu as iniciais mesmo assim.
+
+### v696 — Nomes amigáveis no "Uso do app" + filtro de "Script error." (2026-10-03)
+
+Feita em sessão paralela, registrada aqui para o histórico não pular versão.
+Dois fixes: `_prettyTela()` resolve os rótulos das sub-abas no chart "Mais
+abertas" (antes caía na chave crua, tipo `al:jornada:progr...`), e o
+`window.onerror` passa a ignorar `"Script error."` com `src` vazio, que é
+ruído de extensão do navegador mascarado por CORS e estava poluindo
+`client_errors` e disparando o KPI de erros. Conferido: o `index.html` não
+carrega script de outra origem, então o filtro não esconde erro real. Se um
+dia entrar script de CDN, ele precisa de `crossorigin="anonymous"` ou os
+erros dele somem nesse mesmo guard.
+
 ### v695 — Card de story "Acertos" (2026-10-03)
 
 Quinto template de story. Lista as técnicas do randori daquele treino, uma por

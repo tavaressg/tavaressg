@@ -783,7 +783,10 @@
       const d = DB(); if (!d || !d.sbUser || !blob) return null;
       const path = `${d.sbUser.id}/profile.jpg`;
       const { error } = await SB.storage.from('fotos').upload(path, blob, {
-        contentType: 'image/jpeg', upsert: true, cacheControl: '3600',
+        // v697: 1h → 1 semana. Com 3600 o navegador rebaixava a mesma foto de
+        // hora em hora. Foto de perfil quase não muda, e quando muda o `upsert`
+        // sobe no mesmo path — o próximo signed URL já serve o arquivo novo.
+        contentType: 'image/jpeg', upsert: true, cacheControl: '604800',
       });
       if (error) throw error;
       // 0007: persiste o PATH (URL assinada expira; path não). Best-effort — a foto

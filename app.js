@@ -15,8 +15,13 @@ function safeAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(
 // iniciais coloridas. `sizeCls` opcional aplica um estilo extra (usado em uma linha específica
 // que já tinha width/height/font-size inline). data-fallback="ini" volta para as iniciais se a
 // imagem falhar carregar (foto removida do Storage, URL quebrada etc.).
-function avatarAluno(a, extraStyle){
-  if(a && a.foto){
+/* v697: por decisão do dono, LISTA mostra iniciais; foto só na ficha do aluno.
+   Toda lista do app (alunos, chamada, risco, ranking) renderizava <img> com a
+   signed URL — cada abertura baixava as fotos da página inteira do Storage.
+   `comFoto` fica opt-in: quem quiser a foto pede, em vez de todo mundo pagar
+   por ela. O caminho das iniciais não toca a rede. */
+function avatarAluno(a, extraStyle, comFoto){
+  if(comFoto && a && a.foto){
     return `<div class="avatar avatar-photo" style="background:${safeAttr(a.cor||'#888')};${extraStyle||''}">
       <img src="${safeAttr(a.foto)}" alt="" data-fallback="ini"><span class="av-ini">${safeTxt(a.ini||'?')}</span></div>`;
   }
@@ -9664,6 +9669,7 @@ function profAlunoDetalhe(a){
   const sheet = el(`<div class="erp-aluno">
     <div class="erp-hd">
       <button class="erp-back" id="pa-back" aria-label="Voltar">‹ Voltar</button>
+      ${avatarAluno(a,'width:46px;height:46px;font-size:17px',true)}
       <div class="erp-hd-main">
         <div class="erp-crumb">Alunos › <b>${safeTxt(_nomeInst(a))}</b></div>
         <div class="erp-hd-nome">${safeTxt(_nomeInst(a))} ${selfBadge}</div>
@@ -18409,7 +18415,7 @@ function _auditUsoPintar(){
 }
 /* v651: Auditoria de logins do Supabase — Edge Function auditoria-logins.
    Só o dono vê. Lista entradas/saídas/falhas com email, IP, timestamp. */
-let _auditLoginsState = { filtro:'todos', rows:null, loading:false, erro:null };
+let _auditLoginsState = { filtro:'todos', rows:null, loading:false, erro:null, truncado:false };
 // v652/0065: tipos normalizados no drena (login_events.tipo)
 const _AUTH_ACOES = {
   login:           '✅ Login',
@@ -18423,14 +18429,24 @@ const _AUTH_ACOES = {
   signup:          '➕ Signup',
 };
 _dlgRegister('auditLoginsVoltar', () => { DB.auditLoginsOpen = false; render(); window.scrollTo(0,0); });
+/* v697: filtro LOCAL. `rows` guarda o lote inteiro (acao:null); os chips só
+   recortam. Sem ida ao servidor, então trocar de filtro não gasta a cota de
+   20/h da Edge Function nem espera rede. */
+function _auditLoginsFiltradas(){
+  const { rows, filtro } = _auditLoginsState;
+  if (!rows) return [];
+  return (!filtro || filtro === 'todos') ? rows : rows.filter(r => r.acao === filtro);
+}
 _dlgRegister('auditLoginsChip', (elm) => {
   _auditLoginsState.filtro = elm.dataset.v;
-  _auditLoginsState.rows = null;
-  _auditLoginsCarregar();
   _auditLoginsPintar();
 });
+_dlgRegister('auditLoginsRecarregar', () => {
+  _auditLoginsState.rows = null; _auditLoginsState.erro = null;
+  _auditLoginsPintar(); _auditLoginsCarregar();
+});
 _dlgRegister('auditLoginsExportar', () => {
-  const rows = _auditLoginsState.rows || [];
+  const rows = _auditLoginsFiltradas();   // v697: exporta o que está na tela
   if (!rows.length) { toast('Sem linhas pra exportar'); return; }
   const linhas = ['Quando;Ação;Usuário;E-mail;IP;Tipo'];
   const txt = (s) => '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
@@ -18454,13 +18470,23 @@ _dlgRegister('auditLoginsExportar', () => {
 function _auditLoginsCarregar(){
   if (_auditLoginsState.loading) return;
   _auditLoginsState.loading = true; _auditLoginsState.erro = null;
-  const acao = _auditLoginsState.filtro==='todos' ? null : _auditLoginsState.filtro;
-  sbProf.getLoginsAudit({ limit: 200, acao })
-    .then(rows => { _auditLoginsState.rows = rows || []; })
+  // v697: busca SEMPRE tudo (acao:null) e filtra no cliente. Antes cada chip
+  // refazia a chamada — sete chips e a cota de 20/h da Edge Function evaporava
+  // justo quando mais se precisa da tela. Uma chamada por abertura, e trocar
+  // de filtro passa a ser instantâneo.
+  sbProf.getLoginsAudit({ limit: 200, acao: null })
+    .then(rows => {
+      _auditLoginsState.rows = rows || [];
+      // 200 é o teto do pedido: veio cheio = pode haver evento mais antigo fora.
+      _auditLoginsState.truncado = (rows||[]).length >= 200;
+    })
     .catch(e => {
       _auditLoginsState.rows = [];
       const msg = e && e.message ? e.message : String(e);
-      _auditLoginsState.erro = msg === 'forbidden_dono_only' ? 'Só o dono da academia acessa.' : msg;
+      _auditLoginsState.erro =
+        msg === 'forbidden_dono_only' ? 'Só o dono da academia acessa.'
+      : /limite|rate|429/i.test(msg) ? 'Limite de consultas atingido. Espere alguns minutos e toque em Recarregar.'
+      : msg;
     })
     .finally(() => { _auditLoginsState.loading = false; _auditLoginsPintar(); });   // morph-ok: _auditLoginsPintar resolve #alg-body no DOM vivo
 }
@@ -18470,11 +18496,12 @@ function _auditLoginsPintar(){
     const chip = (lbl,v)=>`<button class="et-chip ${_auditLoginsState.filtro===v?'on':''}" data-click="auditLoginsChip" data-v="${v}">${lbl}</button>`;
     chips.innerHTML = chip('Todos','todos') + chip('Logins','login') + chip('⚠️ Falhas','login_falha') + chip('Logouts','logout') + chip('Reset pedido','recovery') + chip('Senha trocada','password_change') + chip('MFA','mfa_verified');
   }
+  const visiveis = _auditLoginsFiltradas();
   const cnt = document.getElementById('alg-count');
-  if (cnt) cnt.textContent = _auditLoginsState.rows ? `${_auditLoginsState.rows.length} evento${_auditLoginsState.rows.length===1?'':'s'}` : '';
+  if (cnt) cnt.textContent = _auditLoginsState.rows ? `${visiveis.length} evento${visiveis.length===1?'':'s'}` : '';
   if (_auditLoginsState.loading || _auditLoginsState.rows === null){ body.innerHTML = '<div class="empty-line" style="padding:20px">Carregando…</div>'; return; }
   if (_auditLoginsState.erro){ body.innerHTML = `<div class="empty-line" style="padding:20px;color:var(--red)">${safeTxt(_auditLoginsState.erro)}</div>`; return; }
-  if (!_auditLoginsState.rows.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum evento no filtro atual.</div>'; return; }
+  if (!visiveis.length){ body.innerHTML = '<div class="empty-line" style="padding:20px">Nenhum evento no filtro atual.</div>'; return; }
   // v654/0067: log_type agora carrega o user_agent do navegador (reutiliza campo).
   const head = '<thead><tr><th style="width:150px">Quando</th><th style="width:180px">Ação</th><th>Usuário</th><th>E-mail</th><th>Navegador</th></tr></thead>';
   const uaCurto = (ua) => {
@@ -18484,7 +18511,7 @@ function _auditLoginsPintar(){
     const o = ua.match(/Windows|Mac|iPhone|iPad|Android|Linux/)?.[0] || '';
     return `${b}${o ? ' · ' + o : ''}`;
   };
-  const rowsHtml = _auditLoginsState.rows.map(r => {
+  const rowsHtml = visiveis.map(r => {
     const dt = new Date(r.criado_em);
     const quando = dt.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
     const acaoLbl = _AUTH_ACOES[r.acao] || r.acao;
@@ -18497,7 +18524,10 @@ function _auditLoginsPintar(){
       <td style="color:var(--muted);font-size:11px" title="${safeAttr(r.log_type || '')}">${safeTxt(uaCurto(r.log_type))}</td>
     </tr>`;
   }).join('');
-  body.innerHTML = `<div class="xls-wrap"><div class="xls-scroll"><table class="xls-tbl cob-tbl">${head}<tbody>${rowsHtml}</tbody></table></div></div>`;
+  const aviso = _auditLoginsState.truncado
+    ? `<div class="empty-line" style="padding:8px 20px;font-size:12px;color:var(--muted)">Mostrando os 200 eventos mais recentes. Os anteriores não entram no filtro.</div>`
+    : '';
+  body.innerHTML = aviso + `<div class="xls-wrap"><div class="xls-scroll"><table class="xls-tbl cob-tbl">${head}<tbody>${rowsHtml}</tbody></table></div></div>`;
 }
 function profAuditoriaLogins(){
   const v = el('<div class="view"></div>');
@@ -18512,10 +18542,11 @@ function profAuditoriaLogins(){
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 20px 8px">
     <div id="alg-chips" style="display:flex;gap:6px;flex-wrap:wrap;flex:1"></div>
     <span id="alg-count" style="font-size:12px;color:var(--muted);font-weight:700"></span>
+    <button class="btn-cad ghost" data-click="auditLoginsRecarregar">↻ Recarregar</button>
     <button class="btn-cad ghost" data-click="auditLoginsExportar">↓ Exportar CSV</button>
   </div>
   <div id="alg-body"></div>`;
-  _auditLoginsState = { filtro: _auditLoginsState.filtro || 'todos', rows: null, loading: false, erro: null };
+  _auditLoginsState = { filtro: _auditLoginsState.filtro || 'todos', rows: null, loading: false, erro: null, truncado: false };
   setTimeout(() => { _auditLoginsPintar(); _auditLoginsCarregar(); }, 0);   // morph-ok
   return v;
 }
