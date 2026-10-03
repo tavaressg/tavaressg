@@ -1466,12 +1466,16 @@
       if (_relMemo.data && Date.now() - _relMemo.t < 30000) return _relMemo.data;
       const acad = await myAcademyId(); if (!acad) return null;
       const d120 = _diasAtras(120);
-      const [ck, grads, prog, les] = await Promise.all([
+      // v698: `graduations` saiu daqui — era baixada (~35 KB/fetch, ~700 linhas em
+      // prod) e NUNCA lida no app.js (0 refs a _relData.graduacoes). Fica morta no
+      // dump só por histórico. Timeline de graduação de 1 aluno vem de
+      // getFichaAluno; dump do próprio aluno traz as suas em pullAll — nenhum
+      // dos dois depende daqui.
+      const [ck, prog, les] = await Promise.all([
         // aulas(hora) = hora AGENDADA da sessão (≠ checkins.hora, que é a hora que o
         // aluno bateu). É o que permite separar 2 horários da mesma turma no mesmo dia
         // (0010). Check-ins legados sem aula_id vêm com aulas=null → caem na média rateada.
         _todasLinhas(o => SB.from('checkins').select('user_id,data,hora,tipo,turma_id,aula_id,aulas(hora),turmas(nome)', o).eq('academy_id', acad).gte('data', d120)),
-        _todasLinhas(o => SB.from('graduations').select('user_id,faixa,graus,tipo,data', o).eq('academy_id', acad)),
         _todasLinhas(o => SB.from('technique_progress').select('user_id,tecnica_id,estado,nivel,treinos,ultima,acerto_pct', o)),   // v91: 896 e subindo
         SB.from('lesoes').select('user_id,parte,status,data,nota'),
       ]);
@@ -1483,7 +1487,7 @@
         turma_id: c.turma_id, aulaHora: (c.aulas && c.aulas.hora) || null,
         turmaNome: (c.turmas && c.turmas.nome) || null,
       }));
-      const out = { checkins, graduacoes: grads.data || [], progresso: prog.data || [], lesoes: les.data || [] };
+      const out = { checkins, progresso: prog.data || [], lesoes: les.data || [] };
       _relMemo = { t: Date.now(), data: out };
       return out;
     }),

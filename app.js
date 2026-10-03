@@ -10570,16 +10570,16 @@ function _loadRelData(){
   if(_relData && Date.now()-_relTs < 30000) return;
   _relTs = Date.now();
   if(DEMO || typeof sbProf==='undefined' || !sbProf.getRelatorios){
+    // v698: `graduacoes` saiu do shape — nunca foi lido em _relData, era campo morto.
     _relData = {
       checkins:(DB.treinos||[]).filter(t=>t.data).map(t=>({user_id:'self', data:t.data, hora:null, tipo:null, turma_id:null})),
-      graduacoes:(DB.graduacoes||[]).map(g=>({user_id:'self', faixa:g.faixa, graus:g.graus, tipo:g.tipo, data:g.data})),
       progresso:_selfProgresso().map(p=>Object.assign({user_id:'self'}, p)),
       lesoes:(DB.lesoes||[]).map(l=>({user_id:'self', parte:l.parte, status:l.status, data:l.data})),
     };
     return;
   }
   sbProf.getRelatorios().then(d=>{
-    _relData = d || {checkins:[],graduacoes:[],progresso:[],lesoes:[]}; renderBg();
+    _relData = d || {checkins:[],progresso:[],lesoes:[]}; renderBg();
   }).catch(()=>{ _relTs = 0; });
 }
 
