@@ -3415,8 +3415,10 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
         ctx.font=`800 52px ${SF}`;
         ctx.fillText('JIU-JITSU',W/2,cY+145);
       }
-      ctx.fillStyle=MUTED; ctx.font=`600 30px ${SF}`;
-      ctx.fillText(dateFmt, W/2, cY+270);
+      // v681: data +60% (30→48). Logo 400 + data 30 = ratio 7.5% (secundário demais).
+      // 48px fica em ~12% do logo, que é a proporção típica Strava/Hevy pra data abaixo.
+      ctx.fillStyle=MUTED; ctx.font=`600 48px ${SF}`;
+      ctx.fillText(dateFmt, W/2, cY+300);
     });
     drawTurmaStamp(); soff(); return;
   }
