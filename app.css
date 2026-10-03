@@ -1498,8 +1498,10 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 .share-ctrl{margin-top:20px;display:flex;flex-direction:column;gap:10px;background:rgba(255,255,255,.5);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.6);border-radius:20px;padding:18px 16px}
 [data-theme="dark"] .share-ctrl{background:rgba(30,33,39,.6);border-color:rgba(255,255,255,.08)}
 .share-ctrl .btn-save{backdrop-filter:none;box-shadow:0 4px 14px rgba(229,57,53,.3)}
-.share-photo{display:block;text-align:center;padding:14px;border:1.5px dashed rgba(0,0,0,.12);border-radius:14px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;background:rgba(255,255,255,.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-[data-theme="dark"] .share-photo{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.06)}
+.share-photo{display:inline-flex;align-items:center;justify-content:center;gap:9px;flex:1;padding:13px;border:1px solid rgba(0,0,0,.07);border-radius:14px;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;background:rgba(255,255,255,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .12s,background .15s}
+.share-photo:active{transform:scale(.98)}
+.share-photo svg{width:19px;height:19px;color:var(--muted);flex:none}
+[data-theme="dark"] .share-photo{border-color:rgba(255,255,255,.08);background:rgba(255,255,255,.06)}
 .share-clear{padding:11px;border:none;background:none;color:var(--red-strong);font-size:13px;font-weight:700;cursor:pointer}
 
 /* ===== Biblioteca: catálogo em accordion por categoria ===== */
@@ -1517,9 +1519,13 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 [data-theme="dark"] .tpl-chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.08)}
 .tpl-chip.on{border-color:var(--red);background:rgba(239,83,80,.12);color:var(--red-strong)}
 .share-actions{display:flex;gap:10px}
-.share-act{flex:1;border:1px solid rgba(0,0,0,.06);background:rgba(255,255,255,.55);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--ink);border-radius:14px;padding:13px;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s}
+.share-act{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:1;border:1px solid rgba(0,0,0,.07);background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--ink);border-radius:14px;padding:12px 10px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .12s}
+.share-act svg{width:17px;height:17px;color:var(--muted);flex:none}
 [data-theme="dark"] .share-act{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.08)}
 .share-act:active{transform:scale(.97)}
+/* v682: primary do share com ícone centralizado */
+.share-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.share-btn-primary svg{width:20px;height:20px;flex:none}
 
 /* ===== Progresso: ✕ tirar do foco + dica ===== */
 /* sc-head justify: consolidado na definição principal */
@@ -2519,7 +2525,9 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
 /* PÁGINA cheia de batch check-in (não sheet) */
 .erp-batch-page{background:var(--bg,#f4f4f6);min-height:100vh;display:flex;flex-direction:column;padding-bottom:100px}
 .erp-batch-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
-.erp-batch-close{width:32px;height:32px;border-radius:50%;border:none;background:var(--field);color:var(--muted);font-size:20px;line-height:1;cursor:pointer;font-weight:700}
+.erp-batch-close{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;border:none;padding:0;background:var(--field);color:var(--muted);cursor:pointer;transition:background .15s}
+.erp-batch-close:active{background:rgba(0,0,0,.08);transform:scale(.94)}
+.erp-batch-close svg{width:18px;height:18px;display:block}
 .erp-batch-title{font-size:16px;font-weight:800;color:var(--ink);letter-spacing:-.2px;flex:1;text-align:center}
 .erp-batch-meta{display:flex;gap:8px;align-items:center;padding:12px 18px;overflow-x:auto;scrollbar-width:none}
 .erp-batch-meta::-webkit-scrollbar{display:none}

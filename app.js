@@ -3417,7 +3417,9 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
       }
       // v681: data +60% (30→48). Logo 400 + data 30 = ratio 7.5% (secundário demais).
       // 48px fica em ~12% do logo, que é a proporção típica Strava/Hevy pra data abaixo.
-      ctx.fillStyle=MUTED; ctx.font=`600 48px ${SF}`;
+      // v682: cor INK (branco puro) em vez de MUTED (80% opaco) — tava com cara de
+      // "sombreada" vs o restante dos elementos brancos.
+      ctx.fillStyle=INK; ctx.font=`700 48px ${SF}`;
       ctx.fillText(dateFmt, W/2, cY+300);
     });
     drawTurmaStamp(); soff(); return;
@@ -3812,17 +3814,17 @@ function renderShare(){
   const fileIn = el(`<input type="file" accept="image/*" style="display:none">`);
   fileIn.id='share-file'; fileIn.setAttribute('data-change','shareFoto');
   const photoRow = el(`<div class="share-photo-row"></div>`);
-  const lbl = el(`<button class="share-photo">📷 ${_sharePhoto?'Trocar foto':'Adicionar sua foto'}</button>`);
+  const lbl = el(`<button class="share-photo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="4"/></svg><span>${_sharePhoto?'Trocar foto':'Adicionar sua foto'}</span></button>`);
   lbl.setAttribute('data-click','shareEscolherFoto'); photoRow.appendChild(lbl);
   if(_sharePhoto) photoRow.appendChild(el(`<button class="share-clear" data-click="shareRemoverFoto">Remover</button>`));
   photoRow.appendChild(fileIn);
   body.appendChild(photoRow);
   // controles — Compartilhar direto é o melhor caminho pro Instagram
   const ctrl = el(`<div class="share-ctrl">
-    <button class="btn-save" id="share-go">📲 Compartilhar no story</button>
+    <button class="btn-save share-btn-primary" id="share-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar no story</span></button>
     <div class="share-actions">
-      <button class="share-act" id="share-copy">📋 Copiar imagem</button>
-      <button class="share-act" id="share-dl">⬇️ Baixar PNG</button>
+      <button class="share-act" id="share-copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span>Copiar imagem</span></button>
+      <button class="share-act" id="share-dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Baixar PNG</span></button>
     </div>
     <div class="share-hint">${_sharePhoto?'Posta a imagem inteira (card + sua foto)':'Sem foto: copie e cole o card por cima da foto no story'}</div>
   </div>`);
@@ -16450,7 +16452,7 @@ function profTurmaEdit(id){
   const close = ()=>{ DB.turmaEditOpen=null; render(); window.scrollTo(0,0); };
   const sheet = el(`<div class="erp-turma-page">
     <div class="erp-turma-hd">
-      <button class="erp-batch-close" id="tu-back" aria-label="Voltar">‹</button>
+      <button class="erp-batch-close" id="tu-back" aria-label="Voltar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
       <div class="erp-turma-title">${novo?'Nova turma':'Editar turma'}</div>
       <span></span>
     </div>
