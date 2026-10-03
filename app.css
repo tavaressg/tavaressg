@@ -1980,6 +1980,23 @@ html.sheet-open, html.sheet-open body{overflow:hidden !important;overscroll-beha
   }
 }
 
+/* v685: chips coloridos de turma na coluna Turmas (desktop) — scanning por cor,
+   consistencia visual com a Grade de Horarios (.g-chip tambem usa --tc).
+   Max 2 chips + "+N" badge pra nao estourar a largura da coluna. */
+.alu-tchip{
+  display:inline-flex;align-items:center;
+  font-size:10px;font-weight:800;color:var(--ink);
+  background:var(--card);border:1.5px solid var(--tc,#888);
+  border-left:3px solid var(--tc,#888);
+  border-radius:6px;padding:1px 6px;margin-right:4px;
+  text-transform:uppercase;letter-spacing:.3px;
+  max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.alu-tchip-more{
+  color:var(--muted);border-color:var(--line);border-left-width:1.5px;
+  letter-spacing:0;
+}
+
 /* v386: chip discreto de turma na visao mobile/tablet (dentro do .st-mid .meta) */
 .st-turma-chip{
   display:inline-flex;align-items:center;

@@ -3393,9 +3393,12 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   // v673: "YAMA JIU-JITSU" vira texto puro sem kanji prefix (o kanji grande ja ta' no centro)
   // v678: kanji central -30% (520→360), texto embaixo vira lockup sem o 山 inicial
   if(tpl==='kanji'){
-    withContent({x: W/2-280, y: cY-200, w: 560, h: 540}, () => {
-      drawKanji(W/2, cY, 360);
-      drawLockupText(cY+280, 500);
+    // v685: compor centralizado no canvas. bbox do conteudo = cY-180..cY+304,
+    // centro em cY+62 → shift -62 pra colar o centro visual em H/2.
+    const kY = cY - 62;
+    withContent({x: W/2-280, y: kY-200, w: 560, h: 540}, () => {
+      drawKanji(W/2, kY, 360);
+      drawLockupText(kY+280, 500);
     });
     drawTurmaStamp(); soff(); return;
   }
@@ -3404,26 +3407,23 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   // v673: marca redonda substitui o kanji + "YAMA" + "JIU-JITSU" montados a mao.
   // v678: logo -30% (760→530), data +15% (22→26).
   if(tpl==='marca'){
-    withContent({x: W/2-300, y: cY-280, w: 600, h: 640}, () => {
+    // v685: compor centralizado. bbox = cY-200..cY+324, centro = cY+62 → shift -62.
+    const mY = cY - 62;
+    withContent({x: W/2-300, y: mY-280, w: 600, h: 640}, () => {
       if(marcaCirc && marcaCirc.naturalWidth){
-        // v679: logo -25% a mais (530→400), data +15% (26→30)
         const sz = 400;
         const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
         const w = sz, h = sz / ar;
-        soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
+        soff(); ctx.drawImage(marcaCirc, W/2 - w/2, mY - h/2, w, h); son();
       } else {
-        drawKanji(W/2, cY-80, 160);
+        drawKanji(W/2, mY-80, 160);
         ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
-        ctx.fillText('YAMA',W/2,cY+80);
+        ctx.fillText('YAMA',W/2,mY+80);
         ctx.font=`800 52px ${SF}`;
-        ctx.fillText('JIU-JITSU',W/2,cY+145);
+        ctx.fillText('JIU-JITSU',W/2,mY+145);
       }
-      // v681: data +60% (30→48). Logo 400 + data 30 = ratio 7.5% (secundário demais).
-      // 48px fica em ~12% do logo, que é a proporção típica Strava/Hevy pra data abaixo.
-      // v682: cor INK (branco puro) em vez de MUTED (80% opaco) — tava com cara de
-      // "sombreada" vs o restante dos elementos brancos.
       ctx.fillStyle=INK; ctx.font=`700 48px ${SF}`;
-      ctx.fillText(dateFmt, W/2, cY+300);
+      ctx.fillText(dateFmt, W/2, mY+300);
     });
     drawTurmaStamp(); soff(); return;
   }
@@ -8574,6 +8574,11 @@ function _alunosPintarLista(alvo){
   const { filtro, shown } = _ALUNOS_UI;
   const PAGE = _ALUNOS_PAGE;
   const turmaMap = _alunosTurmaMap();
+  // v685: paralelo pro render — cor da turma pra chips coloridos (coluna Turmas)
+  const turmaInfo = {};
+  (typeof _turmasArr === 'function' ? _turmasArr() : []).forEach(t => {
+    turmaInfo[t.id] = { nome: t.nome, cor: t.cor || '#888' };
+  });
   const list = alvo || document.getElementById('alunos-list');
   if(!list) return;
     list.innerHTML='';
@@ -8609,7 +8614,7 @@ function _alunosPintarLista(alvo){
           <div class="meta">${_semGrad(a)?'<span class="belt-pill vazio">Sem graduação</span>':beltMini(a.faixa,a.graus)} <span style="font-size:11px;color:var(--muted)">${metaMobile}</span>${turmaMobileTx?` <span class="st-turma-chip" title="${safeAttr(_turmasArrLbl.join(', '))}">${safeTxt(turmaMobileTx)}</span>`:''}</div></div>
         <div class="erp-c erp-c-belt-cell">${_semGrad(a)?'':beltMini(a.faixa,a.graus)}</div>
         <div class="erp-c erp-c-etaria-cell">${safeTxt(etariaTx)}</div>
-        <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${safeTxt(turmasTx)}</div>
+        <div class="erp-c erp-c-turmas-cell" title="${safeAttr(turmasTx)}">${(a.turmas||[]).map(id=>turmaInfo[id]).filter(Boolean).slice(0,2).map(ti=>`<span class="alu-tchip" style="--tc:${safeAttr(ti.cor)}">${safeTxt(ti.nome)}</span>`).join('')}${(a.turmas||[]).filter(id=>turmaInfo[id]).length>2?`<span class="alu-tchip alu-tchip-more">+${(a.turmas||[]).filter(id=>turmaInfo[id]).length-2}</span>`:((a.turmas||[]).filter(id=>turmaInfo[id]).length===0?'—':'')}</div>
         <div class="erp-c erp-c-pres-cell${(a.diasSem||0)>=7?' warn':''}">${presTx}</div>
         <div class="erp-c erp-c-grau-cell${a.aptoGrad?' apto':''}" title="${a.aptoGrad?'Apto a graduar':'Presenças desde o último grau'}">${(a.aulasNoGrau!=null)?safeTxt(a.aulasNoGrau+'/'+_metaAulasFaixa(a.faixa)):'—'}</div>
         <div class="erp-c erp-c-faixapres-cell" title="Presenças desde o início da faixa atual">${(a.aulasNaFaixa!=null)?safeTxt(a.aulasNaFaixa):'—'}</div>
