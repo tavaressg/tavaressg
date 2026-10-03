@@ -245,11 +245,10 @@ function bindCPF(inp){
     try{ inp.setSelectionRange(newPos, newPos); }catch(_){}
   });
 }
-// v687: gênero do aluno. Opcional (igual ao CPF) — vazio/NULL significa "não
-// preenchido". v688: o valor gravado é a palavra inteira em minúscula, não um
-// código ('M'/'F'/'nao_informar' na v687, que nunca chegou a gravar nada). Quem
-// abrir o banco ou um export SQL lê 'masculino' sem precisar de tabela de
-// decodificação; a economia de 7 bytes por linha não paga esse custo.
+// v688: gênero do aluno. Opcional (igual ao CPF) — vazio/NULL significa "não
+// preenchido". O valor gravado é a palavra inteira em minúscula, não um código:
+// quem abrir o banco ou um export SQL lê 'masculino' sem precisar de tabela de
+// decodificação, e a economia de 7 bytes por linha não paga esse custo.
 const GENEROS = [
   { v:'masculino', lbl:'Masculino' },
   { v:'feminino',  lbl:'Feminino' },
@@ -3388,12 +3387,16 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
 
   // 1. Fundo
   ctx.clearRect(0,0,W,H);
+  _shareBboxes = {}; // v675 Stage A: zera antes de popular neste render
   if(photoImg){
-    _cover(ctx,photoImg,W,H);
+    // v687: foto entra no sistema de gestos. bbox = canvas inteiro. `_cover`
+    // segue dando a posição inicial (crop centrado 9:16); drag/pinch/rotate
+    // reenquadram em cima. Overlay escuro NÃO entra no transform — fica fixo
+    // pra manter contraste com a marca mesmo com a foto reposicionada.
+    _applyT({x:0, y:0, w:W, h:H}, () => _cover(ctx, photoImg, W, H), 'photo');
     ctx.fillStyle='rgba(0,0,0,.32)'; ctx.fillRect(0,0,W,H);
   }
   // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
-  _shareBboxes = {}; // v675 Stage A: zera antes de popular neste render
 
   const dateFmt = (()=>{ const [y,mo,d]=t.data.split('-'); return `${d}.${mo}.${y}`; })();
   const logoCenter=(x,y,sz)=>{ if(!logoImg) return; soff(); ctx.drawImage(logoImg,x-sz/2,y-sz/2,sz,sz); son(); };
@@ -3615,8 +3618,9 @@ function _shareAttachGestures(ov){
       const dx = px - h.cx, dy = py - h.cy;
       if(dx*dx + dy*dy <= h.r*h.r) return '__reset__';
     }
-    // z-order: stamp em cima do content
-    for(const id of ['stamp','content']){
+    // v687: z-order: stamp > content > photo (foto por último — bbox é o
+    // canvas inteiro, só pega quando o toque não cai em nenhum elemento acima).
+    for(const id of ['stamp','content','photo']){
       const bb = _shareBboxes[id]; if(!bb) continue;
       if(px >= bb.x && px <= bb.x+bb.w && py >= bb.y && py <= bb.y+bb.h) return id;
     }
@@ -9326,7 +9330,7 @@ function renderCadastroAluno(){
     const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
     // v479: CPF do aluno + CPF do responsável (opcionais). Guarda só dígitos.
     const cpf = val('ca-cpf').replace(/\D/g,'');
-    // v687: gênero (opcional). Vai num patch depois do criarAluno, igual ao
+    // v688: gênero (opcional). Vai num patch depois do criarAluno, igual ao
     // nascimento_data: a Edge `create-student` não conhece o campo e ignoraria
     // em silêncio — o patch não exige deploy da função.
     const genero = val('ca-genero') || null;
