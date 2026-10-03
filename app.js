@@ -245,14 +245,15 @@ function bindCPF(inp){
     try{ inp.setSelectionRange(newPos, newPos); }catch(_){}
   });
 }
-// v687: gênero do aluno. Opcional (igual ao CPF) — o valor vazio significa "não
-// preenchido", distinto de 'nao_informar', que é a escolha explícita do aluno de
-// não responder. Os códigos 'M'/'F' casam com as categorias de competição (CBJJ),
-// então ficam curtos e estáveis — o rótulo é o que muda, não o valor gravado.
+// v687: gênero do aluno. Opcional (igual ao CPF) — vazio/NULL significa "não
+// preenchido". v688: o valor gravado é a palavra inteira em minúscula, não um
+// código ('M'/'F'/'nao_informar' na v687, que nunca chegou a gravar nada). Quem
+// abrir o banco ou um export SQL lê 'masculino' sem precisar de tabela de
+// decodificação; a economia de 7 bytes por linha não paga esse custo.
 const GENEROS = [
-  { v:'M',            lbl:'Masculino' },
-  { v:'F',            lbl:'Feminino' },
-  { v:'nao_informar', lbl:'Prefiro não informar' },
+  { v:'masculino', lbl:'Masculino' },
+  { v:'feminino',  lbl:'Feminino' },
+  { v:'outros',    lbl:'Outros' },
 ];
 function _generoLbl(v){ const g = GENEROS.find(x=>x.v===v); return g ? g.lbl : ''; }
 // <select> de gênero reaproveitado pelo cadastro e pela ficha — um lugar só pra

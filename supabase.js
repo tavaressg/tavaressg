@@ -859,7 +859,7 @@
     return {
       nomeCompleto: p.nome_completo, email: p.email, nascimento: p.nascimento, telefone: p.telefone,
       cpf: p.cpf || '',   // v479 (0039): opt-in do dono, opcional
-      genero: p.genero || '',   // v687: 'M'|'F'|'nao_informar'|'' — opcional (ver GENEROS em app.js)
+      genero: p.genero || '',   // v688: 'masculino'|'feminino'|'outros'|'' — opcional (ver GENEROS em app.js)
       endereco: { cep: p.cep, logradouro: p.logradouro, numero: p.numero, bairro: p.bairro, cidade: p.cidade, uf: p.uf },
       responsavel: { nome: p.resp_nome, telefone: p.resp_telefone, parentesco: p.resp_parentesco, cpf: p.resp_cpf || '' },
       dataInicio: p.data_inicio, obs: p.observacoes,

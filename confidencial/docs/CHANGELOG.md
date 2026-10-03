@@ -9,7 +9,7 @@
 
 ## Concluídas ✓
 
-### v687 + supabase.js v117 + migration 0068 — Gênero na ficha cadastral (2026-10-03)
+### v687-v688 + supabase.js v117 + migration 0068 — Gênero na ficha cadastral (2026-10-03)
 
 A ficha não tinha gênero. Faltava pra categoria de competição (CBJJ separa por
 sexo) e pra qualquer leitura por gênero nos relatórios. Mesmo desenho do CPF
@@ -17,16 +17,21 @@ sexo) e pra qualquer leitura por gênero nos relatórios. Mesmo desenho do CPF
 seguem obrigatórios no cadastro.
 
 **Coluna nova** em `profiles`: `genero` (text, nullable). Valores gravados:
-`M`, `F`, `nao_informar` ou `NULL`. Vazio (`NULL`) é "não preenchido" — **não**
-é o mesmo que `nao_informar`, que é a escolha explícita do aluno de não
-responder. `M`/`F` casam com as categorias CBJJ, então o valor é curto e
-estável: o que muda com o tempo é o rótulo, não o que está no banco.
+`masculino`, `feminino`, `outros` ou `NULL` (não preenchido).
+
+**v688 — a palavra inteira em vez de código.** A v687 gravava `M`/`F`/
+`nao_informar`; decisão do dono no mesmo dia, antes de qualquer gravação
+(a 0068 ainda não havia rodado, então a troca não custou migração de dados).
+Duas mudanças: a terceira opção virou **Outros** (era "Prefiro não informar")
+e o valor gravado passou a ser a palavra em minúscula. Quem abre o banco ou um
+export SQL lê `masculino` direto — a economia de 7 bytes por linha não paga uma
+tabela de decodificação na cabeça de quem consulta.
 
 ```sql
 -- confidencial/supabase/migrations/0068_profiles_genero.sql
 alter table public.profiles add column if not exists genero text;
 comment on column public.profiles.genero is
-  'Gênero (opcional): M | F | nao_informar | NULL (não preenchido). v687.';
+  'Gênero (opcional): masculino | feminino | outros | NULL (não preenchido). v688.';
 ```
 
 Sem CHECK, sem default e sem backfill — mesma decisão da 0039 do CPF. As
