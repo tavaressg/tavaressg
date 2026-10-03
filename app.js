@@ -3317,9 +3317,24 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const h = targetW / ar;
     soff(); ctx.drawImage(lockupH, W/2 - targetW/2, y - h/2, targetW, h); son();
   };
+  // v675/v676: aplica transform full (translate + scale + rotate em torno do
+  // centro do bbox) e grava base bbox (sem rotação pro hit test simplificado).
+  const _applyT = (baseBbox, drawFn, id) => {
+    const T = (DB.shareTransforms && DB.shareTransforms[id]) || {tx:0, ty:0, scale:1, rot:0};
+    const cx = baseBbox.x + baseBbox.w/2, cy = baseBbox.y + baseBbox.h/2;
+    ctx.save();
+    ctx.translate(cx + T.tx, cy + T.ty);
+    ctx.rotate(T.rot || 0);
+    ctx.scale(T.scale || 1, T.scale || 1);
+    ctx.translate(-cx, -cy);
+    drawFn();
+    ctx.restore();
+    // Bbox pro hit test: AABB conservador (preserva aspect, escala em volta do centro)
+    const s = T.scale || 1;
+    const w = baseBbox.w * s, h = baseBbox.h * s;
+    _shareBboxes[id] = { x: cx + T.tx - w/2, y: cy + T.ty - h/2, w, h, cx: cx + T.tx, cy: cy + T.ty };
+  };
   // v668 Etapa 3: logo da turma stampado no canto superior direito.
-  // v670: tamanho ampliado (320x220 max) — stamp antes era discreto demais.
-  // v675 Stage A: aplica transform (DB.shareTransforms.stamp) e grava bbox.
   const drawTurmaStamp = () => {
     if(!turmaLogo || !turmaLogo.naturalWidth) return;
     const maxW = 320, maxH = 220;
@@ -3328,19 +3343,10 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     if (dh > maxH) { dh = maxH; dw = maxH * ar; }
     const padR = 70, padT = 70;
     const bx = W - padR - dw, by = padT;
-    const T = (DB.shareTransforms && DB.shareTransforms.stamp) || {tx:0, ty:0};
     soff();
-    ctx.save(); ctx.translate(T.tx, T.ty); ctx.drawImage(turmaLogo, bx, by, dw, dh); ctx.restore();
-    _shareBboxes.stamp = { x: bx + T.tx, y: by + T.ty, w: dw, h: dh };
+    _applyT({x: bx, y: by, w: dw, h: dh}, () => ctx.drawImage(turmaLogo, bx, by, dw, dh), 'stamp');
   };
-  // v675 Stage A: wrapper que agrupa um bloco de conteudo em UM elemento
-  // movivel. Aplica transform + grava bbox base deslocada. drawFn eh a funcao
-  // que efetivamente desenha o conteudo do template.
-  const withContent = (baseBbox, drawFn) => {
-    const T = (DB.shareTransforms && DB.shareTransforms.content) || {tx:0, ty:0};
-    ctx.save(); ctx.translate(T.tx, T.ty); drawFn(); ctx.restore();
-    _shareBboxes.content = { x: baseBbox.x + T.tx, y: baseBbox.y + T.ty, w: baseBbox.w, h: baseBbox.h };
-  };
+  const withContent = (baseBbox, drawFn) => { _applyT(baseBbox, drawFn, 'content'); };
 
   // 1. Fundo
   ctx.clearRect(0,0,W,H);
@@ -3462,25 +3468,44 @@ function _shareRedraw(){
     _shareDrawOverlay();
   }catch(e){}
 }
-// v675 Stage A: desenha anel tracejado em volta do elemento selecionado
-// na overlay canvas (não vai no export). bboxes vêm do último drawStory.
+// v675/v676: desenha anel + handle de reset ⟲ no canto superior esquerdo do
+// elemento selecionado. Overlay não vai no export (toBlob usa só o main canvas).
 function _shareDrawOverlay(){
   const ov = document.getElementById("share-overlay"); if(!ov) return;
   const octx = ov.getContext("2d");
   octx.clearRect(0, 0, ov.width, ov.height);
-  const selId = DB.shareSelId;
-  if(!selId) return;
+  const selId = DB.shareSelId; if(!selId) return;
   const bb = _shareBboxes[selId]; if(!bb) return;
+  const T = (DB.shareTransforms && DB.shareTransforms[selId]) || {tx:0, ty:0, scale:1, rot:0};
   const pad = 20;
+  // Anel + handle giram com o elemento (usamos bbox pré-escalado + aplicamos T visualmente)
   octx.save();
+  octx.translate(bb.cx, bb.cy);
+  octx.rotate(T.rot || 0);
+  const hw = bb.w / 2, hh = bb.h / 2;
   octx.strokeStyle = 'rgba(255,255,255,.95)';
   octx.lineWidth = 6; octx.setLineDash([24, 16]);
-  octx.strokeRect(bb.x - pad, bb.y - pad, bb.w + 2*pad, bb.h + 2*pad);
+  octx.strokeRect(-hw - pad, -hh - pad, bb.w + 2*pad, bb.h + 2*pad);
+  // Handle ⟲ (reset) no canto superior esquerdo. Guarda posição em viewport
+  // coord pra hit test depois (centro no overlay).
+  const hx = -hw - pad, hy = -hh - pad;
+  const hr = 46;
+  octx.setLineDash([]);
+  octx.fillStyle = 'rgba(10,10,10,.88)'; octx.beginPath(); octx.arc(hx, hy, hr, 0, Math.PI*2); octx.fill();
+  octx.strokeStyle = 'rgba(255,255,255,1)'; octx.lineWidth = 4; octx.stroke();
+  octx.fillStyle = '#fff'; octx.font = 'bold 46px -apple-system, sans-serif';
+  octx.textAlign = 'center'; octx.textBaseline = 'middle'; octx.fillText('⟲', hx, hy+2);
   octx.restore();
+  // Grava posição ABSOLUTA do handle (pra hit test, considerando rotação)
+  const cos = Math.cos(T.rot || 0), sin = Math.sin(T.rot || 0);
+  const lx = -hw - pad, ly = -hh - pad;
+  _shareBboxes._resetHandle = { cx: bb.cx + lx*cos - ly*sin, cy: bb.cy + lx*sin + ly*cos, r: hr };
 }
-// v675 Stage A: anexa pointer handlers no overlay. Tap seleciona (hit test
-// contra bboxes, zorder stamp>content). Drag move o elemento selecionado
-// atualizando DB.shareTransforms[id].{tx,ty} e redesenha.
+// v675 Stage A + v676 Stage B/C: pointer handlers no overlay.
+// - 1 dedo em elemento: drag (translação)
+// - 2 dedos em elemento: pinch (scale) + rotate em volta do midpoint
+// - tap em handle ⟲: reset do transform do elemento selecionado
+// - tap fora: deseleciona
 function _shareAttachGestures(ov){
   if(!ov) return;
   const toCanvas = (e) => {
@@ -3489,6 +3514,12 @@ function _shareAttachGestures(ov){
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
   };
   const hitTest = (px, py) => {
+    // handle ⟲ tem prioridade se visível
+    const h = _shareBboxes._resetHandle;
+    if(h && DB.shareSelId){
+      const dx = px - h.cx, dy = py - h.cy;
+      if(dx*dx + dy*dy <= h.r*h.r) return '__reset__';
+    }
     // z-order: stamp em cima do content
     for(const id of ['stamp','content']){
       const bb = _shareBboxes[id]; if(!bb) continue;
@@ -3496,28 +3527,84 @@ function _shareAttachGestures(ov){
     }
     return null;
   };
+  const pointers = new Map(); // pointerId -> {x,y}
+  let gestureMode = null; // 'drag' | 'pinch' | null
+  let gestureStart = null;
+
   ov.onpointerdown = (e) => {
     try{ ov.setPointerCapture(e.pointerId); }catch(_){}
     const p = toCanvas(e);
-    const id = hitTest(p.x, p.y);
-    DB.shareSelId = id;
-    if(id){
-      const T = (DB.shareTransforms && DB.shareTransforms[id]) || {tx:0, ty:0};
-      _shareDrag = { id, startX: p.x, startY: p.y, origTx: T.tx, origTy: T.ty };
-    } else { _shareDrag = null; }
-    _shareRedraw();
+    pointers.set(e.pointerId, p);
+    if(pointers.size === 1){
+      const hit = hitTest(p.x, p.y);
+      if(hit === '__reset__'){
+        if(DB.shareSelId && DB.shareTransforms){
+          DB.shareTransforms[DB.shareSelId] = {tx:0, ty:0, scale:1, rot:0};
+          _shareRedraw();
+        }
+        pointers.delete(e.pointerId); return;
+      }
+      DB.shareSelId = hit;
+      if(hit){
+        const T = (DB.shareTransforms && DB.shareTransforms[hit]) || {tx:0, ty:0, scale:1, rot:0};
+        gestureMode = 'drag';
+        gestureStart = { startX: p.x, startY: p.y, origTx: T.tx||0, origTy: T.ty||0 };
+      } else { gestureMode = null; gestureStart = null; }
+      _shareRedraw();
+    } else if(pointers.size === 2 && DB.shareSelId){
+      // Vira pinch+rotate
+      const [a, b] = Array.from(pointers.values());
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy); const angle = Math.atan2(dy, dx);
+      const mx = (a.x + b.x)/2, my = (a.y + b.y)/2;
+      const T = (DB.shareTransforms && DB.shareTransforms[DB.shareSelId]) || {tx:0, ty:0, scale:1, rot:0};
+      gestureMode = 'pinch';
+      gestureStart = { dist, angle, mx, my, origScale: T.scale||1, origRot: T.rot||0, origTx: T.tx||0, origTy: T.ty||0 };
+    }
     e.preventDefault();
   };
   ov.onpointermove = (e) => {
-    if(!_shareDrag) return;
-    const p = toCanvas(e);
-    const dx = p.x - _shareDrag.startX, dy = p.y - _shareDrag.startY;
-    DB.shareTransforms = DB.shareTransforms || {};
-    DB.shareTransforms[_shareDrag.id] = { tx: _shareDrag.origTx + dx, ty: _shareDrag.origTy + dy };
-    _shareRedraw();
+    if(!pointers.has(e.pointerId)) return;
+    const p = toCanvas(e); pointers.set(e.pointerId, p);
+    const id = DB.shareSelId; if(!id) return;
+    if(gestureMode === 'drag' && pointers.size === 1 && gestureStart){
+      const dx = p.x - gestureStart.startX, dy = p.y - gestureStart.startY;
+      DB.shareTransforms = DB.shareTransforms || {};
+      const prev = DB.shareTransforms[id] || {};
+      DB.shareTransforms[id] = { ...prev, tx: gestureStart.origTx + dx, ty: gestureStart.origTy + dy };
+      _shareRedraw();
+    } else if(gestureMode === 'pinch' && pointers.size === 2 && gestureStart){
+      const [a, b] = Array.from(pointers.values());
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy); const angle = Math.atan2(dy, dx);
+      const mx = (a.x + b.x)/2, my = (a.y + b.y)/2;
+      const scaleFactor = dist / gestureStart.dist;
+      const newScale = Math.max(0.3, Math.min(4, gestureStart.origScale * scaleFactor));
+      const newRot = gestureStart.origRot + (angle - gestureStart.angle);
+      // Mantém o midpoint fixo durante pinch (translada pra compensar)
+      const newTx = gestureStart.origTx + (mx - gestureStart.mx);
+      const newTy = gestureStart.origTy + (my - gestureStart.my);
+      DB.shareTransforms = DB.shareTransforms || {};
+      DB.shareTransforms[id] = { tx: newTx, ty: newTy, scale: newScale, rot: newRot };
+      _shareRedraw();
+    }
     e.preventDefault();
   };
-  const end = (e) => { _shareDrag = null; if(e) e.preventDefault(); };
+  const end = (e) => {
+    pointers.delete(e.pointerId);
+    if(pointers.size < 2 && gestureMode === 'pinch'){
+      // Degrada pra drag se sobrou 1 dedo (sem perder o estado)
+      const only = pointers.values().next().value;
+      const T = (DB.shareTransforms && DB.shareTransforms[DB.shareSelId]) || {};
+      if(only){
+        gestureMode = 'drag';
+        gestureStart = { startX: only.x, startY: only.y, origTx: T.tx||0, origTy: T.ty||0 };
+      } else { gestureMode = null; gestureStart = null; }
+    } else if(pointers.size === 0){
+      gestureMode = null; gestureStart = null;
+    }
+    if(e) e.preventDefault();
+  };
   ov.onpointerup = end;
   ov.onpointercancel = end;
 }
