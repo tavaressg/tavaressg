@@ -3452,8 +3452,11 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   // ========= STREAK (número + bolinhas da semana) =========
   if(tpl==='streak'){
     const s=DB.semana||{streakSemanas:0,feitos:0,meta:0,dias:[0,0,0,0,0,0,0]};
-    withContent({x: W/2-450, y: cY-310, w: 900, h: 700}, () => {
-    logoCenter(W/2,cY-280,56);
+    // v691: marca circular acima da data saiu — o lockup no rodapé já assina o
+    // card, e duas marcas no mesmo story disputavam atenção com o número. A bbox
+    // encolhe junto (topo cY-310 → cY-230): ela é o alvo de toque dos gestos
+    // (v675), e sobrando acima do conteúdo pegaria arrasto no vazio.
+    withContent({x: W/2-450, y: cY-230, w: 900, h: 620}, () => {
     ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
     ctx.fillText(dateFmt,W/2,cY-200);
     ctx.font=`800 28px ${SF}`;

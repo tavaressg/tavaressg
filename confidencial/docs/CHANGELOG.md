@@ -9,6 +9,21 @@
 
 ## Concluídas ✓
 
+### v691 — Marca circular sai do topo do card de Streak (2026-10-03)
+
+Pedido do dono. O template `streak` abria com a marca circular logo acima da
+data, e o lockup horizontal do rodapé (v673) já assina o card — duas marcas no
+mesmo story disputavam atenção com o número, que é o assunto. Só a chamada
+`logoCenter` saiu; data, "SEMANAS SEGUIDAS", número, bolinhas e lockup ficaram
+nas mesmas coordenadas.
+
+A bbox do bloco encolheu junto (topo `cY-310` → `cY-230`, altura 700 → 620).
+Ela não é decorativa: desde a v675 é o alvo de toque do drag/pinch/rotate, e
+sobrando 80px acima do conteúdo pegaria arrasto no vazio.
+
+Os outros templates seguem com a marca no topo — `checkin` tem o mesmo
+`logoCenter`, e não foi tocado.
+
 ### v690 — Filtro de gênero nos filtros avançados de Alunos (2026-10-03)
 
 Fecha o ciclo da v688: o campo já existia na ficha e na exportação, faltava
