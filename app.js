@@ -1840,19 +1840,41 @@ const _ROUTE_NOMES = {
   'al:inicio':'Início','al:tatame':'Tatame','al:jornada':'Jornada','al:perfil':'Perfil',
   'loja':'Loja','meuspedidos':'Meus pedidos','share':'Compartilhar treino','treino':'Detalhe do treino','retro':'Retrospectiva',
   'onb':'Boas-vindas','trocarSenha':'Trocar senha','bootstrap':'Primeiro acesso',
+  'auth':'Entrar',
   'prof:painel':'Painel','prof:alunos':'Alunos','prof:presencas':'Presenças',
   'prof:graduacoes':'Graduações','prof:turmas':'Turmas','prof:relatorios':'Relatórios',
   'prof:financeiro':'Financeiro','prof:loja':'Loja · Gestão','prof:pedidos':'Pedidos',
   'prof:auditLog':'Log de acesso','prof:auditUso':'Uso do app','prof:auditLogins':'Auditoria de logins',
   'flow:checkin':'Check-in','flow:registrar':'Registrar treino',
   'flow:p1':'Registrar treino · início','flow:p2':'Registrar treino · detalhes','flow:tecnica':'Explorar técnica',
+  // v696: logs antigos (pre-v663) carimbaram "flow:[object Object]" quando DB.flow
+  // era um objeto. v663 corrigiu o _viewKey; esses rows ficam no log_uso ate'
+  // rolarem pra fora da janela.
+  'flow:[object Object]':'Registrar treino',
   'produtoForm':'Produto','cadastroAluno':'Cadastro de aluno',
 };
+// v696: nome amigavel pra qualquer viewKey. Logica: lookup direto > base+pretty
+// sub-segmentos > chave crua. Resolve "al:inicio:progresso:historico" virando
+// "Início · Progresso · Histórico" sem precisar listar toda combinacao.
+function _prettyTela(k){
+  if(!k) return '';
+  if(_ROUTE_NOMES[k]) return _ROUTE_NOMES[k];
+  const parts = String(k).split(':');
+  const base = parts.slice(0,2).join(':');
+  const baseLbl = _ROUTE_NOMES[base];
+  if(!baseLbl) return k;
+  const subs = parts.slice(2).filter(Boolean);
+  if(!subs.length) return baseLbl;
+  const pretty = subs.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' · ');
+  return baseLbl + ' · ' + pretty;
+}
 function _announceRoute(viewKey){
   const reg = document.getElementById('route-announce'); if(!reg) return;
-  const base = viewKey.split(':').slice(0,2).join(':');   // ignora sub-abas (jogoTab/jornadaTab)
-  const nome = _ROUTE_NOMES[base] || _ROUTE_NOMES[viewKey] || null;
-  if(nome) reg.textContent = nome;
+  // v696: _prettyTela ja' resolve exato > base > base+subs. Mantem o nome
+  // da sub-aba audivel pro leitor de tela (antes anunciava so' "Jornada"
+  // pras tres sub-abas da Jornada — indistinguivel).
+  const nome = _prettyTela(viewKey);
+  if(nome && nome !== viewKey) reg.textContent = nome;
 }
 // Sheets vivem no <body> fora do #root — quando o usuário navega no menu, o render
 // limpa o root mas o overlay fica pendurado. Fecha explicitamente na troca de view.
@@ -18370,7 +18392,7 @@ function _auditUsoPintar(){
     const menores = arr.slice(-5).filter(x => !top.includes(x));
     const linha = (r) => {
       const w = Math.round(r.aberturas/max*100);
-      const nomeAmigavel = _ROUTE_NOMES[r.tela] || r.tela;
+      const nomeAmigavel = _prettyTela(r.tela);
       return `<div class="bar-row"><span class="bar-lbl bar-lbl-w">${safeTxt(nomeAmigavel)}</span>
         <div class="bar-track"><span class="bar-fill" style="width:${w}%;background:var(--blue,#2f6fe5)"></span></div>
         <span class="bar-n bar-n-w"><b>${r.aberturas}</b> <span style="color:var(--muted);font-size:11px">· ${r.usuarios} pessoas</span></span></div>`;
