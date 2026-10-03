@@ -3317,6 +3317,23 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const h = targetW / ar;
     soff(); ctx.drawImage(lockupH, W/2 - targetW/2, y - h/2, targetW, h); son();
   };
+  // v678: variante do lockup SEM o 山 inicial (crop ~18% da esquerda do asset).
+  // Pro template Kanji, que já tem o 山 gigante central — ter outro embaixo
+  // duplicava o símbolo.
+  const drawLockupText = (y, targetW) => {
+    if(!lockupH || !lockupH.naturalWidth){
+      ctx.fillStyle=MUTED; ctx.font=`700 36px ${SF}`;
+      ctx.fillText('YAMA JIU-JITSU', W/2, y+10);
+      return;
+    }
+    const srcSkipPct = 0.18; // corta ~18% da esquerda (área do 山)
+    const srcX = lockupH.naturalWidth * srcSkipPct;
+    const srcW = lockupH.naturalWidth - srcX;
+    const ar = srcW / lockupH.naturalHeight;
+    const h = targetW / ar;
+    soff(); ctx.drawImage(lockupH, srcX, 0, srcW, lockupH.naturalHeight,
+                          W/2 - targetW/2, y - h/2, targetW, h); son();
+  };
   // v675/v676: aplica transform full (translate + scale + rotate em torno do
   // centro do bbox) e grava base bbox (sem rotação pro hit test simplificado).
   const _applyT = (baseBbox, drawFn, id) => {
@@ -3371,21 +3388,22 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
 
   // ========= KANJI (só o 山 brushado) =========
   // v673: "YAMA JIU-JITSU" vira texto puro sem kanji prefix (o kanji grande ja ta' no centro)
+  // v678: kanji central -30% (520→360), texto embaixo vira lockup sem o 山 inicial
   if(tpl==='kanji'){
-    withContent({x: W/2-300, y: cY-260, w: 600, h: 640}, () => {
-      drawKanji(W/2, cY, 520);
-      ctx.fillStyle=MUTED; ctx.font=`700 36px ${SF}`;
-      ctx.fillText('YAMA JIU-JITSU', W/2, cY+340);
+    withContent({x: W/2-280, y: cY-200, w: 560, h: 540}, () => {
+      drawKanji(W/2, cY, 360);
+      drawLockupText(cY+280, 500);
     });
     drawTurmaStamp(); soff(); return;
   }
 
   // ========= MARCA (lockup circular do brand) =========
   // v673: marca redonda substitui o kanji + "YAMA" + "JIU-JITSU" montados a mao.
+  // v678: logo -30% (760→530), data +15% (22→26).
   if(tpl==='marca'){
-    withContent({x: W/2-400, y: cY-400, w: 800, h: 870}, () => {
+    withContent({x: W/2-300, y: cY-280, w: 600, h: 640}, () => {
       if(marcaCirc && marcaCirc.naturalWidth){
-        const sz = 760;
+        const sz = 530;
         const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
         const w = sz, h = sz / ar;
         soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
@@ -3396,8 +3414,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
         ctx.font=`800 52px ${SF}`;
         ctx.fillText('JIU-JITSU',W/2,cY+145);
       }
-      ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
-      ctx.fillText(dateFmt, W/2, cY+440);
+      ctx.fillStyle=MUTED; ctx.font=`600 26px ${SF}`;
+      ctx.fillText(dateFmt, W/2, cY+330);
     });
     drawTurmaStamp(); soff(); return;
   }
@@ -3428,7 +3446,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
     ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
-    drawLockup(dotY+200, 900);
+    // v678: lockup -33% (900→600) — estava desproporcional ao mockup
+    drawLockup(dotY+180, 600);
     }); // fecha withContent do streak
     drawTurmaStamp(); soff(); return;
   }
@@ -3438,16 +3457,17 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const horaCard = (t.horaAula)
       || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
       || '19h';
-    withContent({x: W/2-450, y: cY-290, w: 900, h: 510}, () => {
+    withContent({x: W/2-450, y: cY-290, w: 900, h: 500}, () => {
       logoCenter(W/2,cY-260,56);
-      ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
-      ctx.fillText(dateFmt,W/2,cY-180);
+      // v678: data +30% (26→34), estava muito pequena.
+      ctx.fillStyle=MUTED; ctx.font=`700 34px ${SF}`;
+      ctx.fillText(dateFmt,W/2,cY-170);
       ctx.font=`800 32px ${SF}`;
-      ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-120);
+      ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-110);
       ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
-      ctx.fillText(horaCard,W/2,cY+40);
-      // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
-      drawLockup(cY+170, 900);
+      ctx.fillText(horaCard,W/2,cY+50);
+      // v678: lockup -33% (900→600), mesmo motivo do streak
+      drawLockup(cY+170, 600);
     });
     drawTurmaStamp(); soff();
   }
