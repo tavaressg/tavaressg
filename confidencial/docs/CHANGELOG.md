@@ -9,6 +9,23 @@
 
 ## Concluídas ✓
 
+### v690 — Filtro de gênero nos filtros avançados de Alunos (2026-10-03)
+
+Fecha o ciclo da v688: o campo já existia na ficha e na exportação, faltava
+filtrar por ele. Quatro pontos, os mesmos de qualquer filtro desta tela —
+`_ALUNOS_UI.advF.genero` no estado, o `<select>` no painel, a leitura em
+`_alunosLerAdv()` e o `filter` em `_alunosFiltrar()`.
+
+As opções saem de `GENEROS` (app.js), então o filtro acompanha a ficha sem
+ninguém lembrar de mexer nos dois lugares. Mais a opção **Sem informação**
+(`__sem`), na convenção que o filtro de faixa etária já usa: um campo novo numa
+base que já existe nasce vazio pra todo mundo, e achar quem falta preencher é a
+primeira coisa que se quer dele.
+
+O filtro entra na terceira linha do grid, ao lado de "Aniversário no mês", sem
+mexer na posição dos outros oito. Exportação Excel/PDF já respeita o filtro de
+graça: ela lê `_alunosFiltrados`.
+
 ### v689 — O ✕ do header de Compartilhar vira SVG (2026-10-03)
 
 O botão de fechar aparecia meio pixel acima do centro do quadrado. Não era o

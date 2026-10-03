@@ -8415,7 +8415,7 @@ const _ALUNOS_UI = {
   filtro: 'todos', busca: '', filtroEt: 'todos',
   sortKey: 'nm', sortDir: 'asc',
   advOpen: false, shown: _ALUNOS_PAGE,
-  advF: { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'', status:'' },
+  advF: { matricula:'', ativos:'', aguardando:'', mensagens:'', faixa:'', turma:'', plano:'', aniversario:'', status:'', genero:'' },
 };
 let _alunosFiltrados = [];
 
@@ -8467,6 +8467,7 @@ function _alunosLerAdv(){
   a.plano = v('#advf-plano');
   a.aniversario = v('#advf-aniv');
   a.status = v('#advf-status');
+  a.genero = v('#advf-genero');
   _ALUNOS_UI.shown = _ALUNOS_PAGE;
   _alunosRepintar();
 }
@@ -8558,6 +8559,11 @@ function _alunosAplicarFiltros(){
     else if(advF.plano==='late') arr = arr.filter(a=> a.pago==='late');
     else if(advF.plano==='soon') arr = arr.filter(a=> a.pago==='soon');
     if(advF.status) arr = arr.filter(a=> _statusAluno(a).valor===advF.status);
+    // v690: '__sem' pega quem ainda não tem gênero preenchido — mesma convenção
+    // do filtro de faixa etária. Campo novo numa base que já existe começa vazio
+    // pra todo mundo, então achar os pendentes é a primeira coisa que se precisa.
+    if(advF.genero==='__sem') arr = arr.filter(a=> !(a.cad && a.cad.genero));
+    else if(advF.genero) arr = arr.filter(a=> ((a.cad && a.cad.genero)||'') === advF.genero);
     if(advF.aniversario){
       // v384: aceita MM (mes inteiro) OU MM-DD (dia especifico — vem do alerta
       // "Mandar parabens" do painel, que passa a data de hoje pra filtrar so
@@ -8825,6 +8831,7 @@ function profAlunos(){
       <label><span>Status plano</span><select class="inp" id="advf-plano" data-change="alunosAdv"><option ${_o('',advF.plano)}>Todos</option><option ${_o('ok',advF.plano)}>Em dia</option><option ${_o('soon',advF.plano)}>A vencer</option><option ${_o('late',advF.plano)}>Vencido</option></select></label>
       <label><span>Status atividade</span><select class="inp" id="advf-status" data-change="alunosAdv"><option ${_o('',advF.status)}>Todos</option><option ${_o('ativo',advF.status)}>Ativo</option><option ${_o('inativo',advF.status)}>Inativo</option></select></label>
       <label><span>Aniversário no mês</span><select class="inp" id="advf-aniv" data-change="alunosAdv"><option ${_o('',advF.aniversario.slice(0,2))}>Todos</option>${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>`<option ${_o(String(i+1).padStart(2,'0'), advF.aniversario.slice(0,2))}>${m}</option>`).join('')}</select></label>
+      <label><span>Gênero</span><select class="inp" id="advf-genero" data-change="alunosAdv"><option ${_o('',advF.genero)}>Todos</option>${GENEROS.map(g=>`<option ${_o(g.v,advF.genero)}>${g.lbl}</option>`).join('')}<option ${_o('__sem',advF.genero)}>Sem informação</option></select></label>
     </div>
     <div class="erp-alunos-adv-acts">
       <button class="erp-alunos-adv-clear" type="button" id="advf-clear" data-click="alunosAdvLimpar">Limpar</button>
