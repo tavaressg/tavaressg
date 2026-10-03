@@ -3222,7 +3222,25 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 // (modo "fundo branco" removido 2026-10-02 por decisão do dono).
 // v684: chip "Sem nada" removido. Estado 'vazio' continua intrínseco — ativa
 // automaticamente quando user desseleciona (toggle do chip ativo).
-const SHARE_TPLS = [['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame']];
+const SHARE_TPLS = [['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame'],['acertos','Acertos']];
+/* v695 — linhas do card "Acertos": uma por técnica do randori daquele treino.
+   `det.renshu` guarda o que foi feito NO DIA; o acumulado vem dos buckets da
+   técnica (totaisTec), que JÁ INCLUEM o dia. Por isso a seta compara o dia com
+   o histórico ANTERIOR (acumulado menos hoje): comparar o dia contra um
+   acumulado que o contém faria a seta sumir no primeiro treino da técnica e
+   ficar anêmica enquanto o histórico fosse curto.
+   `base: null` = não havia histórico antes de hoje — a linha não ganha seta. */
+function _shareAcertos(tr){
+  const reps = (tr && tr.det && tr.det.renshu) || [];
+  return reps.filter(r => (r.t||0) > 0).map(r => {
+    // M9 guarda o id estável; técnicas antigas só têm o jp da época.
+    const tec = (DB.tecnicas||[]).find(x => x.id===r.id || x.jp===r.id || x.jp===r.jp);
+    const tot = tec ? totaisTec(tec) : { A:(r.a||0), T:(r.t||0) };
+    const bA = (tot.A||0)-(r.a||0), bT = (tot.T||0)-(r.t||0);
+    return { jp: r.jp || (tec&&tec.jp) || '', a:r.a||0, t:r.t||0,
+             acum: _pctAT(tot.A||0, tot.T||0), base: bT>0 ? _pctAT(bA,bT) : null };
+  });
+}
 // v684: 'vazio' é estado intrínseco (sem chip visível) mas valido como shareTpl.
 const _SHARE_TPL_VALIDOS = SHARE_TPLS.map(x=>x[0]).concat('vazio');
 let _sharePhoto = null, _shareKanji = null, _shareKanjiW = null;
@@ -3488,6 +3506,51 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
     drawLockup(dotY+120, 600);
     }); // fecha withContent do streak
     drawTurmaStamp(); soff(); return;
+  }
+
+  // ========= ACERTOS (aproveitamento por técnica + seta de evolução) =========
+  if(tpl==='acertos'){
+    const linhas=_shareAcertos(t);
+    if(linhas.length){
+      // Verde do tema escuro (--good). Único ponto do card com cor além do RED.
+      const GREEN='#3ec27e';
+      // 185 e não 160: a linha pequena de uma técnica quase encostava no nome
+      // da seguinte, e as três viravam um bloco só.
+      const passo=185, n=linhas.length;
+      const y0=cY-(n*passo)/2+60;
+      withContent({x: W/2-450, y: y0-130, w: 900, h: n*passo+230}, () => {
+        ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
+        ctx.fillText(dateFmt,W/2,y0-100);
+        linhas.forEach((L,i)=>{
+          const y=y0+i*passo;
+          ctx.fillStyle=MUTED; ctx.font=`700 30px ${SF}`;
+          ctx.fillText(L.jp.toUpperCase(),W/2,y);
+          // Número + seta medidos juntos pra o par ficar centrado, não o número.
+          const numTx=L.acum+'%';
+          ctx.font=`900 96px ${SF}`; const numW=ctx.measureText(numTx).width;
+          const sobe = L.base===null ? null : _pctAT(L.a,L.t)>L.base;
+          const seta = sobe===null ? '' : (sobe?'▲':'▼');
+          ctx.font=`900 46px ${SF}`; const setaW=seta?ctx.measureText(seta).width:0;
+          const gap=seta?18:0, sx=W/2-(numW+gap+setaW)/2;
+          ctx.textAlign='left';
+          ctx.fillStyle=INK; ctx.font=`900 96px ${SF}`; ctx.fillText(numTx,sx,y+82);
+          if(seta){
+            // Só a subida ganha cor. A queda fica branca discreta: vermelho aqui
+            // brigaria com o RED dos outros cards, onde ele significa "treinei".
+            ctx.fillStyle = sobe?GREEN:MUTED;
+            ctx.font=`900 46px ${SF}`; ctx.fillText(seta,sx+numW+gap,y+70);
+          }
+          ctx.textAlign='center';
+          ctx.fillStyle=MUTED; ctx.font=`600 23px ${SF}`;
+          ctx.fillText(L.base===null ? `${L.a} de ${L.t} · primeira vez`
+                                     : `hoje ${L.a} de ${L.t} · antes ${L.base}%`, W/2, y+120);
+        });
+        drawLockup(y0+n*passo+60, 600);
+      });
+      drawTurmaStamp(); soff(); return;
+    }
+    // Sem randori registrado não há o que mostrar: cai no checkin em vez de
+    // desenhar um card vazio (o chip some da lista, mas o tpl fica salvo em DB).
   }
 
   // ========= CHECKIN (hora da aula) · default =========
@@ -3829,9 +3892,12 @@ function renderShare(){
   // v680: no fluxo do professor (FAB), esconde Streak e "No tatame" — são métricas
   // pessoais do aluno (streak próprio, hora de check-in). Professor foca em
   // Vazio / Kanji / Marca pra postar foto da academia.
-  const tplsVisiveis = _profStubTreino
+  // v695: "Acertos" só aparece quando o treino tem randori registrado — sem
+  // técnicas o card não teria o que dizer. Mesma razão do filtro do professor.
+  const _temAcertos = _shareAcertos(t).length > 0;
+  const tplsVisiveis = (_profStubTreino
     ? SHARE_TPLS.filter(([id]) => id !== 'streak' && id !== 'checkin')
-    : SHARE_TPLS;
+    : SHARE_TPLS).filter(([id]) => id !== 'acertos' || _temAcertos);
   const chips = el(`<div class="tpl-row"></div>`);
   tplsVisiveis.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
     b.setAttribute('data-click','shareTpl'); b.setAttribute('data-v', id); chips.appendChild(b); });

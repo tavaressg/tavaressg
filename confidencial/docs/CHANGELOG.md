@@ -9,6 +9,35 @@
 
 ## Concluídas ✓
 
+### v695 — Card de story "Acertos" (2026-10-03)
+
+Quinto template de story. Lista as técnicas do randori daquele treino, uma por
+linha: nome, aproveitamento **acumulado** em número grande, e uma seta dizendo
+se o dia puxou a média pra cima ou pra baixo. Abaixo, `hoje 7 de 10 · antes
+67%`, que é o que explica a seta.
+
+**A seta compara o dia com o histórico ANTERIOR ao dia, não com o acumulado.**
+O acumulado (`totaisTec`) já inclui o bucket de hoje; comparar os dois seria
+medir o dia contra um número que o contém. No primeiro treino da técnica eles
+são idênticos e não haveria seta nenhuma, e enquanto o histórico fosse curto a
+seta ficaria anêmica. `base = (A - a) / (T - t)`; com `T - t === 0` a linha sai
+sem seta e com o texto `primeira vez`.
+
+**Só a subida tem cor.** `▲` em `#3ec27e` (o `--good` do tema escuro), `▼` em
+branco suave. Vermelho ali brigaria com o `RED` dos outros cards, onde ele
+significa "treinei" (bolinhas do Streak) — mesma cor, sentido oposto, mesma
+família de cards.
+
+Sem piso de tentativas, por decisão do dono: são poucos randoris por dia, e
+limitar a seta esconderia justamente os dias magros.
+
+O chip "Acertos" só aparece quando o treino tem randori registrado
+(`det.renshu` não vazio) — o mesmo `_shareAcertos()` que monta as linhas decide
+a visibilidade, então chip e card nunca discordam. Se o tpl ficou salvo em `DB`
+de um treino anterior e o atual não tem randori, o template cai no `checkin` em
+vez de desenhar um card vazio. No fluxo do professor o stub não tem `det`, então
+o chip some sozinho, sem precisar entrar no filtro de `_profStubTreino`.
+
 ### v694 — Lockup do Streak sobe 60px (2026-10-03)
 
 Rabo da v693: com a legenda `N/M treinos` fora, o lockup ficou boiando no vazio
