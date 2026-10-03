@@ -3217,6 +3217,13 @@ let _profStubTreino = null;
 // v668 Etapa 3: stamp de logo de turma no canto superior direito do sticker.
 // Carregado sob demanda quando o professor toca o chip da turma.
 let _shareTurmaLogo = null, _shareTurmaLogoUrl = null;
+// v675 Stage A — gestos: drag de elementos agrupados (content block + stamp).
+// _shareBboxes: ultimo render salvou essas regioes retangulares pra hit test.
+// DB.shareTransforms[id] = {tx, ty} aplicado em cima da posicao padrao.
+// DB.shareSelId: id do elemento atualmente selecionado (desenha anel).
+// Reset em troca de template/turma/pos e fecharShare.
+let _shareBboxes = {};
+let _shareDrag = null; // {id, startX, startY, origTx, origTy}
 function _ensureTurmaLogo(url){
   if(!url){ _shareTurmaLogo=null; _shareTurmaLogoUrl=null; return; }
   if(url === _shareTurmaLogoUrl && _shareTurmaLogo) return;
@@ -3247,7 +3254,7 @@ function abrirShareProf(){
   if (typeof _loadTurmas === 'function') _loadTurmas();
   track('share_prof_aberto'); render(); window.scrollTo(0,0);
 }
-function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; DB.sharePos=null; render(); }
+function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; DB.sharePos=null; DB.shareTransforms={}; DB.shareSelId=null; _shareBboxes={}; _shareDrag=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
@@ -3311,8 +3318,8 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     soff(); ctx.drawImage(lockupH, W/2 - targetW/2, y - h/2, targetW, h); son();
   };
   // v668 Etapa 3: logo da turma stampado no canto superior direito.
-  // Chamado antes de cada return/final — aparece acima dos elementos do template.
   // v670: tamanho ampliado (320x220 max) — stamp antes era discreto demais.
+  // v675 Stage A: aplica transform (DB.shareTransforms.stamp) e grava bbox.
   const drawTurmaStamp = () => {
     if(!turmaLogo || !turmaLogo.naturalWidth) return;
     const maxW = 320, maxH = 220;
@@ -3320,8 +3327,19 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     let dw = maxW, dh = maxW / ar;
     if (dh > maxH) { dh = maxH; dw = maxH * ar; }
     const padR = 70, padT = 70;
+    const bx = W - padR - dw, by = padT;
+    const T = (DB.shareTransforms && DB.shareTransforms.stamp) || {tx:0, ty:0};
     soff();
-    ctx.drawImage(turmaLogo, W - padR - dw, padT, dw, dh);
+    ctx.save(); ctx.translate(T.tx, T.ty); ctx.drawImage(turmaLogo, bx, by, dw, dh); ctx.restore();
+    _shareBboxes.stamp = { x: bx + T.tx, y: by + T.ty, w: dw, h: dh };
+  };
+  // v675 Stage A: wrapper que agrupa um bloco de conteudo em UM elemento
+  // movivel. Aplica transform + grava bbox base deslocada. drawFn eh a funcao
+  // que efetivamente desenha o conteudo do template.
+  const withContent = (baseBbox, drawFn) => {
+    const T = (DB.shareTransforms && DB.shareTransforms.content) || {tx:0, ty:0};
+    ctx.save(); ctx.translate(T.tx, T.ty); drawFn(); ctx.restore();
+    _shareBboxes.content = { x: baseBbox.x + T.tx, y: baseBbox.y + T.ty, w: baseBbox.w, h: baseBbox.h };
   };
 
   // 1. Fundo
@@ -3331,6 +3349,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillStyle='rgba(0,0,0,.32)'; ctx.fillRect(0,0,W,H);
   }
   // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
+  _shareBboxes = {}; // v675 Stage A: zera antes de popular neste render
 
   const dateFmt = (()=>{ const [y,mo,d]=t.data.split('-'); return `${d}.${mo}.${y}`; })();
   const logoCenter=(x,y,sz)=>{ if(!logoImg) return; soff(); ctx.drawImage(logoImg,x-sz/2,y-sz/2,sz,sz); son(); };
@@ -3347,36 +3366,40 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
   // ========= KANJI (só o 山 brushado) =========
   // v673: "YAMA JIU-JITSU" vira texto puro sem kanji prefix (o kanji grande ja ta' no centro)
   if(tpl==='kanji'){
-    drawKanji(W/2, cY, 520);
-    ctx.fillStyle=MUTED; ctx.font=`700 36px ${SF}`;
-    ctx.fillText('YAMA JIU-JITSU', W/2, cY+340);
+    withContent({x: W/2-300, y: cY-260, w: 600, h: 640}, () => {
+      drawKanji(W/2, cY, 520);
+      ctx.fillStyle=MUTED; ctx.font=`700 36px ${SF}`;
+      ctx.fillText('YAMA JIU-JITSU', W/2, cY+340);
+    });
     drawTurmaStamp(); soff(); return;
   }
 
   // ========= MARCA (lockup circular do brand) =========
   // v673: marca redonda substitui o kanji + "YAMA" + "JIU-JITSU" montados a mao.
   if(tpl==='marca'){
-    if(marcaCirc && marcaCirc.naturalWidth){
-      const sz = 760;
-      const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
-      const w = sz, h = sz / ar;
-      soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
-    } else {
-      // fallback (preload incompleto)
-      drawKanji(W/2, cY-80, 160);
-      ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
-      ctx.fillText('YAMA',W/2,cY+80);
-      ctx.font=`800 52px ${SF}`;
-      ctx.fillText('JIU-JITSU',W/2,cY+145);
-    }
-    ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
-    ctx.fillText(dateFmt, W/2, cY+440);
+    withContent({x: W/2-400, y: cY-400, w: 800, h: 870}, () => {
+      if(marcaCirc && marcaCirc.naturalWidth){
+        const sz = 760;
+        const ar = marcaCirc.naturalWidth / marcaCirc.naturalHeight;
+        const w = sz, h = sz / ar;
+        soff(); ctx.drawImage(marcaCirc, W/2 - w/2, cY - h/2, w, h); son();
+      } else {
+        drawKanji(W/2, cY-80, 160);
+        ctx.fillStyle=INK; ctx.font=`900 86px ${SF}`;
+        ctx.fillText('YAMA',W/2,cY+80);
+        ctx.font=`800 52px ${SF}`;
+        ctx.fillText('JIU-JITSU',W/2,cY+145);
+      }
+      ctx.fillStyle=MUTED; ctx.font=`600 22px ${SF}`;
+      ctx.fillText(dateFmt, W/2, cY+440);
+    });
     drawTurmaStamp(); soff(); return;
   }
 
   // ========= STREAK (número + bolinhas da semana) =========
   if(tpl==='streak'){
     const s=DB.semana||{streakSemanas:0,feitos:0,meta:0,dias:[0,0,0,0,0,0,0]};
+    withContent({x: W/2-450, y: cY-310, w: 900, h: 700}, () => {
     logoCenter(W/2,cY-280,56);
     ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
     ctx.fillText(dateFmt,W/2,cY-200);
@@ -3400,6 +3423,7 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     ctx.fillText(`${s.feitos}/${s.meta} treinos esta semana`,W/2,dotY+100);
     // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
     drawLockup(dotY+200, 900);
+    }); // fecha withContent do streak
     drawTurmaStamp(); soff(); return;
   }
 
@@ -3408,15 +3432,17 @@ function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLog
     const horaCard = (t.horaAula)
       || (DB.checkinHoje && DB.checkinHoje.sessao && DB.checkinHoje.sessao.hora)
       || '19h';
-    logoCenter(W/2,cY-260,56);
-    ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
-    ctx.fillText(dateFmt,W/2,cY-180);
-    ctx.font=`800 32px ${SF}`;
-    ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-120);
-    ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
-    ctx.fillText(horaCard,W/2,cY+40);
-    // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
-    drawLockup(cY+170, 900);
+    withContent({x: W/2-450, y: cY-290, w: 900, h: 510}, () => {
+      logoCenter(W/2,cY-260,56);
+      ctx.fillStyle=MUTED; ctx.font=`700 26px ${SF}`;
+      ctx.fillText(dateFmt,W/2,cY-180);
+      ctx.font=`800 32px ${SF}`;
+      ctx.fillText(String(t.titulo||'').toUpperCase(),W/2,cY-120);
+      ctx.fillStyle=INK; ctx.font=`900 180px ${SF}`;
+      ctx.fillText(horaCard,W/2,cY+40);
+      // v673: lockup horizontal (brand brushado) no lugar do kanji + sans-serif
+      drawLockup(cY+170, 900);
+    });
     drawTurmaStamp(); soff();
   }
 }
@@ -3433,10 +3459,70 @@ function _shareRedraw(){
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
       _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
       DB.sharePos || 'central', _ok(_shareMarcaCirc), _ok(_shareLockupH));
+    _shareDrawOverlay();
   }catch(e){}
 }
+// v675 Stage A: desenha anel tracejado em volta do elemento selecionado
+// na overlay canvas (não vai no export). bboxes vêm do último drawStory.
+function _shareDrawOverlay(){
+  const ov = document.getElementById("share-overlay"); if(!ov) return;
+  const octx = ov.getContext("2d");
+  octx.clearRect(0, 0, ov.width, ov.height);
+  const selId = DB.shareSelId;
+  if(!selId) return;
+  const bb = _shareBboxes[selId]; if(!bb) return;
+  const pad = 20;
+  octx.save();
+  octx.strokeStyle = 'rgba(255,255,255,.95)';
+  octx.lineWidth = 6; octx.setLineDash([24, 16]);
+  octx.strokeRect(bb.x - pad, bb.y - pad, bb.w + 2*pad, bb.h + 2*pad);
+  octx.restore();
+}
+// v675 Stage A: anexa pointer handlers no overlay. Tap seleciona (hit test
+// contra bboxes, zorder stamp>content). Drag move o elemento selecionado
+// atualizando DB.shareTransforms[id].{tx,ty} e redesenha.
+function _shareAttachGestures(ov){
+  if(!ov) return;
+  const toCanvas = (e) => {
+    const rect = ov.getBoundingClientRect();
+    const sx = ov.width / rect.width, sy = ov.height / rect.height;
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+  };
+  const hitTest = (px, py) => {
+    // z-order: stamp em cima do content
+    for(const id of ['stamp','content']){
+      const bb = _shareBboxes[id]; if(!bb) continue;
+      if(px >= bb.x && px <= bb.x+bb.w && py >= bb.y && py <= bb.y+bb.h) return id;
+    }
+    return null;
+  };
+  ov.onpointerdown = (e) => {
+    try{ ov.setPointerCapture(e.pointerId); }catch(_){}
+    const p = toCanvas(e);
+    const id = hitTest(p.x, p.y);
+    DB.shareSelId = id;
+    if(id){
+      const T = (DB.shareTransforms && DB.shareTransforms[id]) || {tx:0, ty:0};
+      _shareDrag = { id, startX: p.x, startY: p.y, origTx: T.tx, origTy: T.ty };
+    } else { _shareDrag = null; }
+    _shareRedraw();
+    e.preventDefault();
+  };
+  ov.onpointermove = (e) => {
+    if(!_shareDrag) return;
+    const p = toCanvas(e);
+    const dx = p.x - _shareDrag.startX, dy = p.y - _shareDrag.startY;
+    DB.shareTransforms = DB.shareTransforms || {};
+    DB.shareTransforms[_shareDrag.id] = { tx: _shareDrag.origTx + dx, ty: _shareDrag.origTy + dy };
+    _shareRedraw();
+    e.preventDefault();
+  };
+  const end = (e) => { _shareDrag = null; if(e) e.preventDefault(); };
+  ov.onpointerup = end;
+  ov.onpointercancel = end;
+}
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
-_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
+_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; DB.shareTransforms={}; DB.shareSelId=null; render(); });
 _dlgRegister('fabCompartilhar', () => abrirShareProf());
 // v668 Etapa 3: chip de turma pro stamp — carrega o logo (cross-origin) e repinta.
 _dlgRegister('shareTurma', (elm) => {
@@ -3444,10 +3530,15 @@ _dlgRegister('shareTurma', (elm) => {
   DB.shareTurmaId = id;
   const t = id ? (DB.turmas||[]).find(x=>x && x.id===id) : null;
   _ensureTurmaLogo(t && t.logo_url || null);
+  DB.shareTransforms={}; DB.shareSelId=null;   // v675: zera gestos ao trocar turma
   render();
 });
 // v670: posição do conteúdo do template (central / embaixo).
-_dlgRegister('sharePos', (elm) => { DB.sharePos = elm.dataset.v || 'central'; render(); });
+_dlgRegister('sharePos', (elm) => {
+  DB.sharePos = elm.dataset.v || 'central';
+  DB.shareTransforms={}; DB.shareSelId=null;   // v675: zera gestos ao mudar posição base
+  render();
+});
 _dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
 _dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
 _dlgRegister('shareFoto', (elm) => {
@@ -3504,7 +3595,13 @@ function renderShare(){
   const body = el(`<div class="share-body"></div>`);
   const stage = el(`<div class="story-stage${_sharePhoto?' has-photo':''}"></div>`);
   const cv = el(`<canvas class="story-canvas" id="share-canvas" width="1080" height="1920"></canvas>`);
-  stage.appendChild(cv); body.appendChild(stage);
+  // v675 Stage A: overlay canvas pro anel de seleção (não vai pro export; o
+  // export usa cv.toBlob diretamente).
+  const ov = el(`<canvas class="story-overlay" id="share-overlay" width="1080" height="1920"></canvas>`);
+  stage.appendChild(cv); stage.appendChild(ov); body.appendChild(stage);
+  // v675 Stage A: pointer handlers no overlay (que fica em cima do cv e intercepta
+  // o toque). hit test contra _shareBboxes populado pelo último drawStory.
+  _shareAttachGestures(ov);
   const hintTxt = _sharePhoto ? 'card sobre a sua foto — posta a imagem inteira'
                               : 'PNG transparente — cole o sticker sobre uma foto no Instagram';
   body.appendChild(el(`<div class="story-hint">${hintTxt}</div>`));
