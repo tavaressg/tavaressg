@@ -3254,19 +3254,19 @@ function abrirShareProf(){
   if (typeof _loadTurmas === 'function') _loadTurmas();
   track('share_prof_aberto'); render(); window.scrollTo(0,0);
 }
-function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; DB.sharePos=null; DB.shareTransforms={}; DB.shareSelId=null; _shareBboxes={}; _shareDrag=null; render(); }
+function fecharShare(){ DB.shareOpen=null; DB.shareFromSave=false; _sharePhoto=null; _profStubTreino=null; DB.shareTurmaId=null; _shareTurmaLogo=null; _shareTurmaLogoUrl=null; DB.shareTransforms={}; DB.shareSelId=null; _shareBboxes={}; _shareDrag=null; render(); }
 function _rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 // desenha imagem cobrindo a área (cover), centralizada
 function _cover(ctx,img,W,H){ const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let w,h; if(ir>cr){h=H;w=H*ir;}else{w=W;h=W/ir;} ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h); }
 // v666: FULL-FRAME minimalista — tipografia gigante, muito espaço em branco,
 // 2 modos de fundo (branco pronto / PNG transparente sticker). Foto opcional.
 // Sem card translúcido, sem bordas gradient, sem copy motivacional.
-function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,pos,marcaCirc,lockupH){
+function drawStory(ctx,W,H,t,tpl,logoImg,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaCirc,lockupH){
   // v666: PNG transparente SEMPRE. 1 modo só (fundo branco removido 2026-10-02).
   // Elementos escuros no card; sobre foto, texto branco com sombra pro contraste.
   // v670: pos ∈ {central, embaixo} desloca TODO o conteúdo verticalmente.
   // "embaixo" libera o topo pra ler o stamp da turma sem overlap visual.
-  const cY = (pos === 'embaixo') ? (H*0.5 + 420) : (H*0.5);
+  const cY = H*0.5;   // v680: Central/Embaixo removido — gestos cobrem o movimento
   const SF='-apple-system,"Segoe UI",Roboto,sans-serif';
   const RED='#e5392f';
   // v673: TUDO em BRANCO sempre — os brand assets do dono são brancos (yama-lockup,
@@ -3485,7 +3485,7 @@ function _shareRedraw(){
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
     drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
       _ok(_shareLogo), _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
-      DB.sharePos || 'central', _ok(_shareMarcaCirc), _ok(_shareLockupH));
+      _ok(_shareMarcaCirc), _ok(_shareLockupH));
     _shareDrawOverlay();
   }catch(e){}
 }
@@ -3685,7 +3685,7 @@ function _shareAttachGestures(ov){
   ov.onpointercancel = end;
 }
 function _shareCanvas(){ return document.getElementById('share-canvas'); }
-_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; DB.shareTransforms={}; DB.shareSelId=null; render(); });
+_dlgRegister('shareTpl', (elm) => { DB.shareTpl = elm.dataset.v; render(); });
 _dlgRegister('fabCompartilhar', () => abrirShareProf());
 // v668 Etapa 3: chip de turma pro stamp — carrega o logo (cross-origin) e repinta.
 _dlgRegister('shareTurma', (elm) => {
@@ -3693,15 +3693,10 @@ _dlgRegister('shareTurma', (elm) => {
   DB.shareTurmaId = id;
   const t = id ? (DB.turmas||[]).find(x=>x && x.id===id) : null;
   _ensureTurmaLogo(t && t.logo_url || null);
-  DB.shareTransforms={}; DB.shareSelId=null;   // v675: zera gestos ao trocar turma
+  // v680: transforms persistem entre trocas de template/turma na mesma sessão
   render();
 });
-// v670: posição do conteúdo do template (central / embaixo).
-_dlgRegister('sharePos', (elm) => {
-  DB.sharePos = elm.dataset.v || 'central';
-  DB.shareTransforms={}; DB.shareSelId=null;   // v675: zera gestos ao mudar posição base
-  render();
-});
+// v680: sharePos removido — gestos cobrem o uso. Central/Embaixo não existem mais.
 _dlgRegister('shareEscolherFoto', () => document.getElementById('share-file')?.click());
 _dlgRegister('shareRemoverFoto',  () => { _sharePhoto = null; render(); });
 _dlgRegister('shareFoto', (elm) => {
@@ -3782,21 +3777,16 @@ function renderShare(){
   if(!_shareLockupH){ _shareLockupH=new Image(); _shareLockupH.onload=_shareRedraw; _shareLockupH.src="brand/yama-lockup-horizontal.png?v=4"; }
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(_shareRedraw); else _shareRedraw();   // morph-ok: _shareRedraw resolve #share-canvas no DOM vivo, nao appenda nada
   // modelos
+  // v680: no fluxo do professor (FAB), esconde Streak e "No tatame" — são métricas
+  // pessoais do aluno (streak próprio, hora de check-in). Professor foca em
+  // Vazio / Kanji / Marca pra postar foto da academia.
+  const tplsVisiveis = _profStubTreino
+    ? SHARE_TPLS.filter(([id]) => id !== 'streak' && id !== 'checkin')
+    : SHARE_TPLS;
   const chips = el(`<div class="tpl-row"></div>`);
-  SHARE_TPLS.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
+  tplsVisiveis.forEach(([id,label])=>{ const b=el(`<button class="tpl-chip ${DB.shareTpl===id?'on':''}">${label}</button>`);
     b.setAttribute('data-click','shareTpl'); b.setAttribute('data-v', id); chips.appendChild(b); });
   body.appendChild(chips);
-  // v670: posição do conteúdo (central / embaixo) — libera o topo pro stamp.
-  // Só mostra pros templates com conteúdo (vazio e kanji são indiferentes).
-  if (DB.shareTpl !== 'vazio') {
-    const posChips = el(`<div class="tpl-row"></div>`);
-    [['central','Central'],['embaixo','Embaixo']].forEach(([id,label])=>{
-      const b = el(`<button class="tpl-chip ${(DB.sharePos||'central')===id?'on':''}">${label}</button>`);
-      b.setAttribute('data-click','sharePos'); b.setAttribute('data-v', id);
-      posChips.appendChild(b);
-    });
-    body.appendChild(posChips);
-  }
   // v668 Etapa 3: chip row de turmas com logo (só pro fluxo do professor —
   // aluno não precisa escolher turma). Filtra turmas que têm logo_url carregado.
   if (_profStubTreino) {
