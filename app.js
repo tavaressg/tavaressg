@@ -3468,17 +3468,37 @@ function _shareRedraw(){
     _shareDrawOverlay();
   }catch(e){}
 }
-// v675/v676: desenha anel + handle de reset ⟲ no canto superior esquerdo do
-// elemento selecionado. Overlay não vai no export (toBlob usa só o main canvas).
+// v677: Instagram-like — anel + handle + LINHAS BALIZADORAS que aparecem
+// quando o elemento snapa no centro X/Y do canvas ou em rotação múltipla de 90°.
+let _shareSnapFlags = { x: false, y: false, rot: false };
 function _shareDrawOverlay(){
   const ov = document.getElementById("share-overlay"); if(!ov) return;
   const octx = ov.getContext("2d");
   octx.clearRect(0, 0, ov.width, ov.height);
+  const W = ov.width, H = ov.height;
   const selId = DB.shareSelId; if(!selId) return;
   const bb = _shareBboxes[selId]; if(!bb) return;
   const T = (DB.shareTransforms && DB.shareTransforms[selId]) || {tx:0, ty:0, scale:1, rot:0};
+  // Linhas balizadoras — brancas finas full-length, só quando snapou agora
+  if(_shareSnapFlags.x){
+    octx.save(); octx.strokeStyle='rgba(255,110,100,.95)'; octx.lineWidth=3; octx.setLineDash([12,8]);
+    octx.beginPath(); octx.moveTo(W/2, 0); octx.lineTo(W/2, H); octx.stroke(); octx.restore();
+  }
+  if(_shareSnapFlags.y){
+    octx.save(); octx.strokeStyle='rgba(255,110,100,.95)'; octx.lineWidth=3; octx.setLineDash([12,8]);
+    octx.beginPath(); octx.moveTo(0, H/2); octx.lineTo(W, H/2); octx.stroke(); octx.restore();
+  }
+  if(_shareSnapFlags.rot){
+    // Marcador discreto de "rotação snapada" na borda do elemento
+    octx.save(); octx.translate(bb.cx, bb.cy); octx.rotate(T.rot || 0);
+    octx.strokeStyle='rgba(255,110,100,.95)'; octx.lineWidth=4; octx.setLineDash([]);
+    const hh = bb.h/2 + 40;
+    octx.beginPath(); octx.moveTo(-20, -hh); octx.lineTo(20, -hh); octx.stroke();
+    octx.beginPath(); octx.moveTo(-20,  hh); octx.lineTo(20,  hh); octx.stroke();
+    octx.restore();
+  }
+  // Anel + handle giram com o elemento
   const pad = 20;
-  // Anel + handle giram com o elemento (usamos bbox pré-escalado + aplicamos T visualmente)
   octx.save();
   octx.translate(bb.cx, bb.cy);
   octx.rotate(T.rot || 0);
@@ -3486,8 +3506,6 @@ function _shareDrawOverlay(){
   octx.strokeStyle = 'rgba(255,255,255,.95)';
   octx.lineWidth = 6; octx.setLineDash([24, 16]);
   octx.strokeRect(-hw - pad, -hh - pad, bb.w + 2*pad, bb.h + 2*pad);
-  // Handle ⟲ (reset) no canto superior esquerdo. Guarda posição em viewport
-  // coord pra hit test depois (centro no overlay).
   const hx = -hw - pad, hy = -hh - pad;
   const hr = 46;
   octx.setLineDash([]);
@@ -3496,10 +3514,41 @@ function _shareDrawOverlay(){
   octx.fillStyle = '#fff'; octx.font = 'bold 46px -apple-system, sans-serif';
   octx.textAlign = 'center'; octx.textBaseline = 'middle'; octx.fillText('⟲', hx, hy+2);
   octx.restore();
-  // Grava posição ABSOLUTA do handle (pra hit test, considerando rotação)
   const cos = Math.cos(T.rot || 0), sin = Math.sin(T.rot || 0);
   const lx = -hw - pad, ly = -hh - pad;
   _shareBboxes._resetHandle = { cx: bb.cx + lx*cos - ly*sin, cy: bb.cy + lx*sin + ly*cos, r: hr };
+}
+// v677: snap helpers. Aplica tolerância e marca flag pra desenhar linha.
+// Também pulsa haptic feedback no snap pra sensação Instagram.
+let _snapRotLast = false, _snapXLast = false, _snapYLast = false;
+function _shareSnap(id, Tnext){
+  // Posição inicial do bbox base (sem transform) está no último _shareBboxes[id]
+  // mas lá temos cx/cy COM translate — reverter: baseCX = cx - tx, baseCY = cy - ty.
+  const bb = _shareBboxes[id]; if(!bb) return Tnext;
+  const Tprev = (DB.shareTransforms && DB.shareTransforms[id]) || {tx:0, ty:0, scale:1, rot:0};
+  const baseCX = bb.cx - (Tprev.tx||0), baseCY = bb.cy - (Tprev.ty||0);
+  const W = 1080, H = 1920;
+  const nextCX = baseCX + (Tnext.tx||0), nextCY = baseCY + (Tnext.ty||0);
+  const TOL_POS = 24, TOL_ROT = 0.09; // ~5°
+  const flags = { x:false, y:false, rot:false };
+  // Snap X (centro horizontal)
+  if(Math.abs(nextCX - W/2) < TOL_POS){ Tnext.tx = W/2 - baseCX; flags.x = true; }
+  // Snap Y (centro vertical)
+  if(Math.abs(nextCY - H/2) < TOL_POS){ Tnext.ty = H/2 - baseCY; flags.y = true; }
+  // Snap rotação pra múltiplo de 90°
+  if(typeof Tnext.rot === 'number'){
+    const r = Tnext.rot;
+    const PI2 = Math.PI/2;
+    const nearest = Math.round(r / PI2) * PI2;
+    if(Math.abs(r - nearest) < TOL_ROT){ Tnext.rot = nearest; flags.rot = true; }
+  }
+  _shareSnapFlags = flags;
+  // Haptic (iOS Safari suporta via navigator.vibrate em algumas versões)
+  if((flags.x && !_snapXLast) || (flags.y && !_snapYLast) || (flags.rot && !_snapRotLast)){
+    try{ navigator.vibrate && navigator.vibrate(12); }catch(_){}
+  }
+  _snapXLast = flags.x; _snapYLast = flags.y; _snapRotLast = flags.rot;
+  return Tnext;
 }
 // v675 Stage A + v676 Stage B/C: pointer handlers no overlay.
 // - 1 dedo em elemento: drag (translação)
@@ -3571,7 +3620,9 @@ function _shareAttachGestures(ov){
       const dx = p.x - gestureStart.startX, dy = p.y - gestureStart.startY;
       DB.shareTransforms = DB.shareTransforms || {};
       const prev = DB.shareTransforms[id] || {};
-      DB.shareTransforms[id] = { ...prev, tx: gestureStart.origTx + dx, ty: gestureStart.origTy + dy };
+      let Tnext = { ...prev, tx: gestureStart.origTx + dx, ty: gestureStart.origTy + dy };
+      Tnext = _shareSnap(id, Tnext);
+      DB.shareTransforms[id] = Tnext;
       _shareRedraw();
     } else if(gestureMode === 'pinch' && pointers.size === 2 && gestureStart){
       const [a, b] = Array.from(pointers.values());
@@ -3581,11 +3632,12 @@ function _shareAttachGestures(ov){
       const scaleFactor = dist / gestureStart.dist;
       const newScale = Math.max(0.3, Math.min(4, gestureStart.origScale * scaleFactor));
       const newRot = gestureStart.origRot + (angle - gestureStart.angle);
-      // Mantém o midpoint fixo durante pinch (translada pra compensar)
       const newTx = gestureStart.origTx + (mx - gestureStart.mx);
       const newTy = gestureStart.origTy + (my - gestureStart.my);
+      let Tnext = { tx: newTx, ty: newTy, scale: newScale, rot: newRot };
+      Tnext = _shareSnap(id, Tnext);
       DB.shareTransforms = DB.shareTransforms || {};
-      DB.shareTransforms[id] = { tx: newTx, ty: newTy, scale: newScale, rot: newRot };
+      DB.shareTransforms[id] = Tnext;
       _shareRedraw();
     }
     e.preventDefault();
@@ -3593,7 +3645,6 @@ function _shareAttachGestures(ov){
   const end = (e) => {
     pointers.delete(e.pointerId);
     if(pointers.size < 2 && gestureMode === 'pinch'){
-      // Degrada pra drag se sobrou 1 dedo (sem perder o estado)
       const only = pointers.values().next().value;
       const T = (DB.shareTransforms && DB.shareTransforms[DB.shareSelId]) || {};
       if(only){
@@ -3602,6 +3653,10 @@ function _shareAttachGestures(ov){
       } else { gestureMode = null; gestureStart = null; }
     } else if(pointers.size === 0){
       gestureMode = null; gestureStart = null;
+      // v677: solta → linhas balizadoras somem
+      _shareSnapFlags = {x:false, y:false, rot:false};
+      _snapRotLast = _snapXLast = _snapYLast = false;
+      _shareDrawOverlay();
     }
     if(e) e.preventDefault();
   };
