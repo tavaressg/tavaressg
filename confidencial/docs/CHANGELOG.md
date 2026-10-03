@@ -9,6 +9,55 @@
 
 ## Concluídas ✓
 
+### v687 + supabase.js v117 + migration 0068 — Gênero na ficha cadastral (2026-10-03)
+
+A ficha não tinha gênero. Faltava pra categoria de competição (CBJJ separa por
+sexo) e pra qualquer leitura por gênero nos relatórios. Mesmo desenho do CPF
+(v479/0039): **opcional**, sem CHECK de formato no banco, só nome + e-mail
+seguem obrigatórios no cadastro.
+
+**Coluna nova** em `profiles`: `genero` (text, nullable). Valores gravados:
+`M`, `F`, `nao_informar` ou `NULL`. Vazio (`NULL`) é "não preenchido" — **não**
+é o mesmo que `nao_informar`, que é a escolha explícita do aluno de não
+responder. `M`/`F` casam com as categorias CBJJ, então o valor é curto e
+estável: o que muda com o tempo é o rótulo, não o que está no banco.
+
+```sql
+-- confidencial/supabase/migrations/0068_profiles_genero.sql
+alter table public.profiles add column if not exists genero text;
+comment on column public.profiles.genero is
+  'Gênero (opcional): M | F | nao_informar | NULL (não preenchido). v687.';
+```
+
+Sem CHECK, sem default e sem backfill — mesma decisão da 0039 do CPF. As
+policies de `profiles` são por linha (não por coluna), então a coluna nova
+entra coberta pelo RLS que já existe: nada a mexer lá.
+
+**No app:**
+
+- `GENEROS` + `_generoLbl()` + `_generoSelectHTML()` (app.js, perto do
+  `_maskCPF`) — fonte única das opções, usada pelo cadastro e pela ficha. Duas
+  telas com `<option>` copiado é como as listas saem de sincronia.
+- Cadastro do aluno — `<select>` novo no passo 1, entre "Data de nascimento" e
+  "CPF", marcado `(opcional)`.
+- Ficha do aluno — linha nova na visualização (rótulo legível, `—` se vazio) e
+  `<select>` na edição, logo depois da data de nascimento.
+- Exportação **completa** de alunos — coluna `Gênero` depois de `Idade`. A
+  exportação enxuta não mudou (mesma escolha do CPF, que também não está lá).
+- Aviso de privacidade — "gênero (opcional, para categoria de competição)" no
+  rol do que é coletado.
+- `_cadToDB` e `cadFromProfile` propagam o campo entre cliente e banco.
+
+**Sem deploy de Edge Function:** a `create-student` não conhece `genero` e
+ignoraria o campo em silêncio se ele fosse no body. O cadastro grava num
+`update` logo depois do `criarAluno`, junto com o `nascimento_data` — que já
+usava exatamente esse caminho pelo mesmo motivo. Um `genero` no body só
+valeria a pena se houvesse outros campos novos pra justificar o deploy.
+
+**Importação em lote** ficou de fora: `IMPORT_TPL_HEADERS` não mudou. O CPF
+também não está no modelo da planilha — quem importa preenche o gênero depois
+pela ficha, se quiser.
+
 ### Migração de hospedagem: GitHub Pages → Cloudflare Pages (2026-09-27)
 
 Repositório GitHub virou **privado** e o site passou a ser servido pelo

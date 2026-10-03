@@ -245,6 +245,23 @@ function bindCPF(inp){
     try{ inp.setSelectionRange(newPos, newPos); }catch(_){}
   });
 }
+// v687: gênero do aluno. Opcional (igual ao CPF) — o valor vazio significa "não
+// preenchido", distinto de 'nao_informar', que é a escolha explícita do aluno de
+// não responder. Os códigos 'M'/'F' casam com as categorias de competição (CBJJ),
+// então ficam curtos e estáveis — o rótulo é o que muda, não o valor gravado.
+const GENEROS = [
+  { v:'M',            lbl:'Masculino' },
+  { v:'F',            lbl:'Feminino' },
+  { v:'nao_informar', lbl:'Prefiro não informar' },
+];
+function _generoLbl(v){ const g = GENEROS.find(x=>x.v===v); return g ? g.lbl : ''; }
+// <select> de gênero reaproveitado pelo cadastro e pela ficha — um lugar só pra
+// manter as opções em sincronia nas duas telas.
+function _generoSelectHTML(id, val){
+  const opts = ['<option value="">—</option>']
+    .concat(GENEROS.map(g=>`<option value="${g.v}" ${g.v===val?'selected':''}>${g.lbl}</option>`)).join('');
+  return `<select class="inp" id="${id}">${opts}</select>`;
+}
 // Campo de data em pt-BR sem picker do OS. Guarda no atributo data-iso pra facilitar leitura.
 // Uso: dateBRField(id, isoValue, {placeholder?}) → HTML string; dateBRRead(el) → 'YYYY-MM-DD' ou ''.
 function _isoToBR(iso){ if(!iso||typeof iso!=='string') return ''; const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${m[3]}/${m[2]}/${m[1]}`:''; }
@@ -8187,6 +8204,7 @@ function _alunosBuildRowsCompleta(alunos, turmaMap){
       'Recebe mensagens': (c.aceitaContato===false ? 'Não' : 'Sim'),
       'Dt. Nasc.': _fmtDataBR(a.nascData||a.nascimento),
       'Idade': _idadeDe(a.nascimento||a.nascData),
+      'Gênero': _generoLbl(c.genero),
       'Faixa etária': _faixaEtariaLbl(a.nascimento) || '',
       'CEP': e.cep || '',
       'Logradouro': e.logradouro || '',
@@ -9124,6 +9142,8 @@ function renderCadastroAluno(){
       <input class="inp" id="ca-tel" type="tel" inputmode="tel" placeholder="(31) 99999-9999">
       <label class="flbl" style="margin-top:12px">Data de nascimento</label>
       ${dateBRField('ca-nascdata','')}
+      <label class="flbl" style="margin-top:12px">Gênero <span class="ca-opt">(opcional)</span></label>
+      ${_generoSelectHTML('ca-genero','')}
       <label class="flbl" style="margin-top:12px">CPF <span class="ca-opt">(opcional)</span></label>
       <input class="inp" id="ca-cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14">
       <label class="flbl" style="margin-top:12px">Apelido <span class="ca-opt">(opcional — o aluno pode definir depois)</span></label>
@@ -9305,6 +9325,10 @@ function renderCadastroAluno(){
     const resp_nome=val('ca-rnome'), resp_telefone=_normTelBR(val('ca-rtel')), resp_parentesco=val('ca-rpar');
     // v479: CPF do aluno + CPF do responsável (opcionais). Guarda só dígitos.
     const cpf = val('ca-cpf').replace(/\D/g,'');
+    // v687: gênero (opcional). Vai num patch depois do criarAluno, igual ao
+    // nascimento_data: a Edge `create-student` não conhece o campo e ignoraria
+    // em silêncio — o patch não exige deploy da função.
+    const genero = val('ca-genero') || null;
     const resp_cpf = val('ca-rcpf').replace(/\D/g,'');
     // v296: início = hoje, sem obs, faixa/grau default (branca/0). Ajusta na ficha.
     const data_inicio=HOJE_ISO, observacoes='';
@@ -9326,7 +9350,10 @@ function renderCadastroAluno(){
     if(!DEMO && typeof sbProf!=='undefined'){
       try{ const r=await sbProf.criarAluno(dados);
         const novoId=(r&&(r.user_id||r.id))||null;
-        if(nascData && novoId && sbProf.atualizarAluno){ try{ await sbProf.atualizarAluno(novoId, {nascimento_data:nascData}); }catch(_){}}
+        if((nascData||genero) && novoId && sbProf.atualizarAluno){
+          const _patch={}; if(nascData) _patch.nascimento_data=nascData; if(genero) _patch.genero=genero;
+          try{ await sbProf.atualizarAluno(novoId, _patch); }catch(_){}
+        }
         if(novoId && sbProf.setStatusAluno){ try{ await sbProf.setStatusAluno(novoId, statusInicial); }catch(_){}}
         if(planoIdSel && novoId){
           // v583: se o plano exige contrato, chama a RPC transacional 0055 que
@@ -9365,7 +9392,7 @@ function renderCadastroAluno(){
     // offline (mock)
     const novo={ id:'mock-'+Date.now(), nm:apelido||nome, ini:_iniciaisDe(apelido||nome), cor:_corAluno(nome),
       faixa:selFaixa, graus:selGraus, nascimento, nascData, pres:null, pago:'ok', mensValor:0, mensVenc:'—', desde:dados.desde, turmas:[],
-      cad:{ nomeCompleto:nome, email, nascimento, telefone,
+      cad:{ nomeCompleto:nome, email, nascimento, telefone, genero:genero||'', cpf,
         endereco:{ cep, logradouro, numero, bairro, cidade, uf },
         responsavel:{ nome:resp_nome, telefone:resp_telefone, parentesco:resp_parentesco },
         dataInicio:data_inicio, obs:observacoes } };
@@ -9847,6 +9874,7 @@ function _erpFicha(a, c, paint, refresh){
       linha('Nome completo', c?c.nomeCompleto:'') +
       linha('Apelido', a.nm||'') +
       linha('Nascimento', nascComp) +
+      linha('Gênero', c?_generoLbl(c.genero):'') +
       linha('Telefone', c?c.telefone:'') +
       linha('CPF', c?_maskCPF(c.cpf||''):'') +
       linha('E-mail', c?c.email:'') +
@@ -9873,6 +9901,7 @@ function _erpFicha(a, c, paint, refresh){
     // obrigatória no cadastro e na importação. Dois campos para o mesmo fato só
     // criavam divergência (ano 1999 com data 23/03/2001 e ninguém sabia qual valia).
     dateInp('fc-nascdata','Data de nascimento', a.nascData||'') +
+    `<div class="erp-fld erp-fld-edit"><label>Gênero</label>${_generoSelectHTML('fc-genero', (c&&c.genero)||'')}</div>` +
     inp('fc-tel','Telefone', c?c.telefone:'', 'tel', '(11) 99999-0000') +
     inp('fc-cpf','CPF', c?_maskCPF(c.cpf||''):'', 'text', '000.000.000-00') +
     inp('fc-email','E-mail', c?c.email:'', 'email') +
@@ -9922,6 +9951,7 @@ function _erpFicha(a, c, paint, refresh){
     a.cad.nascimento = nascimento;
     a.cad.telefone = _normTelBR(g('fc-tel')); a.cad.email = g('fc-email');
     a.cad.cpf = g('fc-cpf').replace(/\D/g,'');
+    a.cad.genero = g('fc-genero');
     a.cad.endereco = { cep:g('fc-cep'), logradouro:g('fc-log'), numero:g('fc-num'), bairro:g('fc-bairro'), cidade:g('fc-cid'), uf:g('fc-uf').toUpperCase() };
     a.cad.responsavel = { nome:g('fc-rnm'), telefone:_normTelBR(g('fc-rtel')), parentesco:g('fc-rpar'), cpf:g('fc-rcpf').replace(/\D/g,'') };
     a.cad.dataInicio = dataInicio; a.cad.obs = g('fc-obs');
@@ -10377,7 +10407,7 @@ function _profExcluirAlunoSheet(a, refresh){
 // mapeia a ficha (cad) para as colunas snake_case do profiles (backend)
 function _cadToDB(cad){
   const e=cad.endereco||{}, r=cad.responsavel||{};
-  return { telefone:cad.telefone, cpf:cad.cpf||null, cep:e.cep, logradouro:e.logradouro, numero:e.numero, bairro:e.bairro, cidade:e.cidade, uf:e.uf,
+  return { telefone:cad.telefone, cpf:cad.cpf||null, genero:cad.genero||null, cep:e.cep, logradouro:e.logradouro, numero:e.numero, bairro:e.bairro, cidade:e.cidade, uf:e.uf,
     resp_nome:r.nome, resp_telefone:r.telefone, resp_parentesco:r.parentesco, resp_cpf:r.cpf||null,
     data_inicio:cad.dataInicio||null, observacoes:cad.obs, aceita_contato:!!cad.aceitaContato };
 }
@@ -17498,7 +17528,7 @@ function abrirPolitica(){
       <h4>Beta</h4>
       <p>App em teste: pode ter falhas e mudanças. Sem garantias. O backup exportável continua disponível como segurança extra.</p>
       <h4>Governança</h4>
-      <p>Controlador: <b>Academia Yama Jiu-Jitsu</b>. Operador: Supabase (hospedagem do banco de dados). Coletamos o mínimo necessário: dados de contato, CPF (para contrato/recibo — opcional), e o que você registrar em Lesões. Não há decisões automatizadas sobre você. Os dados ficam até você apagar.</p>
+      <p>Controlador: <b>Academia Yama Jiu-Jitsu</b>. Operador: Supabase (hospedagem do banco de dados). Coletamos o mínimo necessário: dados de contato, CPF (para contrato/recibo — opcional), gênero (opcional, para categoria de competição), e o que você registrar em Lesões. Não há decisões automatizadas sobre você. Os dados ficam até você apagar.</p>
       <h4>Contato</h4>
       <p>Dúvidas ou exclusão de dados: fale com a equipe pelo botão <b>Enviar feedback</b> em Config.</p>
     </div>
