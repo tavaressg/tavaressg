@@ -6505,7 +6505,12 @@ _dlgRegister('trocarSenhaSalvar', async (el) => {
   }catch(err){
     el.disabled=false; el.textContent='Salvar e continuar';
     toast(pwErrMsg(err));
-    try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
+    // v698: só o INESPERADO vira linha em client_errors. Senha repetida, senha
+    // curta, senha errada: o formulário já disse à pessoa o que fazer, e o KPI
+    // de erros existe pra avisar o professor do que ele precisa investigar.
+    if(!pwErrConhecido(err)){
+      try{ if(typeof sbSync!=='undefined' && sbSync.logError) sbSync.logError('trocarSenha: '+((err&&err.message)||err), recovery?'recovery':'primeiro-acesso'); }catch(_){}
+    }
   }
 });
 
@@ -6839,15 +6844,28 @@ function _sairDaConta(){
 
 /* Troca de senha no 1º acesso (P1): disparada quando sbAuth.mustChangePassword() é true.
    Também atende o retorno do link "esqueci a senha" (PASSWORD_RECOVERY → DB.trocarSenhaRecovery). */
-function pwErrMsg(err){
+/* v698: tabela única de erros ESPERADOS na troca de senha. Antes os padrões
+   viviam soltos num if/else e só serviam pra traduzir; agora eles também dizem
+   se o erro é conhecido — e erro conhecido não vai pro client_errors.
+   Aluna digitar a senha antiga de novo é uso normal do formulário, não defeito
+   do app: logar isso enchia o KPI "ERROS DE APP (24H)" de ruído e escondia
+   erro de verdade, mesma doença do "Script error." da v696. */
+const _PW_ERROS = [
+  [/different from the old|different password/i,        'A nova senha precisa ser diferente da senha provisória.'],
+  [/current password/i,                                 'Senha provisória (atual) incorreta.'],
+  [/at least one character|abcdefghijklmnopqrstuvwxyz/i,'A senha precisa ter letras e números.'],
+  [/at least \d+ character/i,                           'Senha muito curta: mínimo 8 caracteres.'],
+  [/reauthentication|nonce/i,                           'Sessão expirada. Saia e entre de novo para trocar a senha.'],
+  [/rate limit|too many/i,                              'Muitas tentativas. Aguarde alguns minutos.'],
+];
+// Devolve a mensagem em pt-BR quando reconhece o erro; null quando é inesperado.
+function pwErrConhecido(err){
   const m = String((err && err.message) || err);
-  if (/different from the old|different password/i.test(m)) return 'A nova senha precisa ser diferente da senha provisória.';
-  if (/current password/i.test(m)) return 'Senha provisória (atual) incorreta.';
-  if (/at least one character|abcdefghijklmnopqrstuvwxyz/i.test(m)) return 'A senha precisa ter letras e números.';
-  if (/at least \d+ character/i.test(m)) return 'Senha muito curta — mínimo 8 caracteres.';
-  if (/reauthentication|nonce/i.test(m)) return 'Sessão expirada — saia e entre de novo para trocar a senha.';
-  if (/rate limit|too many/i.test(m)) return 'Muitas tentativas — aguarde alguns minutos.';
-  return 'Erro: ' + m;
+  for (const [re, msg] of _PW_ERROS) if (re.test(m)) return msg;
+  return null;
+}
+function pwErrMsg(err){
+  return pwErrConhecido(err) || ('Erro: ' + String((err && err.message) || err));
 }
 function renderTrocarSenha(){
   const recovery = !!DB.trocarSenhaRecovery;
@@ -7723,7 +7741,7 @@ function _profErrosSheet(){
       return `<div class="mt-row" style="flex-direction:column;align-items:flex-start;gap:3px">
         <b style="font-size:12.5px;overflow-wrap:break-word">${safeTxt(r.msg||'—')}</b>
         ${loc?`<span style="font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace">${loc}</span>`:''}
-        <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · v'+safeTxt(r.app_version):''}</span>
+        <span style="font-size:11px;color:var(--muted)">${quando}${r.app_version?' · '+safeTxt(r.app_version):''}</span>
         ${stack?`<details style="width:100%"><summary style="font-size:11px;color:var(--muted);cursor:pointer">stack</summary><pre style="font-size:10.5px;white-space:pre-wrap;overflow-wrap:break-word;margin:4px 0 0;color:var(--muted)">${stack}</pre></details>`:''}
       </div>`;
     }).join('');

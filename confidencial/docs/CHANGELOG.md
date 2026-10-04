@@ -9,6 +9,32 @@
 
 ## Concluídas ✓
 
+### v698 — Senha recusada sai do KPI de erros; "vv697" vira "v697" (2026-10-04)
+
+O alerta "ERROS DE APP (24H)" acusou `trocarSenha: New password should be
+different from the old password.` Não era defeito: uma aluna tentou trocar a
+senha pela mesma senha padrão e o Supabase recusou, como deve. O formulário já
+mostrava a mensagem traduzida em pt-BR, então para ela a experiência estava
+correta.
+
+O problema era o `logError` disparar junto. Recusa de validação é uso normal do
+formulário, e enchia o KPI de ruído que esconde erro de verdade. Mesma doença
+do `"Script error."` da v696, outra origem.
+
+Os padrões de `pwErrMsg` viraram a tabela `_PW_ERROS`, com `pwErrConhecido()`
+devolvendo a mensagem quando reconhece o erro e `null` quando não. O `catch` do
+`trocarSenhaSalvar` só chama `logError` no segundo caso: o que ninguém previu
+continua chegando ao professor, o esperado para de chegar.
+
+Fonte única: antes a lista de padrões existia só para traduzir, e uma segunda
+lista para decidir o log sairia de sincronia na primeira mudança.
+
+Verificado no Chromium com os 6 erros esperados e 2 inesperados: os 6 param de
+logar e mantêm a tradução, os 2 seguem logando.
+
+**Junto:** o card do alerta mostrava `vv697`. `APP_VERSION` já vem com o `v`
+(lido do `app.js?v=N`) e o template prefixava outro.
+
 ### v697 + supabase.js v118 — Auditoria destravada, foto só na ficha, cache de 1 semana (2026-10-03)
 
 Três pedidos do dono no primeiro dia com a academia usando o app.
