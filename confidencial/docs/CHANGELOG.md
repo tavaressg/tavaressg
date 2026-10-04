@@ -9,7 +9,13 @@
 
 ## Concluídas ✓
 
-### v698 — Senha recusada sai do KPI de erros; "vv697" vira "v697" (2026-10-04)
+### v700 — Senha recusada sai do KPI de erros; "vv697" vira "v697" (2026-10-04)
+
+**Nota de numeração:** nasceu `v698` e virou `v700` no merge. Uma sessão
+paralela publicou `v698` e `v699` (corte de egress no `getAlunos` e no
+`getRelatorios`) enquanto esta mudança estava em andamento. Terceira colisão
+de numeração do projeto; fonte da verdade segue sendo o `?v=N` do
+`index.html` em `main`.
 
 O alerta "ERROS DE APP (24H)" acusou `trocarSenha: New password should be
 different from the old password.` Não era defeito: uma aluna tentou trocar a

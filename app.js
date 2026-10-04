@@ -6505,7 +6505,7 @@ _dlgRegister('trocarSenhaSalvar', async (el) => {
   }catch(err){
     el.disabled=false; el.textContent='Salvar e continuar';
     toast(pwErrMsg(err));
-    // v698: só o INESPERADO vira linha em client_errors. Senha repetida, senha
+    // v700: só o INESPERADO vira linha em client_errors. Senha repetida, senha
     // curta, senha errada: o formulário já disse à pessoa o que fazer, e o KPI
     // de erros existe pra avisar o professor do que ele precisa investigar.
     if(!pwErrConhecido(err)){
@@ -6844,7 +6844,7 @@ function _sairDaConta(){
 
 /* Troca de senha no 1º acesso (P1): disparada quando sbAuth.mustChangePassword() é true.
    Também atende o retorno do link "esqueci a senha" (PASSWORD_RECOVERY → DB.trocarSenhaRecovery). */
-/* v698: tabela única de erros ESPERADOS na troca de senha. Antes os padrões
+/* v700: tabela única de erros ESPERADOS na troca de senha. Antes os padrões
    viviam soltos num if/else e só serviam pra traduzir; agora eles também dizem
    se o erro é conhecido — e erro conhecido não vai pro client_errors.
    Aluna digitar a senha antiga de novo é uso normal do formulário, não defeito
@@ -7117,7 +7117,11 @@ function _pullSemEco(){
 }
 
 function _loadProfData(){
-  if(Date.now() - _profTs < 30000) return;
+  // v697: gate 30s→60s. Realtime (v556) cobre check-ins/pedidos/graduacoes em
+  // tempo real; as 3 outras protecoes (refetch por foco 5min, onDadosMudaram
+  // em cada mutacao, Realtime) ja' garantem frescor. Dobrar o gate corta
+  // chamadas espaçadas por 30-60s sem perda perceptivel pro professor.
+  if(Date.now() - _profTs < 60000) return;
   // v658: skip refetch enquanto aba escondida (professor deixou tab aberto).
   // Impacto real medido: aba escondida por horas gerava dezenas de refetches
   // (getAlunos = 7 queries × ~150 KB cada) sem ninguém ver o resultado. Volta
@@ -10584,16 +10588,16 @@ function _loadRelData(){
   if(_relData && Date.now()-_relTs < 30000) return;
   _relTs = Date.now();
   if(DEMO || typeof sbProf==='undefined' || !sbProf.getRelatorios){
+    // v698: `graduacoes` saiu do shape — nunca foi lido em _relData, era campo morto.
     _relData = {
       checkins:(DB.treinos||[]).filter(t=>t.data).map(t=>({user_id:'self', data:t.data, hora:null, tipo:null, turma_id:null})),
-      graduacoes:(DB.graduacoes||[]).map(g=>({user_id:'self', faixa:g.faixa, graus:g.graus, tipo:g.tipo, data:g.data})),
       progresso:_selfProgresso().map(p=>Object.assign({user_id:'self'}, p)),
       lesoes:(DB.lesoes||[]).map(l=>({user_id:'self', parte:l.parte, status:l.status, data:l.data})),
     };
     return;
   }
   sbProf.getRelatorios().then(d=>{
-    _relData = d || {checkins:[],graduacoes:[],progresso:[],lesoes:[]}; renderBg();
+    _relData = d || {checkins:[],progresso:[],lesoes:[]}; renderBg();
   }).catch(()=>{ _relTs = 0; });
 }
 
