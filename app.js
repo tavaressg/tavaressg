@@ -3257,6 +3257,19 @@ function fmtDataLonga(s){ const [y,mo,d]=s.split('-'); return `${d} de ${meses[+
 // (modo "fundo branco" removido 2026-10-02 por decisão do dono).
 // v684: chip "Sem nada" removido. Estado 'vazio' continua intrínseco — ativa
 // automaticamente quando user desseleciona (toggle do chip ativo).
+/* v702 — DOIS espaços de coordenada no card, não confundir:
+   LÓGICO  (SHARE_W × SHARE_H = 1080×1920) — onde vive TODO o código de desenho,
+            as bboxes dos gestos e os transforms. Nada disso mudou.
+   REAL     (lógico × SHARE_SCALE) — os pixels do canvas de verdade.
+   O `ctx.scale(SHARE_SCALE, SHARE_SCALE)` no topo do desenho faz a ponte, então
+   as ~20 fontes em px absolutos e todas as posições seguem valendo como estão.
+   Motivo: com escala 1 a foto do celular (3024px) era reduzida 2.8x por nós; em
+   2x a redução cai pra 1.4x e o resto fica a cargo do Instagram, que exibe story
+   em 1080×1920. Custo: os 2 canvases (card + overlay) vão de 15,8 MB pra 63,3 MB
+   de memória no aparelho — medido antes de decidir. */
+const SHARE_W = 1080, SHARE_H = 1920;
+const SHARE_SCALE = 2;
+const SHARE_PX_W = SHARE_W * SHARE_SCALE, SHARE_PX_H = SHARE_H * SHARE_SCALE;
 const SHARE_TPLS = [['kanji','Kanji'],['marca','Marca'],['streak','Streak'],['checkin','No tatame'],['acertos','Acertos']];
 /* v695 — linhas do card "Acertos": uma por técnica do randori daquele treino.
    `det.renshu` guarda o que foi feito NO DIA; o acumulado vem dos buckets da
@@ -3635,7 +3648,13 @@ function _shareRedraw(){
   if(!cv || !_shareTreino) return;
   try{
     const _ok = (img) => (img && img.complete && img.naturalWidth) ? img : null;
-    drawStory(cv.getContext("2d"), 1080, 1920, _shareTreino, DB.shareTpl,
+    const ctx = cv.getContext("2d");
+    // v702: canvas em pixels REAIS, desenho em coordenada LÓGICA. O setTransform
+    // (e não scale) é obrigatório: `scale` acumula a cada redraw, e esta função
+    // roda várias vezes por sessão (fonte carregada, foto escolhida, gesto).
+    ctx.setTransform(SHARE_SCALE, 0, 0, SHARE_SCALE, 0, 0);
+    ctx.clearRect(0, 0, SHARE_W, SHARE_H);
+    drawStory(ctx, SHARE_W, SHARE_H, _shareTreino, DB.shareTpl,
       _ok(_sharePhoto), _ok(_shareKanji), _ok(_shareKanjiW), _ok(_shareTurmaLogo),
       _ok(_shareMarcaCirc), _ok(_shareLockupH));
     _shareDrawOverlay();
@@ -3647,8 +3666,12 @@ let _shareSnapFlags = { x: false, y: false, rot: false };
 function _shareDrawOverlay(){
   const ov = document.getElementById("share-overlay"); if(!ov) return;
   const octx = ov.getContext("2d");
-  octx.clearRect(0, 0, ov.width, ov.height);
-  const W = ov.width, H = ov.height;
+  // v702: mesma ponte do card — pixels reais no canvas, coordenada lógica no
+  // desenho. As bboxes e os transforms são lógicos, então o anel de seleção e
+  // as linhas balizadoras têm que ser desenhados no mesmo espaço deles.
+  octx.setTransform(SHARE_SCALE, 0, 0, SHARE_SCALE, 0, 0);
+  octx.clearRect(0, 0, SHARE_W, SHARE_H);
+  const W = SHARE_W, H = SHARE_H;
   const selId = DB.shareSelId; if(!selId) return;
   const bb = _shareBboxes[selId]; if(!bb) return;
   const T = (DB.shareTransforms && DB.shareTransforms[selId]) || {tx:0, ty:0, scale:1, rot:0};
@@ -3700,7 +3723,7 @@ function _shareSnap(id, Tnext){
   const bb = _shareBboxes[id]; if(!bb) return Tnext;
   const Tprev = (DB.shareTransforms && DB.shareTransforms[id]) || {tx:0, ty:0, scale:1, rot:0};
   const baseCX = bb.cx - (Tprev.tx||0), baseCY = bb.cy - (Tprev.ty||0);
-  const W = 1080, H = 1920;
+  const W = SHARE_W, H = SHARE_H;   // v702: espaço lógico, igual às bboxes
   const nextCX = baseCX + (Tnext.tx||0), nextCY = baseCY + (Tnext.ty||0);
   const TOL_POS = 24, TOL_ROT = 0.09; // ~5°
   const flags = { x:false, y:false, rot:false };
@@ -3730,9 +3753,12 @@ function _shareSnap(id, Tnext){
 // - tap fora: deseleciona
 function _shareAttachGestures(ov){
   if(!ov) return;
+  // v702: converte o toque pro espaço LÓGICO (1080×1920), não pros pixels reais
+  // do canvas. As bboxes do hit test e os transforms vivem no lógico; usar
+  // ov.width aqui passaria a dar o dobro e o arrastar pegaria no lugar errado.
   const toCanvas = (e) => {
     const rect = ov.getBoundingClientRect();
-    const sx = ov.width / rect.width, sy = ov.height / rect.height;
+    const sx = SHARE_W / rect.width, sy = SHARE_H / rect.height;
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
   };
   const hitTest = (px, py) => {
@@ -3927,10 +3953,10 @@ function renderShare(){
   </div>`;
   const body = el(`<div class="share-body"></div>`);
   const stage = el(`<div class="story-stage${_sharePhoto?' has-photo':''}"></div>`);
-  const cv = el(`<canvas class="story-canvas" id="share-canvas" width="1080" height="1920"></canvas>`);
+  const cv = el(`<canvas class="story-canvas" id="share-canvas" width="${SHARE_PX_W}" height="${SHARE_PX_H}"></canvas>`);
   // v675 Stage A: overlay canvas pro anel de seleção (não vai pro export; o
   // export usa cv.toBlob diretamente).
-  const ov = el(`<canvas class="story-overlay" id="share-overlay" width="1080" height="1920"></canvas>`);
+  const ov = el(`<canvas class="story-overlay" id="share-overlay" width="${SHARE_PX_W}" height="${SHARE_PX_H}"></canvas>`);
   stage.appendChild(cv); stage.appendChild(ov); body.appendChild(stage);
   // v675 Stage A: pointer handlers no overlay (que fica em cima do cv e intercepta
   // o toque). hit test contra _shareBboxes populado pelo último drawStory.

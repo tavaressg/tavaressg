@@ -9,6 +9,39 @@
 
 ## Concluídas ✓
 
+### v702 — Canvas do story em 2x: a redução da foto vai pro Instagram (2026-10-07)
+
+O dono testou a v701 e a foto seguiu macia. Então entra o plano B que a v701
+deixou documentado: o canvas sai de 1080x1920 pra **2160x3840**.
+
+**Dois espaços de coordenada, explicitados em constantes.** `SHARE_W/SHARE_H`
+(1080x1920) é o espaço LÓGICO onde vive todo o código de desenho, as bboxes dos
+gestos e os transforms — nada disso mudou. `SHARE_PX_W/SHARE_PX_H` são os pixels
+reais. Um `setTransform(SHARE_SCALE, ...)` no topo do redraw faz a ponte, então
+as ~20 fontes em px absolutos e todas as posições seguem valendo como estavam.
+Zero reescrita de coordenada.
+
+**`setTransform`, não `scale`:** `scale` acumularia a cada redraw, e o redraw
+roda várias vezes por sessão (fonte carregada, foto escolhida, gesto aplicado).
+Verificado: escala segue 2 depois de dois redraws seguidos.
+
+**O gesto foi o ponto de risco.** `toCanvas()` mapeava o toque pra `ov.width`,
+que agora é o dobro, enquanto as bboxes do hit test são lógicas: o arrastar
+pegaria no lugar errado. Passou a mapear pra `SHARE_W/SHARE_H`. `_shareSnap`
+também tinha `1080/1920` cravado e foi amarrado às constantes. Testado com
+PointerEvent real na tela montada: toque no centro seleciona `content`, toque no
+topo não seleciona nada.
+
+**Resultado medido:** foto de celular de 3024px agora reduz **1.40x** em vez de
+2.80x; o resto fica a cargo do Instagram, que exibe story em 1080x1920. O JPEG
+exportado vai de 0,46 MB pra **0,98 MB**, ainda muito abaixo dos 3,6 MB do PNG
+que a v701 aposentou.
+
+**Custo aceito:** os 2 canvases (card + overlay) vão de 15,8 MB pra 63,3 MB de
+memória no aparelho. Era o motivo de eu ter recomendado não fazer isso na v701;
+o dono testou na prática e decidiu pagar. Se aparecer aba morrendo em aparelho
+antigo, o caminho de volta é `SHARE_SCALE = 1`, uma constante.
+
 ### v701 — Foto do story sem escurecimento, reamostragem boa, JPEG no export (2026-10-07)
 
 Relato do dono: foto do card saindo escura e macia, e pior ainda depois de
