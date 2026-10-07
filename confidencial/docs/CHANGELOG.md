@@ -9,6 +9,39 @@
 
 ## Concluídas ✓
 
+### v704 — 🔴 Treino do próprio aluno não abria, não compartilhava, não editava (2026-10-07)
+
+Relato do dono: clicou no treino em "Últimos treinos" e a tela ficou cinza, sem
+menu e sem como compartilhar. O KPI de erros do app não acusava nada.
+
+**Causa:** o id de treino tem dois formatos. Treino registrado no app recebe
+`Date.now()`, um NÚMERO; placeholder vindo de check-in do servidor recebe
+`'ck-991'`, TEXTO. O id viaja pro DOM num `data-id`, e atributo de HTML só
+guarda texto — o número sai número e volta string no clique. A busca usa `===`,
+que exige mesmo tipo, então **o treino do próprio aluno nunca era encontrado**.
+
+`renderTreinoDetalhe` devolve `<div class="view"></div>` quando não acha: tela
+vazia, sem exceção. Por isso nada chegava em `client_errors` — não havia erro,
+havia um `find` devolvendo `undefined`.
+
+**Alcance maior que o relato.** Os mesmos quatro pontos comparavam id assim, e
+todos quebravam só pro treino do aluno:
+
+| Ação | Sintoma |
+|---|---|
+| Abrir detalhe | tela cinza |
+| Compartilhar | tela cinza |
+| Editar treino | botão não fazia nada |
+| Excluir treino | botão não fazia nada |
+
+**Correção:** `_mesmoTreino(a, b)` compara como texto, nos quatro pontos. Isso
+conserta também os treinos **já salvos** com id numérico — mudar só a geração do
+id deixaria o histórico de todo mundo quebrado, que é o pior dos dois mundos.
+
+**Reproduzido antes de corrigir** (tela devolvia 0 caracteres com id numérico,
+112 com id de servidor) e verificado depois: as 4 ações funcionam com id
+numérico e o caso de servidor segue intacto.
+
 ### v703 — 🔴 Convite e reset de senha mandavam link MORTO (2026-10-07)
 
 Relato do dono: fez um reset de senha, foi compartilhar e apareceu o endereço

@@ -3063,7 +3063,7 @@ _dlgRegister('abrirMeusPedidos', () => openMeusPedidos());
    deixava `renderTreinoDetalhe` com 4 handlers e uma closure sobre `t`. Como
    funcao propria ela sai da cadeia de render, e o treino e' resolvido por id. */
 function _treinoExcluirSheet(id){
-  const t = DB.treinos.find(x => x.id === id);
+  const t = DB.treinos.find(x => _mesmoTreino(x.id, id));
   if (!t) return;
   const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog">
     <div class="sheet-grip"></div>
@@ -3087,11 +3087,21 @@ function _treinoExcluirSheet(id){
   requestAnimationFrame(()=> sheet.classList.add('open'));
 }
 _dlgRegister('treinoShare',   (elm) => abrirShare(elm.dataset.id));
-_dlgRegister('treinoEditar',  (elm) => { const t = DB.treinos.find(x=>x.id===elm.dataset.id); if(t) abrirEditarTreino(t); });
+_dlgRegister('treinoEditar',  (elm) => { const t = DB.treinos.find(x=>_mesmoTreino(x.id, elm.dataset.id)); if(t) abrirEditarTreino(t); });
 _dlgRegister('treinoExcluir', (elm) => _treinoExcluirSheet(elm.dataset.id));
 
+/* v704 — id de treino tem DOIS formatos: NÚMERO (`Date.now()`, treino que o
+   aluno registrou no app) e TEXTO ('ck-991', placeholder vindo de check-in do
+   servidor). O id viaja pro DOM num `data-id`, e atributo de HTML só guarda
+   TEXTO: o número sai número e volta string do clique, então `===` nunca casa.
+   Resultado, só pros treinos do próprio aluno: não abria (tela em branco), não
+   compartilhava, não editava e não excluía — tudo em silêncio, sem exceção, por
+   isso nunca apareceu no KPI de erros.
+   Comparar como texto conserta também os treinos JÁ SALVOS com id numérico;
+   mudar só a geração do id deixaria o histórico de todo mundo quebrado. */
+const _mesmoTreino = (a, b) => String(a) === String(b);
 function renderTreinoDetalhe(){
-  const t = DB.treinos.find(x=>x.id===DB.treinoAberto);
+  const t = DB.treinos.find(x=>_mesmoTreino(x.id, DB.treinoAberto));
   if(!t){ fecharTreino(); return el(`<div class="view"></div>`); }
   const v = el(`<div class="view"></div>`);
   v.innerHTML = `<div class="flow-head">
@@ -3941,7 +3951,7 @@ function renderShare(){
   // v667: fluxo do professor passa um stub (sem presença) via _profStubTreino.
   const t = (_profStubTreino && _profStubTreino.id === DB.shareOpen)
     ? _profStubTreino
-    : DB.treinos.find(x=>x.id===DB.shareOpen);
+    : DB.treinos.find(x=>_mesmoTreino(x.id, DB.shareOpen));
   if(!t){ DB.shareOpen=null; return el('<div></div>'); }
   const sub = _profStubTreino ? 'Foto da academia pro story'
             : DB.shareFromSave ? 'Treino salvo ✔ · compartilhe ou feche'
