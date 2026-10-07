@@ -9,6 +9,35 @@
 
 ## Concluídas ✓
 
+### v703 — 🔴 Convite e reset de senha mandavam link MORTO (2026-10-07)
+
+Relato do dono: fez um reset de senha, foi compartilhar e apareceu o endereço
+antigo do GitHub.
+
+`APP_URL` estava cravado em `https://tavaressg.github.io/tavaressg/`. A migração
+pro Cloudflare Pages (2026-09-27) trocou o host, atualizou `og:url`/`og:image` e
+o `wrangler.toml`, mas deixou este literal pra trás. Com o repositório privado,
+o GitHub Pages saiu do ar: **a mensagem de WhatsApp saía com a senha certa e um
+link que não abre.**
+
+Atingia os dois fluxos que entregam acesso a aluno:
+- **Reset de senha** (ficha → Redefinir senha → Enviar no WhatsApp)
+- **Convite de acesso** (importação em lote, v308)
+
+Ou seja, todo aluno que recebeu acesso desde 27/09 recebeu um link quebrado.
+
+**Correção:** `APP_URL` passa a sair do `<meta property="og:url">` do
+`index.html`, que é o canônico e já era mantido pela checklist de migração. Uma
+fonte só, e ela não envelhece junto com o host.
+
+**Por que não `location.origin`:** o Cloudflare Pages dá URL de preview por PR,
+e convite carregando link de preview é tão quebrado quanto o `github.io`. O
+`origin` fica só como fallback se a meta sumir.
+
+**Pendência fora do repo:** conferir no painel do Supabase que Auth → Site URL e
+Redirect URLs apontam pro domínio novo. O e-mail de recuperação do próprio
+Supabase monta o link a partir dali, e esta correção não alcança esse caminho.
+
 ### v702 — Canvas do story em 2x: a redução da foto vai pro Instagram (2026-10-07)
 
 O dono testou a v701 e a foto seguiu macia. Então entra o plano B que a v701

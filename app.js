@@ -10713,7 +10713,19 @@ function _waResolve(body, a){ return String(body||'').replace(/\{nome\}/gi, _waN
    O aluno importado não sabe o link do app, nem que tem conta. Esta mensagem
    entrega as 3 coisas que faltam: link, e-mail (o login dele) e a senha padrão.
    Fica FORA do WA_TEMPLATES porque precisa da senha, que não vem do objeto `a`. */
-const APP_URL = 'https://tavaressg.github.io/tavaressg/';
+/* v703: era 'https://tavaressg.github.io/tavaressg/' cravado. A migração pro
+   Cloudflare Pages (2026-09-27) trocou o host e deixou este literal pra trás, e
+   o repo virou privado: o convite e o reset de senha passaram a mandar a aluna
+   pra um link MORTO, com a senha certa e nenhum lugar pra usar.
+   Agora sai do <meta og:url> do index.html, que é o canônico e já era mantido
+   pela própria checklist de migração. Uma fonte só, e ela não envelhece.
+   NÃO use location.origin: o Cloudflare dá URL de preview por PR, e um convite
+   carregando o preview é tão quebrado quanto o github.io. */
+const APP_URL = (()=>{
+  const m = document.querySelector('meta[property="og:url"]');
+  const u = m && m.content && m.content.trim();
+  return u || (location.origin + '/');
+})();
 function _waConviteBody(a, senha){
   const email = (a.cad && a.cad.email) || a.email || '';
   return `Oi ${_waNome(a)}, seu acesso ao app da Yama Jiu-Jitsu está pronto 🥋\n\n`
