@@ -3438,6 +3438,14 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
   };
   const withContent = (baseBbox, drawFn) => { _applyT(baseBbox, drawFn, 'content'); };
 
+  // v701: reamostragem boa. O padrão do canvas é 'low' — interpola 4 vizinhos e
+  // ignora o resto, o que numa foto de celular reduzida ~2.8x joga fora a
+  // textura fina (trama do kimono, cabelo, linhas do tatame) e cria chuviscado.
+  // Medido contra a média de área (redução correta): erro 7.84 no padrão contra
+  // 4.04 aqui, 48% menos. O padrão é barato porque foi pensado pra animação a
+  // 60fps; aqui é um desenho só, então a conta boa sai de graça.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   // 1. Fundo
   ctx.clearRect(0,0,W,H);
   _shareBboxes = {}; // v675 Stage A: zera antes de popular neste render
@@ -3447,7 +3455,11 @@ function drawStory(ctx,W,H,t,tpl,photoImg,kanjiBlack,kanjiWhite,turmaLogo,marcaC
     // reenquadram em cima. Overlay escuro NÃO entra no transform — fica fixo
     // pra manter contraste com a marca mesmo com a foto reposicionada.
     _applyT({x:0, y:0, w:W, h:H}, () => _cover(ctx, photoImg, W, H), 'photo');
-    ctx.fillStyle='rgba(0,0,0,.32)'; ctx.fillRect(0,0,W,H);
+    // v701: a tarja de 32% de preto sobre a foto inteira SAIU, por decisão do
+    // dono. Ela existia pra garantir contraste com o texto branco, mas custava
+    // um terço da luminosidade da foto e aparecia no story como "foto escura".
+    // O contraste agora depende só da sombra do texto (`son()`), que já estava
+    // lá: cinto e suspensório viraram só o cinto.
   }
   // Sem foto: canvas fica com alpha=0 (PNG transparente puro — sticker)
 
@@ -3854,19 +3866,33 @@ _dlgRegister('shareFoto', (elm) => {
   rd.onload = (ev) => { const img = new Image(); img.onload = ()=>{ _sharePhoto = img; render(); }; img.src = ev.target.result; };
   rd.readAsDataURL(f);
 });
+/* v701: com foto o canvas é OPACO — a transparência do PNG não serve pra nada
+   ali e o arquivo sai com 3,6 MB. O Instagram recomprime tudo que recebe, e
+   aperta mais o que chega grande; um JPEG 0.92 do mesmo card dá 0,46 MB e
+   atravessa o funil dele melhor. Sem foto o PNG é obrigatório: é o modo adesivo,
+   que depende do fundo transparente. */
+function _shareFmt(){
+  return _sharePhoto ? { tipo:'image/jpeg', q:0.92, ext:'jpg' }
+                     : { tipo:'image/png',  q:undefined, ext:'png' };
+}
 _dlgRegister('shareEnviar', () => {
   const cv = _shareCanvas(); if(!cv) return;
+  const F = _shareFmt();
   cv.toBlob(async (b) => {
-    const file = new File([b], 'yama-treino.png', { type:'image/png' });
+    const file = new File([b], 'yama-treino.'+F.ext, { type:F.tipo });
     if(navigator.canShare && navigator.canShare({files:[file]})){
       // v671: só o arquivo, sem title/text — WhatsApp usava `text` como legenda da foto.
       try{ await navigator.share({files:[file]}); }catch(e){}
     } else { toast('Compartilhar direto indisponível — use Copiar/Baixar'); }
-  });
+  }, F.tipo, F.q);
 });
 _dlgRegister('shareCopiar', () => {
   const cv = _shareCanvas(); if(!cv) return;
   if(!(navigator.clipboard && window.ClipboardItem)){ toast('Copiar indisponível; use Baixar PNG'); return; }
+  // v701: Baixar/Enviar passaram a JPEG quando há foto, mas Copiar NÃO: a
+  // Async Clipboard API só garante 'image/png' nos navegadores: escrever JPEG
+  // falha calado em boa parte deles. O caminho do clipboard segue PNG de
+  // propósito, e quem quer o arquivo leve usa Baixar ou Enviar.
   try{
     const item = new ClipboardItem({ 'image/png': new Promise(res => cv.toBlob(bb => res(bb), 'image/png')) });
     navigator.clipboard.write([item]).then(()=>toast('Copiado ✔ cole no seu story 📲')).catch(()=>toast('Não rolou copiar; use Baixar PNG'));
@@ -3874,14 +3900,15 @@ _dlgRegister('shareCopiar', () => {
 });
 _dlgRegister('shareBaixar', () => {
   const cv = _shareCanvas(); if(!cv) return;
+  const F = _shareFmt();
   cv.toBlob((b) => {
     const url = URL.createObjectURL(b);
     const a = document.createElement('a');
-    a.href = url; a.download = 'yama-treino.png';
+    a.href = url; a.download = 'yama-treino.'+F.ext;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
-    toast('PNG baixado ✔');
-  });
+    toast(F.ext.toUpperCase()+' baixado ✔');
+  }, F.tipo, F.q);
 });
 
 function renderShare(){

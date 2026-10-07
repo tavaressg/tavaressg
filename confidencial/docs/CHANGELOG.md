@@ -9,6 +9,47 @@
 
 ## Concluídas ✓
 
+### v701 — Foto do story sem escurecimento, reamostragem boa, JPEG no export (2026-10-07)
+
+Relato do dono: foto do card saindo escura e macia, e pior ainda depois de
+passar pelo Instagram. Três causas distintas, todas medidas.
+
+**1. A tarja saiu.** `rgba(0,0,0,.32)` sobre a foto inteira existia desde o
+v666 pra garantir contraste com o texto branco. Custava um terço da
+luminosidade e era o "escuro" do relato. Removida por decisão do dono; o
+contraste fica por conta da sombra do texto (`son()`), que já existia e **não
+foi alterada** (pedido explícito).
+
+Risco conhecido e aceito: em foto clara o texto branco perde contraste. Foi
+mostrado em preview antes da decisão.
+
+**2. `imageSmoothingQuality = 'high'`.** Nunca tinha sido definido em lugar
+nenhum, então valia o padrão `'low'`: interpola 4 vizinhos e ignora o resto.
+Medido contra a média de área (redução correta) no fator 2.8x, que é foto de
+celular virando 1080px: erro **7.84** no padrão contra **4.04** com `high`,
+**48% menos**. O padrão é barato porque a spec mira animação a 60fps; aqui é um
+desenho só.
+
+Vale **mesmo sem foto**: o lockup é um asset de 2000px desenhado a 600px, 3.3x
+de redução em todo card. Kanji e logo de turma, idem.
+
+**3. Export vira JPEG quando há foto.** Com foto o canvas é opaco, então a
+transparência do PNG não serve pra nada e o arquivo sai com **3,6 MB**; o mesmo
+card em JPEG 0.92 dá **0,46 MB**. O Instagram recomprime tudo e aperta mais o
+que chega grande. Sem foto segue PNG, que é o modo adesivo e depende do fundo
+transparente.
+
+**Copiar continua PNG de propósito:** a Async Clipboard API só garante
+`image/png`; escrever JPEG falha calado em boa parte dos navegadores. Baixar e
+Enviar usam JPEG.
+
+**Avaliado e descartado:** canvas maior pra não reduzir a foto (deixar o
+Instagram reduzir). Capturaria o resto do ganho, mas são 2 canvases — card +
+overlay de gestos — e o par sai de 15,8 MB (hoje) pra 63,3 MB em 2x ou 93 MB no
+tamanho da foto. Story do Instagram exibe em 1080x1920 de qualquer jeito, então
+além disso só se troca quem faz a redução; com `high` a nossa ficou equivalente
+à deles. Fica como plano B se o resultado ainda parecer macio.
+
 ### v700 — Senha recusada sai do KPI de erros; "vv697" vira "v697" (2026-10-04)
 
 **Nota de numeração:** nasceu `v698` e virou `v700` no merge. Uma sessão
