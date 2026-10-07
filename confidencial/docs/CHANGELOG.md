@@ -5111,6 +5111,23 @@ O bug: o adapter usava `toISOString()` (UTC) para datas-calendário enquanto o a
 
 ## Melhorias — Curto prazo
 
+**Gerar QR localmente, sem terceiro** (levantado em 2026-10-07, adiado pelo dono)
+O QR do PIX (`_pixQrSheet`) e o de presença (`_qrTokenSheet`) são desenhados pelo
+`api.qrserver.com`: o conteúdo viaja na query string e fica nos logs de acesso
+deles. No caso do PIX isso inclui a chave e os dados do recebedor. Funciona hoje
+e a CSP não bloqueia, porque abre em aba nova com `window.open` (a CSP da página
+não alcança outro documento) — não é bug, é dependência externa.
+
+Custo de resolver: o `vendor/` só tem `jsqr.min.js`, que é LEITOR. Precisa de um
+gerador (10-20 KB), com hash de integridade, mais uma linha no `index.html`.
+Ganho: a chave PIX para de sair do aparelho, a impressão passa a funcionar sem
+internet, e some a dependência de um serviço gratuito que pode cair ou limitar.
+
+**Cartazes já impressos NÃO precisam ser trocados.** O QR codifica o token da
+academia (presença) e o BR Code (PIX); trocar quem desenha a imagem não muda o
+texto codificado. O que invalida cartaz é o botão "Renovar QR", que gera token
+novo — e isso já tem confirmação própria.
+
 **Filtros no histórico — período selecionável**
 Completar o sistema de filtros com seleção de período temporal (últimos 7d / 30d / 3m / ano). Diferente do filtro por mês via gráfico de frequência. Chips ou segmented control.
 
