@@ -2007,6 +2007,20 @@
       }).eq('id', id);
       if (error) throw error;
     }),
+    // v707: edicao parcial (bulk) — altera so' os campos passados. Separado de
+    // salvarDespesa (que sobrescreve a linha inteira) porque bulk-forma precisa
+    // mexer so' em forma_pagamento sem apagar o resto.
+    editarDespesa: wrap(async (id, patch) => {
+      const { error } = await SB.from('despesas').update(patch).eq('id', id);
+      if (error) throw error;
+    }),
+    // v707: exclusao de despesa (nao estorna nada — recorrente mantem a
+    // parcela recriada no proximo mes se ainda estiver ativa; marcar como
+    // cancelada seria opcao se o professor quiser preservar historico).
+    excluirDespesa: wrap(async (id) => {
+      const { error } = await SB.from('despesas').delete().eq('id', id);
+      if (error) throw error;
+    }),
 
     // -- Despesas recorrentes (IPTU 12x etc) --
     getDespesasRecorrentes: wrap(async () => {

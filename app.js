@@ -12458,6 +12458,11 @@ function _finSthTag(tab, key, label, extra){
   return `<th style="padding:10px 8px;font-weight:700;cursor:pointer;color:${cor};user-select:none${extra?';'+extra:''}" data-click="finSort" data-tab="${tab}" data-sort="${key}">${label}${seta}</th>`;
 }
 let _finDespFiltro = 'a_pagar';
+// v707: paridade de Cobrancas na aba Despesas — filtros + bulk ops. Mesmo contrato
+// (data-click/data-change) e mesmo repaint via _finRepintarAbaAtual. _finDespSel
+// e' Set pra toggle O(1). _finDespF guarda os filtros do toolbar.
+const _finDespSel = new Set();
+const _finDespF = { busca:'', status:'', categoria:'', venc:'' };
 let _finContrFiltro = 'ativo';
 
 function _finMes(){ return _finMesRef || HOJE_ISO.slice(0,7); }
@@ -13726,12 +13731,47 @@ function _finRenderDespesas(body){
       <div class="c"><div class="v">${pagas.length}</div><div class="l">Pagas</div></div>
     </div></div>`));
 
-  // v501: sub-tabs de status removidas — tabela unificada com coluna Status.
-  // Mesmo padrão da v500 em Cobranças. Ordenação: vencidas > a pagar > pagas
-  // > canceladas; dentro por data_lancamento asc.
-  // v548: migrado pra event delegation (data-click) — ver _FIN_MORPH.
-  body.appendChild(el('<button class="btn-cad" data-click="finDespesaNova" style="margin:8px 12px 4px">＋ Nova despesa</button>'));
-  body.appendChild(el('<button class="btn-cad ghost" data-click="finDespesaRecNova" style="margin:0 12px 8px">＋ Despesa recorrente (parcelada)</button>'));
+  // v707: toolbar unificada igual Cobrancas. Mesmas classes S.* da aba Cobrancas,
+  // mesmo contrato de filtros (busca/status/categoria/vencimento). Cards de
+  // recorrentes ficam ABAIXO da toolbar (eram antes dos botoes Novas/Rec).
+  const _o = (v, atual) => `value="${safeAttr(v)}"${String(atual||'')===String(v)?' selected':''}`;
+  const temFiltro = _finDespF.busca||_finDespF.status||_finDespF.categoria||_finDespF.venc;
+  const S = {
+    box:    'margin:8px 12px 12px;padding:10px 12px;background:var(--card,#fff);border:1px solid var(--border,#e5e5ea);border-radius:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center',
+    pri:    'height:36px;padding:0 16px;font-size:13px;font-weight:700;border-radius:8px;white-space:nowrap',
+    sec:    'height:36px;padding:0 14px;font-size:13px;font-weight:600;border-radius:8px;white-space:nowrap',
+    sep:    'width:1px;height:24px;background:var(--border,#e5e5ea);margin:0 6px;flex:0 0 auto',
+    search: 'height:36px;flex:1 1 180px;min-width:150px;max-width:260px;font-size:13px;padding:0 12px;border-radius:8px',
+    sel:    'height:36px;width:auto;font-size:13px;font-weight:500;padding:0 30px 0 12px;border-radius:8px;background-position:right 10px center',
+    clear:  'height:32px;padding:0 12px;font-size:12px;font-weight:600;border-radius:8px;color:var(--muted);white-space:nowrap',
+  };
+  // v707: categorias do dropdown vem de _finCategorias (filtra tipo=despesa).
+  const catsDesp = (_finCategorias||[]).filter(c => c.tipo==='despesa' && c.ativo!==false);
+  const catOpts = catsDesp.map(c => `<option ${_o(c.id, _finDespF.categoria)}>${safeTxt(c.nome)}</option>`).join('');
+  body.appendChild(el(`<div style="${S.box}">
+    <button class="btn-cad" data-click="finDespesaNova" style="${S.pri}">＋ Nova despesa</button>
+    <button class="btn-cad ghost" data-click="finDespesaRecNova" style="${S.sec}">＋ Despesa recorrente (parcelada)</button>
+    <div style="${S.sep}" aria-hidden="true"></div>
+    <input class="inp" data-input="finDespFBusca" placeholder="🔍 Buscar descrição…" value="${safeAttr(_finDespF.busca)}" style="${S.search}">
+    <select class="inp" data-change="finDespFStatus" style="${S.sel}">
+      <option ${_o('',_finDespF.status)}>Status: Todos</option>
+      <option ${_o('vencida',_finDespF.status)}>Vencidas</option>
+      <option ${_o('a_pagar',_finDespF.status)}>A pagar</option>
+      <option ${_o('pago',_finDespF.status)}>Pagas</option>
+      <option ${_o('cancelado',_finDespF.status)}>Canceladas</option>
+    </select>
+    <select class="inp" data-change="finDespFCategoria" style="${S.sel}">
+      <option ${_o('',_finDespF.categoria)}>Categoria: Todas</option>
+      ${catOpts}
+    </select>
+    <select class="inp" data-change="finDespFVenc" style="${S.sel}">
+      <option ${_o('',_finDespF.venc)}>Vencimento: Todos</option>
+      <option ${_o('hoje',_finDespF.venc)}>Hoje</option>
+      <option ${_o('7d',_finDespF.venc)}>Próximos 7 dias</option>
+      <option ${_o('atraso',_finDespF.venc)}>Em atraso</option>
+    </select>
+    ${temFiltro ? `<button class="btn-cad ghost" data-click="finDespFLimpar" style="${S.clear}">✕ Limpar</button>` : ''}
+  </div>`));
 
   // Cards das recorrentes ativas (mantido do original)
   const recs = (_finRec||[]).filter(r=> r.ativo!==false);
@@ -13769,10 +13809,35 @@ function _finRenderDespesas(body){
     pago:      (a,b) => (_dNulLast(a.data_pagamento)-_dNulLast(b.data_pagamento)) || (a.data_pagamento||'').localeCompare(b.data_pagamento||'')*_dDir,
     forma:     (a,b) => (_dNulLast(a.forma_pagamento)-_dNulLast(b.forma_pagamento)) || (a.forma_pagamento||'').localeCompare(b.forma_pagamento||'')*_dDir,
   };
-  const sorted = desps.slice().sort(_dS.sortKey && _dCmp[_dS.sortKey]
+  // v707: aplica filtros do toolbar ANTES do sort — mesma logica de Cobrancas.
+  const bBusca = (_finDespF.busca||'').trim().toLowerCase();
+  const today = HOJE_ISO;
+  const in7d = (iso) => { if(!iso) return false; const d=(new Date(iso)-new Date(today))/86400000; return d>=0 && d<=7; };
+  const filtradas = desps.filter(d => {
+    if(_finDespF.status){
+      if(_finDespF.status==='vencida'   && !isVencDesp(d)) return false;
+      if(_finDespF.status==='a_pagar'   && !(d.status==='a_pagar' && !isVencDesp(d))) return false;
+      if(_finDespF.status==='pago'      && d.status!=='pago') return false;
+      if(_finDespF.status==='cancelado' && d.status!=='cancelado') return false;
+    }
+    if(_finDespF.categoria && String(d.categoria_id||'') !== String(_finDespF.categoria)) return false;
+    if(_finDespF.venc==='hoje'   && d.data_lancamento!==today) return false;
+    if(_finDespF.venc==='7d'     && !in7d(d.data_lancamento)) return false;
+    if(_finDespF.venc==='atraso' && !isVencDesp(d)) return false;
+    if(bBusca){
+      const cat = (d.categorias_financeiro && d.categorias_financeiro.nome) || '';
+      const bag = ((d.descricao||'')+' '+cat).toLowerCase();
+      if(!bag.includes(bBusca)) return false;
+    }
+    return true;
+  });
+  const sorted = filtradas.slice().sort(_dS.sortKey && _dCmp[_dS.sortKey]
     ? _dCmp[_dS.sortKey]
     : (a,b) => { const r = statusRank(a)-statusRank(b); return r!==0 ? r : (a.data_lancamento||'').localeCompare(b.data_lancamento||''); }
   );
+  // v707: sanitiza selecao (mantem no Set, mas conta so' visiveis pra bulk)
+  const idsVisiveis = new Set(sorted.map(d=>String(d.id)));
+  const selVisiveis = [...(_finDespSel)].filter(id => idsVisiveis.has(String(id)));
   const statusBadge = (d) => {
     if(d.status==='pago') return '<span style="font-size:10.5px;color:var(--good);background:rgba(34,160,107,0.12);padding:2px 8px;border-radius:10px;font-weight:700">Paga</span>';
     if(d.status==='cancelado') return '<span style="font-size:10.5px;color:var(--muted);background:var(--card-alt,rgba(0,0,0,0.06));padding:2px 8px;border-radius:10px;font-weight:700">Cancelada</span>';
@@ -13783,9 +13848,14 @@ function _finRenderDespesas(body){
 
   body.appendChild(el('<div class="sec-title" style="margin:10px 12px 4px;font-size:11px">Lançamentos</div>'));
   const wrap = el('<div class="block" style="margin:0 12px 12px;padding:0;overflow-x:auto"></div>');
-  const table = el(`<table class="fin-desp-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:840px">
+  // v707: checkbox master com indeterminate.
+  const todosSel = sorted.length>0 && selVisiveis.length===sorted.length;
+  const nenhumSel = selVisiveis.length===0;
+  const masterAttr = todosSel ? 'checked' : (nenhumSel ? '' : 'data-indeterminate="1"');
+  const table = el(`<table class="fin-desp-tbl" style="width:100%;border-collapse:collapse;font-size:13px;min-width:920px">
     <thead>
       <tr style="text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:0.03em">
+        <th style="padding:10px 12px;font-weight:700;width:36px"><input type="checkbox" data-change="finDespCheckAll" ${masterAttr} aria-label="Selecionar todas"></th>
         ${_finSthTag('despesas','descricao','Descrição','padding:10px 12px')}
         ${_finSthTag('despesas','categoria','Categoria')}
         ${_finSthTag('despesas','vence','Vence')}
@@ -13804,12 +13874,15 @@ function _finRenderDespesas(body){
     const rec = d.despesas_recorrentes && d.despesas_recorrentes.descricao;
     const cor = d.status==='pago' ? 'var(--good)' : (isVencDesp(d) ? 'var(--red)' : 'var(--ink)');
     const forma = d.forma_pagamento ? (FORMA_LBL[d.forma_pagamento]||d.forma_pagamento) : '';
-    // v548: o botão de quick pay não precisa mais de stopPropagation — o
-    // router resolve pelo `closest`, que acha o botão antes da linha.
+    const sel = _finDespSel.has(String(d.id));
+    // v707: 3 acoes por linha (editar, quick pay quando a_pagar, excluir) — mesma
+    // ordem/estilo que Cobrancas. Clique na linha abre edit (como antes). Checkbox
+    // nao propaga pro row-click porque data-change e' tratado em listener separado.
     const quickPay = d.status==='a_pagar'
-      ? `<button class="btn-cad ghost" data-click="finDespesaQuickPay" data-id="${safeAttr(d.id)}" style="padding:4px 10px;font-size:13px" title="Marcar paga">✓</button>`
+      ? `<button class="btn-cad ghost" data-click="finDespesaQuickPay" data-id="${safeAttr(d.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Marcar paga">✓</button>`
       : '';
-    tbody.appendChild(el(`<tr data-click="finDespesaEdit" data-id="${safeAttr(d.id)}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)">
+    tbody.appendChild(el(`<tr data-click="finDespesaEdit" data-id="${safeAttr(d.id)}" data-desp-id="${d.id}" style="cursor:pointer;border-top:1px solid var(--border,#e5e5ea)${sel?';background:rgba(255,59,48,0.05)':''}">
+      <td style="padding:10px 12px"><input type="checkbox" data-change="finDespCheckOne" data-id="${safeAttr(d.id)}" ${sel?'checked':''} aria-label="Selecionar ${safeAttr(d.descricao||'despesa')}"></td>
       <td style="padding:10px 12px;font-weight:700">${safeTxt(d.descricao)}${rec?` <span style="font-size:10.5px;color:var(--muted);font-weight:500">(recorrente)</span>`:''}</td>
       <td style="padding:10px 8px">${safeTxt(cat||'—')}</td>
       <td style="padding:10px 8px">${dmy(d.data_lancamento)}</td>
@@ -13817,11 +13890,31 @@ function _finRenderDespesas(body){
       <td style="padding:10px 8px;text-align:center">${statusBadge(d)}</td>
       <td style="padding:10px 8px">${d.data_pagamento ? dmy(d.data_pagamento) : '—'}</td>
       <td style="padding:10px 8px;text-align:center">${safeTxt(forma) || '—'}</td>
-      <td style="padding:10px 8px;text-align:center">${quickPay}</td>
+      <td style="padding:10px 8px;text-align:center;white-space:nowrap">
+        <button class="btn-cad ghost" data-click="finDespesaEdit" data-id="${safeAttr(d.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px" title="Editar">✏️</button>
+        ${quickPay}
+        <button class="btn-cad ghost" data-click="finDespesaExcluir" data-id="${safeAttr(d.id)}" style="padding:4px 8px;font-size:14px;margin:0 2px;color:var(--red)" title="Excluir despesa">🗑️</button>
+      </td>
     </tr>`));
   });
   wrap.appendChild(table);
   body.appendChild(wrap);
+  // v707: master precisa de indeterminate por JS.
+  const master = table.querySelector('thead input[type=checkbox]');
+  if(master && master.dataset.indeterminate) master.indeterminate = true;
+
+  // v707: barra bulk fixed quando tem selecao visivel. Mesma estrutura e cores da
+  // de Cobrancas — difere so' nos handlers (finDespBulk*).
+  if(selVisiveis.length){
+    const somaSel = filtradas.filter(d=>_finDespSel.has(String(d.id))).reduce((s,d)=>s+(Number(d.valor)||0),0);
+    body.appendChild(el(`<div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:calc(100% - 40px);max-width:900px;padding:12px 16px;background:var(--ink);color:#fff;border-radius:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 8px 28px rgba(0,0,0,0.28);z-index:2000">
+      <div style="flex:1;min-width:180px;font-weight:800;font-size:13.5px">${selVisiveis.length} selecionada${selVisiveis.length>1?'s':''} · ${moneyBR(somaSel)}</div>
+      <button class="btn-cad" data-click="finDespBulkPagar" style="background:var(--good);color:#fff;padding:8px 14px;font-size:12.5px;font-weight:700">✅ Marcar pagas</button>
+      <button class="btn-cad" data-click="finDespBulkForma" style="background:#fff;color:var(--ink);padding:8px 14px;font-size:12.5px;font-weight:700">✏️ Editar forma</button>
+      <button class="btn-cad" data-click="finDespBulkExcluir" style="background:var(--red);color:#fff;padding:8px 14px;font-size:12.5px;font-weight:700">🗑️ Excluir</button>
+      <button class="btn-cad ghost" data-click="finDespBulkLimpar" style="color:#fff;border-color:rgba(255,255,255,0.3);padding:8px 12px;font-size:12px">Limpar</button>
+    </div>`));
+  }
 }
 
 /* v548: handlers da aba Despesas via delegation. Lookup fresh em _finDespesas
@@ -13847,6 +13940,149 @@ _dlgRegister('finDespesaRecEdit', (el) => {
   if(!r) return;
   _finDespesaRecorrenteSheet(r, ()=>{ _finReload(['despesas','rec']); });
 });
+
+/* v707: paridade de Cobrancas na aba Despesas. Mesmo contrato: handlers escrevem
+   em _finDespF/_finDespSel e chamam _finRepintarAbaAtual. Bulk reusa Promise.all
+   sobre as APIs unitarias (editarDespesa/excluirDespesa). */
+function _finDespPatchLocal(id, patch){
+  const idx = (_finDespesas||[]).findIndex(x => String(x.id) === String(id));
+  if(idx < 0) return;
+  Object.assign(_finDespesas[idx], patch);
+  if(patch.status === 'pago' && !_finDespesas[idx].data_pagamento){
+    _finDespesas[idx].data_pagamento = HOJE_ISO;
+  }
+  _finRepintarAbaAtual();
+}
+_dlgRegister('finDespFBusca',     (el) => { _finDespF.busca = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finDespFStatus',    (el) => { _finDespF.status = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finDespFCategoria', (el) => { _finDespF.categoria = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finDespFVenc',      (el) => { _finDespF.venc = el.value||''; _finRepintarAbaAtual(); });
+_dlgRegister('finDespFLimpar',    () => { _finDespF.busca=''; _finDespF.status=''; _finDespF.categoria=''; _finDespF.venc=''; _finRepintarAbaAtual(); });
+_dlgRegister('finDespCheckOne',   (el) => {
+  const id = String(el.dataset.id);
+  if(el.checked) _finDespSel.add(id); else _finDespSel.delete(id);
+  _finRepintarAbaAtual();
+});
+_dlgRegister('finDespCheckAll',   (el) => {
+  const linhas = document.querySelectorAll('tr[data-desp-id]');
+  if(el.checked) linhas.forEach(tr => _finDespSel.add(String(tr.dataset.despId)));
+  else           linhas.forEach(tr => _finDespSel.delete(String(tr.dataset.despId)));
+  _finRepintarAbaAtual();
+});
+_dlgRegister('finDespBulkLimpar', () => { _finDespSel.clear(); _finRepintarAbaAtual(); });
+_dlgRegister('finDespesaExcluir', async (el) => {
+  const d = (_finDespesas||[]).find(x => String(x.id) === el.dataset.id); if(!d) return;
+  if(!(await _confirmar({ titulo:'Excluir despesa?',
+      desc:`"${d.descricao||'—'}" · ${moneyBR(d.valor)}.\n\nNão dá pra desfazer.`,
+      sim:'Excluir', nao:'Manter' }))) return;
+  sbProf.excluirDespesa(d.id).then(()=>{
+    const idx = (_finDespesas||[]).findIndex(x => String(x.id) === String(d.id));
+    if(idx >= 0) _finDespesas.splice(idx, 1);
+    _finDespSel.delete(String(d.id));
+    toast('Despesa excluída');
+    _finRepintarAbaAtual();
+  }).catch(e => toast('Erro: '+(e.message||e)));
+});
+async function _finDespSelArr(){
+  return [...(_finDespSel)].map(id => (_finDespesas||[]).find(x=>String(x.id)===String(id))).filter(Boolean);
+}
+_dlgRegister('finDespBulkPagar', async () => {
+  const alvos = await _finDespSelArr();
+  if(!alvos.length) return;
+  _finDespBulkPagarSheet(alvos, async (data_pagamento, forma_pagamento) => {
+    const soma = alvos.reduce((s,d)=>s+(Number(d.valor)||0),0);
+    let ok=0, fail=0;
+    await Promise.all(alvos.map(d => sbProf.editarDespesa(d.id, { status:'pago', data_pagamento, forma_pagamento })
+      .then(()=>{ ok++; _finDespPatchLocal(d.id, { status:'pago', data_pagamento, forma_pagamento }); })
+      .catch(()=>{ fail++; })));
+    toast(`${ok} paga${ok>1?'s':''} · ${moneyBR(soma)}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+    _finDespSel.clear(); _finRepintarAbaAtual();
+  });
+});
+_dlgRegister('finDespBulkForma', async () => {
+  const alvos = await _finDespSelArr();
+  if(!alvos.length) return;
+  _finDespBulkFormaSheet(alvos, async (forma_pagamento) => {
+    let ok=0, fail=0;
+    await Promise.all(alvos.map(d => sbProf.editarDespesa(d.id, { forma_pagamento })
+      .then(()=>{ ok++; _finDespPatchLocal(d.id, { forma_pagamento }); })
+      .catch(()=>{ fail++; })));
+    toast(`${ok} atualizada${ok>1?'s':''}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+    _finDespSel.clear(); _finRepintarAbaAtual();
+  });
+});
+_dlgRegister('finDespBulkExcluir', async () => {
+  const alvos = await _finDespSelArr();
+  if(!alvos.length) return;
+  const soma = alvos.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  if(!(await _confirmar({ titulo:`Excluir ${alvos.length} despesa${alvos.length>1?'s':''}?`,
+      desc:`Total: ${moneyBR(soma)}.\n\nNão dá pra desfazer.`,
+      sim:`Excluir ${alvos.length}`, nao:'Manter' }))) return;
+  let ok=0, fail=0;
+  await Promise.all(alvos.map(d => sbProf.excluirDespesa(d.id).then(()=>{
+    ok++;
+    const idx = (_finDespesas||[]).findIndex(x => String(x.id) === String(d.id));
+    if(idx >= 0) _finDespesas.splice(idx, 1);
+  }).catch(()=>{ fail++; })));
+  toast(`${ok} excluída${ok>1?'s':''}${fail?` · ${fail} falha${fail>1?'s':''}`:''}`);
+  _finDespSel.clear(); _finRepintarAbaAtual();
+});
+
+// v707: sheets de bulk (pagar + editar forma) — reusam a estrutura das de Cobrancas,
+// so' trocam o copy pra "despesa".
+function _finDespBulkPagarSheet(alvos, onDone){
+  const soma = alvos.reduce((s,d)=>s+(Number(d.valor)||0),0);
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Marcar como pagas">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">✅ Marcar ${alvos.length} como pagas</div>
+    <div class="sheet-desc">Total: <b>${moneyBR(soma)}</b>. Aplica a mesma data e forma em todas.</div>
+    <label class="flbl" style="margin-top:12px">Pago em</label>
+    <input class="inp" id="bp-data" type="date" value="${HOJE_ISO}" data-autofocus>
+    <label class="flbl" style="margin-top:12px">Forma de pagamento</label>
+    <select class="inp" id="bp-forma">
+      <option value="pix">📱 PIX</option>
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="cartao">💳 Cartão</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <button class="btn-save" id="bp-save" style="margin-top:14px">Aplicar em ${alvos.length}</button>
+    <button class="sheet-cancel" id="bp-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#bp-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#bp-save').onclick = ()=>{
+    const data = sheet.querySelector('#bp-data').value;
+    const forma = sheet.querySelector('#bp-forma').value;
+    if(!data){ toast('Data obrigatória'); return; }
+    close(); onDone(data, forma);
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
+function _finDespBulkFormaSheet(alvos, onDone){
+  const sheet = el(`<div class="sheet-overlay"><div class="sheet" role="dialog" aria-label="Editar forma de pagamento">
+    <div class="sheet-grip"></div>
+    <div class="sheet-title">✏️ Forma de pagamento (${alvos.length})</div>
+    <div class="sheet-desc">Aplica a mesma forma em todas as despesas selecionadas.</div>
+    <label class="flbl" style="margin-top:12px">Forma de pagamento</label>
+    <select class="inp" id="bf-forma" data-autofocus>
+      <option value="pix">📱 PIX</option>
+      <option value="dinheiro">💵 Dinheiro</option>
+      <option value="cartao">💳 Cartão</option>
+      <option value="outro">➕ Outro</option>
+    </select>
+    <button class="btn-save" id="bf-save" style="margin-top:14px">Aplicar em ${alvos.length}</button>
+    <button class="sheet-cancel" id="bf-close">Cancelar</button>
+  </div></div>`);
+  const close = ()=>{ sheet.classList.remove('open'); setTimeout(()=>sheet.remove(),260); };
+  sheet.querySelector('#bf-close').onclick = close;
+  sheet.onclick = e=>{ if(e.target===sheet) close(); };
+  sheet.querySelector('#bf-save').onclick = ()=>{
+    const forma = sheet.querySelector('#bf-forma').value;
+    close(); onDone(forma);
+  };
+  document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
+}
 
 /* ---- Sub-aba: Planos ---- */
 // v537 (Fase 5 refactor morphdom): Planos migrada pra event delegation.
