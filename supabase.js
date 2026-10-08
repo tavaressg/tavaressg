@@ -957,7 +957,12 @@
         base.aulasNaFaixa  = ag ? ag.faixa : null;
         base.creditoFaixa  = ag ? ag.creditoFaixa : 0;
         base.faixaDesde    = ag ? ag.faixaDesde : null;
-        base.aptoGrad      = ag ? (ag.grau >= _METAS().META_GRAU) : false;
+        // v706: usa a meta de aulas da FAIXA do aluno (academies.config.metaAulas) em
+        // vez de META_GRAU global 40. Alinha com o semaforo detalhado — antes o
+        // indicador verde da lista ficava verde em 40 aulas (fixo), mas o semaforo
+        // dizia "faltam 21/65" ou "faltam 44/130". So' uma regra agora.
+        const _mFx = (typeof global._metaAulasFaixa === 'function') ? global._metaAulasFaixa(p.faixa) : _METAS().META_GRAU;
+        base.aptoGrad      = ag ? (ag.grau >= _mFx) : false;
         // 0075: diasSem/ultimaPres/freq/freq4/base4 agora vêm agregados do servidor
         base.diasSem    = (ag && typeof ag.diasSem === 'number') ? ag.diasSem : 999;
         base.ultimaPres = (ag && ag.ultimaPres) || null;

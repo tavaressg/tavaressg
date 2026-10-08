@@ -11031,6 +11031,11 @@ function _metaAulasFaixa(faixa){
   const v=m && parseInt(m[faixa]);
   return (v>0) ? v : PROF_METAS.META_GRAU;
 }
+// v706: exposto pro adapter calcular `aptoGrad` com a mesma meta da faixa que o
+// semaforo usa. Antes o adapter media aptoGrad contra META_GRAU=40 fixo e o
+// semaforo contra _metaAulasFaixa — divergencia visivel: aluno 44/65 vinha verde
+// porque 44 >= 40, mas o semaforo detalhado dizia "faltam 21 aulas". Agora so' um.
+window._metaAulasFaixa = _metaAulasFaixa;
 
 /* v395: FONTE UNICA da lista de aptos — usa a mesma _prontidaoGrad da tela
    de Graduação. Aluno "apto" = pronto pra novo grau OU pra proxima faixa. Isso
