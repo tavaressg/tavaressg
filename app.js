@@ -15090,6 +15090,7 @@ function _finDespesaSheet(d, onDone){
     <input class="inp" id="ds-obs" maxlength="400" value="${safeAttr(d.obs||'')}">
     <button class="btn-save" id="ds-save" style="margin-top:14px">Salvar</button>
     ${editar ? '<button class="btn-cad ghost" id="ds-dup" style="margin-top:8px;width:100%">📋 Duplicar (próximo mês)</button>' : ''}
+    ${editar && d.status==='pago' ? '<button class="btn-cad ghost" id="ds-reverter" style="margin-top:8px;width:100%">↩ Voltar pra a pagar</button>' : ''}
     <button class="sheet-cancel" id="ds-close">Cancelar</button>
   </div></div>`);
   if(d.categoria_id) sheet.querySelector('#ds-cat').value = d.categoria_id;
@@ -15146,6 +15147,23 @@ function _finDespesaSheet(d, onDone){
         status: 'a_pagar',
       }).then(()=>{ toast('Duplicada pra '+novaData.slice(8,10)+'/'+novaData.slice(5,7)+' ✔'); close(); if(onDone) onDone(); })
         .catch(e=>{ btnDup.disabled=false; btnDup.textContent='📋 Duplicar (próximo mês)'; toast('Erro: '+(e.message||e)); });
+    };
+  }
+  // v708: paridade com Cobrancas — reverter despesa paga pra "a pagar" apaga
+  // data e forma de pagamento. Usa editarDespesa (patch parcial) adicionada
+  // no v707. So' aparece se d.status==='pago'.
+  const btnReverter = sheet.querySelector('#ds-reverter');
+  if(btnReverter){
+    btnReverter.onclick = async ()=>{
+      if(!(await _confirmar({ titulo:'Voltar a despesa pra a pagar?', desc:'A data e a forma de pagamento serão apagadas.', sim:'Voltar pra a pagar', nao:'Manter paga' }))) return;
+      btnReverter.disabled=true; btnReverter.textContent='Salvando…';
+      sbProf.editarDespesa(d.id, { status:'a_pagar', data_pagamento:null, forma_pagamento:null })
+        .then(()=>{
+          toast('Voltou pra a pagar ✔');
+          close();
+          if(onDone) onDone();
+        })
+        .catch(e=>{ btnReverter.disabled=false; btnReverter.textContent='↩ Voltar pra a pagar'; toast('Erro: '+(e.message||e)); });
     };
   }
   document.body.appendChild(sheet); requestAnimationFrame(()=>sheet.classList.add('open'));
