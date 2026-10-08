@@ -8688,7 +8688,17 @@ function _alunosCmp(a, b){
       if(ai!==bi) return (ai-bi)*dir;
       return ((a.graus||0)-(b.graus||0))*dir;
     }
-    if(sortKey==='diasSem') return ((a.diasSem||0)-(b.diasSem||0))*dir;
+    if(sortKey==='diasSem'){
+      // v700: ordena por data REAL da ultima presenca (ultimaPres ISO) e,
+      // quando a data empata, desempata pela hora de hoje (`pres`). Antes
+      // usava so' `diasSem` (dia inteiro), entao todos os presentes de hoje
+      // caiam em diasSem=0 e desempatava alfabetico — professor via Bela
+      // (11:03) antes de Guilherme (19:15) mesmo em DESC.
+      const au = a.ultimaPres || '0000-00-00';
+      const bu = b.ultimaPres || '0000-00-00';
+      if (au !== bu) return au.localeCompare(bu) * dir;
+      return String(a.pres||'').localeCompare(String(b.pres||'')) * dir;
+    }
     if(sortKey==='grau')      return ((a.aulasNoGrau||0)-(b.aulasNoGrau||0))*dir;
     if(sortKey==='faixapres') return ((a.aulasNaFaixa||0)-(b.aulasNaFaixa||0))*dir;
     if(sortKey==='aniv'){
