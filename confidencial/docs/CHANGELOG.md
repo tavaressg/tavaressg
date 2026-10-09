@@ -9,6 +9,39 @@
 
 ## Concluídas ✓
 
+### v709 — "The operation was aborted." era o scanner logando o próprio contorno (2026-10-09)
+
+O KPI acusou 4x `The operation was aborted.` em 24h (08/10 19:49 e 20:46, 09/10
+08:01 e 09:03 — horários de aula). Não era defeito: o scanner de QR funcionava.
+
+**Causa.** `_presencaScan` chama `video.play()` de cinco lugares (os handlers
+`loadedmetadata`/`canplay`/`playing`, o play direto e o safety-net de 500ms) e,
+entre eles, aplica o contorno do WebKit #230922: `srcObject = stream → null →
+stream`. Trocar a fonte, ou chamar play() de novo, com um play() pendente
+rejeita o anterior com **AbortError** — está na especificação. Os dois `.catch`
+mandavam isso direto pro `logError`.
+
+Ou seja: **o app reportava como erro uma consequência do próprio workaround.**
+
+No Safari o `AbortError` tem a mensagem `The operation was aborted.`; no
+Chromium, `The play() request was interrupted by a new load request.` Mesmo
+`name`. Reproduzido no Chromium com `captureStream` e a mesma sequência de
+srcObject: rejeitou com `AbortError`, confirmando o mecanismo. A mensagem do
+relato é a variante WebKit, então são alunos de iPhone.
+
+**Correção:** helper `_playErro(ctx)` nos dois `.catch`, filtrando por
+`e.name === 'AbortError'` — pelo NOME, não pela mensagem, que muda por
+navegador. Segue logando `NotAllowedError` (autoplay barrado = câmera preta de
+verdade), `NotReadableError` e qualquer falha inesperada. Verificado com os 5
+casos.
+
+**Terceiro ruído do mesmo tipo** depois do `"Script error."` (v696) e da senha
+recusada (v700): evento esperado inflando o KPI e escondendo erro real.
+
+**Nota:** `v705`–`v708` (sessões paralelas: sort de última presença, meta de
+aulas por faixa, paridade de Despesas com Cobranças) subiram sem entrada aqui.
+O histórico pula desta direto pra v704.
+
 ### v704 — 🔴 Treino do próprio aluno não abria, não compartilhava, não editava (2026-10-07)
 
 Relato do dono: clicou no treino em "Últimos treinos" e a tela ficou cinza, sem
