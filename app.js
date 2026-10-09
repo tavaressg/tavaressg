@@ -5951,11 +5951,24 @@ async function presencaScan(){
     }
     requestAnimationFrame(tick);
   };
-  // Kick redundante: play() em cada evento que pode pintar, com guard `ticking`
-  // pra não iniciar o loop mais de uma vez. Evita o bug "tela preta" quando
-  // o loadedmetadata dispara antes do handler ser registrado (stream cache).
+  /* v709: AbortError de play() NÃO é erro — é consequência deste próprio código.
+     O contorno do WebKit abaixo faz srcObject=stream → null → stream, e os três
+     handlers (loadedmetadata/canplay/playing) mais o play() direto e o safety-net
+     chamam play() em sequência. Trocar a fonte ou chamar play() de novo com um
+     play() pendente rejeita o anterior com AbortError, por especificação.
+     No Safari a mensagem é "The operation was aborted." — era ela enchendo o KPI
+     de erros (4 em 24h, nos horários de aula, 2026-10-08/09), enquanto o scanner
+     funcionava normalmente.
+     Filtra pelo NOME, não pela mensagem: o Chromium diz "The play() request was
+     interrupted…" pro mesmo `name:'AbortError'`.
+     O que continua logando: NotAllowedError (autoplay barrado = câmera preta de
+     verdade) e qualquer outra falha inesperada. */
+  const _playErro = (ctx) => (e) => {
+    if(e && e.name === 'AbortError') return;
+    sbSync?.logError?.(e?.message||e, ctx);
+  };
   const kick=()=>{
-    if(video.paused) video.play().catch(e => sbSync?.logError?.(e?.message||e, 'presencaScan.kick.play'));
+    if(video.paused) video.play().catch(_playErro('presencaScan.kick.play'));
     if(!ticking && video.videoWidth){ ticking = true; requestAnimationFrame(tick); }
   };
   video.onloadedmetadata = kick;
@@ -5986,7 +5999,7 @@ async function presencaScan(){
   await Promise.resolve();
   video.srcObject = stream;
   // Se o stream já estava pronto (cache), nada dispara — força play imediato.
-  video.play().catch(e => sbSync?.logError?.(e?.message||e, 'presencaScan.play'));
+  video.play().catch(_playErro('presencaScan.play'));
   // Safety-net: 500 ms depois, se ainda não pintou, chama kick de novo.
   setTimeout(kick, 500);
 }
